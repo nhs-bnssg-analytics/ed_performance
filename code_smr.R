@@ -34,13 +34,17 @@ string_ecds<-glue::glue("select
                         Conclusion_Date,
                         Conclusion_Time,
                         Site_Name,
-                        Acuity_Desc
+                        Acuity_Desc,
+                        Index_Of_Multiple_Deprivation,
+                        Stated_Gender,
+                        HES_Age_At_Arrival
       FROM Analyst_SQL_Area.dbo.tbl_BNSSG_ECDS
       where Site_Name in ('BRISTOL ROYAL INFIRMARY', 'SOUTHMEAD HOSPITAL', 'WESTON GENERAL HOSPITAL')
       and Arrival_Date >= '{ymd(report_start) - ddays(pre_window_days)}'
       ")
 
 dat_ecds_raw<-sqlQuery(con,string_ecds)
+
 dat_ecds<-dat_ecds_raw %>%
   mutate(NHS_Number = as.character(NHS_Number)) %>%
   mutate(arrival_dt=as.POSIXct(paste0(Arrival_Date," ",substr(Arrival_Time,1,8)),format="%Y-%m-%d %H:%M:%S")) %>%
@@ -52,6 +56,9 @@ dat_ecds<-dat_ecds_raw %>%
   mutate(conclusion_dt=as.POSIXct(paste0(Conclusion_Date," ",substr(Conclusion_Time,1,8)),format="%Y-%m-%d %H:%M:%S")) %>%
   select(
     nhs_number = NHS_Number,
+    imd = Index_Of_Multiple_Deprivation,
+    sex = Stated_Gender,
+    age = HES_Age_At_Arrival,
     arrival_dt,
     initial_dt,
     treatment_dt,
@@ -75,13 +82,64 @@ dat_ecds<-dat_ecds_raw %>%
   ungroup()
 
 
+dat_ecds_n_ed <- 
+  dat_ecds %>%
+  select(nhs_number, arrival_dt, dta_dt) %>%
+  mutate(
+    arrival_day = floor_date(arrival_dt, "days"),
+    dta_day = floor_date(dta_dt, "days")
+  ) %>%
+  distinct() %>%
+  filter(!is.na(nhs_number)) %>%
+  arrange(nhs_number, arrival_day) %>%
+  group_by(nhs_number, arrival_day) %>%
+  # take latest arrival if multiple on the same day
+  filter(arrival_dt == max(arrival_dt, na.rm = TRUE)) %>%
+  group_by(nhs_number) %>%
+  # remove patients that never DTA
+  filter(!all(is.na(dta_dt))) %>%
+  # earliest arrival with dta
+  mutate(min_arr = arrival_day[which.min(dta_dt)]) %>%
+  # remove ed attendances after the min DTA date
+  filter(arrival_day <= min_arr) %>%
+  mutate(arr_diff = (min_arr - lag(arrival_day))/ddays(1)) %>%
+  mutate(n_ed = sum(na.omit(arr_diff) < pre_window_days)) %>%
+  mutate(n_adm = sum(na.omit(arr_diff[!is.na(dta_dt)]) < pre_window_days)) %>%
+  mutate(n_ed = ifelse(n_ed > 0, n_ed -1, 0)) %>%
+  mutate(n_adm = ifelse(n_adm > 0, n_adm -1, 0)) %>%
+  select(nhs_number, n_ed, n_adm) %>%
+  distinct() %>%
+  ungroup()
+
+
+dat_ecds_perf <- dat_ecds %>%
+  group_by(site, arrival_hour = floor_date(arrival_dt, unit = "hour")) %>%
+  summarise(perf = 1-mean(breach))
+
+
+# get bnssg nhs nums for filtering
+string_attr <- glue::glue("	select
+	nhs_number
+	,max(attribute_period) as max_date
+	,count(attribute_period) as date_count
+	from
+	MODELLING_SQL_AREA.dbo.primary_care_attributes
+	where attribute_period between '{report_start}' and '{report_end}'
+	group by nhs_number")
+
+
+dat_attr <- sqlQuery(con,string_attr) %>%
+  mutate(nhs_number = as.character(nhs_number))
+
+# arrivals for joining to sus
 arrivals <- 
   dat_ecds %>%
-  filter(!is.na(dta_time)) %>%
-  group_by(nhs_number, arrival_dt) %>%
-  summarise(arr_id = cur_group_id(),
-            departure_dt = as.Date(departure_dt)[1]
-            )
+  filter(!is.na(dta_time), nhs_number %in% unique(dat_attr$nhs_number)) %>%
+  group_by(nhs_number, arr_id) %>%
+  summarise(departure_dt = as.Date(departure_dt)[1]
+  )
+
+
 
 string_apc <- {glue::glue("SELECT 
                           [Process_ID]
@@ -1005,45 +1063,215 @@ saveRDS(dat_apc, "data/dat_apc.RDS")
 dat_apc <- readRDS("data/dat_apc.RDS")
 
 
-
-foo <- arrivals %>%
-  inner_join(
-    dat_apc %>%
-    select(AIMTC_Pseudo_NHS, StartDate_HospitalProviderSpell, contains("ICD")) %>%
-    mutate(AIMTC_Pseudo_NHS = as.character(AIMTC_Pseudo_NHS)),
-    by = join_by(nhs_number == AIMTC_Pseudo_NHS, departure_dt == StartDate_HospitalProviderSpell)
-    )
-
-foo <- arrivals %>%
+dat_scores <- arrivals %>%
   left_join(
     dat_apc %>%
-    select(AIMTC_Pseudo_NHS, StartDate_HospitalProviderSpell, contains("ICD")) %>%
+      select(AIMTC_Pseudo_NHS, StartDate_HospitalProviderSpell, contains("ICD")) %>%
       mutate(AIMTC_Pseudo_NHS = as.character(AIMTC_Pseudo_NHS)),
-    by = join_by(nhs_number == AIMTC_Pseudo_NHS)) %>%
+    by = join_by(nhs_number == AIMTC_Pseudo_NHS)) %>% 
   mutate(diff = abs(interval(departure_dt, StartDate_HospitalProviderSpell)/ddays(1))) %>%
   group_by(arr_id) %>%
-  filter(diff == min(diff), diff < 2) 
-
-
-
-foo %>%
+  filter(diff == min(diff), diff < 2)  %>%
   select(-DiagnosisSchemeInUse_ICD) %>%
-  select(arr_id, matches("ICD")) %>%
-  pivot_longer(-arr_id) %>%
+  select(nhs_number, arr_id, matches("ICD")) %>%
+  pivot_longer(-c(nhs_number, arr_id)) %>%
   filter(value != "") %>%
+  select(-name) %>%
   ungroup() %>%
   distinct() %>%
-  comorbidity(id = "arr_id", code = "value", "elixhauser_icd10_quan", assign0 = FALSE) %>%
-  score(weights = "vw", assign0 = FALSE)
+  list(distinct(select(., nhs_number, arr_id)), 
+       vw_score = comorbidity(., id = "arr_id", code = "value", "elixhauser_icd10_quan", assign0 = FALSE) %>%
+         score(weights = "vw", assign0 = FALSE)) %>%
+  `[`(-1) %>%
+  bind_cols()
 
-bar <- foo %>%
-  select(-DiagnosisSchemeInUse_ICD) %>%
-  pivot_longer(cols = matches("ICD")) %>%
-  select(arr_id, value) %>%
-  filter(value != "") %>%
-  comorbidity(id = "arr_id", code = "value", "elixhauser_icd10_quan", assign0 = FALSE) %>%
-  score(weights = "vw", assign0 = FALSE)
+
+
+dat_adm <- dat_ecds %>%
+  mutate(nhs_number = as.character(nhs_number)) %>%
+  filter(!is.na(dta_time), nhs_number %in% unique(dat_attr$nhs_number)) %>%
+  group_by(nhs_number) %>%
+  filter(dta_dt == min(dta_dt, na.rm = TRUE)) %>%
+  ungroup() %>%
+  select(site, nhs_number, imd, age, sex, arr_id, arrival_dt, dta_dt, departure_dt, dta_time, ed_time) %>%
+  mutate(arrival_hour = floor_date(arrival_dt, "hour")) %>%
+  left_join(dat_ecds_perf) %>%
+  left_join(dat_ecds_n_ed) %>% 
+  left_join(dat_scores) %>%
+  select(-arr_id) %>%
+  na.omit()
+
+
+mortality_df <- local({
+  string_mortality <- glue::glue("SELECT
+      [Derived_Pseudo_NHS]
+      ,[Dec_Age_At_Death]
+      ,[DEC_SEX]
+      ,[DEC_SEX_DESC]
+      ,[DEC_MARITAL_STATUS]
+      ,[DEC_MARITAL_STATUS_DESC]
+      ,[DEC_AGEC]
+      ,[DEC_AGECUNIT]
+      ,[DEC_AGECUNIT_DESC]
+      ,[REG_DATE_OF_DEATH]
+      ,[REG_DATE]
+  FROM [ABI].[Civil_Registration].[Mortality]
+  WHERE REG_DATE_OF_DEATH between '{lubridate::ymd(report_start)}' AND '{lubridate::ymd(report_end) + lubridate::ddays(30)}'
+  ")
+  con<-odbcDriverConnect("driver={SQL Server};\n  server=Xsw-00-ash01;\n  trusted_connection=true")
   
+  sqlQuery(con, string_mortality) %>%
+    na.omit() %>%
+    mutate(Derived_Pseudo_NHS = as.character(Derived_Pseudo_NHS),
+           REG_DATE_OF_DEATH = lubridate::ymd(REG_DATE_OF_DEATH)) %>%
+    mutate(Derived_Pseudo_NHS = as.character(Derived_Pseudo_NHS)) %>%
+    select(nhs_number = Derived_Pseudo_NHS, date_death = REG_DATE_OF_DEATH)
+})
+
+
+
+smr_df <- local({
+  string_mortality <- glue::glue("SELECT
+      [Derived_Pseudo_NHS]
+      ,[Dec_Age_At_Death]
+      ,[DEC_SEX]
+      ,[DEC_SEX_DESC]
+      ,[DEC_MARITAL_STATUS]
+      ,[DEC_MARITAL_STATUS_DESC]
+      ,[DEC_AGEC]
+      ,[DEC_AGECUNIT]
+      ,[DEC_AGECUNIT_DESC]
+      ,[REG_DATE_OF_DEATH]
+      ,[REG_DATE]
+  FROM [ABI].[Civil_Registration].[Mortality]
+  WHERE REG_DATE_OF_DEATH between '{lubridate::ymd('2022-01-01')}' AND '{lubridate::ymd(report_end) + lubridate::ddays(30)}'
+  ")
+  con<-odbcDriverConnect("driver={SQL Server};\n  server=Xsw-00-ash01;\n  trusted_connection=true")
+  
+  sqlQuery(con, string_mortality) %>%
+    na.omit() %>%
+    mutate(Derived_Pseudo_NHS = as.character(Derived_Pseudo_NHS),
+           REG_DATE_OF_DEATH = lubridate::ymd(REG_DATE_OF_DEATH)) %>%
+    mutate(Derived_Pseudo_NHS = as.character(Derived_Pseudo_NHS)) %>%
+    select(nhs_number = Derived_Pseudo_NHS, date_death = REG_DATE_OF_DEATH)
+})
+
+
+mod_df <- dat_adm %>%
+  left_join(mortality_df) %>%
+  mutate(age_sq = age^2) %>%
+  mutate(n_ed_sq = n_ed^2) %>%
+  mutate(n_adm_sq = n_adm^2) %>%
+  mutate(vw_score_sq = vw_score^2) %>%
+  mutate(imd = factor(imd)) %>%
+  mutate(mort_30 = ifelse((interval(arrival_dt, date_death)/ddays(1)) < 30, TRUE, FALSE)) %>%
+  mutate(mort_30 = coalesce(mort_30, FALSE)) %>%
+  mutate(mort_30 = factor(ifelse(mort_30, "yes", "no"), levels = c("no", "yes"))) %>%
+  mutate(arrival_time = factor(hms::as_hms(floor_date(arrival_dt, "6 hour")))) %>%
+  mutate(arrival_month = factor(month(arrival_dt))) %>%
+  mutate(arrival_year = factor(year(arrival_dt))) %>%
+  select(
+    arrival_time,
+    arrival_month,
+    arrival_year,
+    perf,
+    age,
+    age_sq,
+    n_ed,
+    n_ed_sq,
+    # n_adm,
+    # n_adm_sq,
+    sex,
+    imd,
+    vw_score,
+    vw_score_sq,
+    mort_30
+  )
+
+saveRDS(mod_df, "data/smr_mod_df.RDS")
+mod_df <- readRDS("data/smr_mod_df.RDS")
+
+split <- initial_split(mod_df, strata = mort_30) 
+glm_spec <- logistic_reg()
+
+rec <- recipe(mort_30 ~ ., data = training(split)) %>%
+  step_other(all_nominal_predictors()) %>%
+  step_dummy(all_nominal_predictors()) %>%
+  step_nzv()
+
+wf <- workflow() %>%
+  add_recipe(rec) %>%
+  add_model(glm_spec)
+
+fit <- last_fit(wf, split)
+
+augment(fit) %>%
+  roc_curve(mort_30,
+            .pred_yes,
+            event_level = "second") %>%
+  autoplot()
+
+# fit on all data
+
+full_fit <- fit(wf, mod_df)
+
+# predictions 
+full_pred <- predict(extract_fit_engine(full_fit), bake(prep(rec), new_data = mod_df), type = "response")
+
+# smr
+
+(smr_plot <- dat_adm %>%
+    left_join(mortality_df) %>%
+    # filter(site == "SOUTHMEAD HOSPITAL") %>%
+    mutate(dta_time = 30*(dta_time %/% 30)) %>%
+    mutate(mort_30 = ifelse((interval(arrival_dt, date_death)/ddays(1)) < 30, TRUE, FALSE)) %>%
+    mutate(mort_30 = coalesce(mort_30, FALSE)) %>%
+    select(dta_time, mort_30) %>%
+    mutate(pred_mort = full_pred) %>%
+    group_by(dta_time) %>%
+    summarise(n = n(), expected_mort = sum(pred_mort), actual_mort = sum(mort_30), smr = actual_mort/expected_mort) %>%
+    filter(n > 50,  dta_time > 0) %>%
+    ggplot(aes(x = dta_time, y = smr)) +
+    geom_point() +
+    geom_smooth(method = "lm") +
+    bnssgtheme() +
+    labs(y = "SMR", x = "Time waiting for admission"))
+
+(smr_plot <- dat_adm %>%
+    left_join(mortality_df) %>%
+    # filter(site == "SOUTHMEAD HOSPITAL") %>%
+    mutate(ed_time = 30*(ed_time %/% 30)) %>%
+    mutate(mort_30 = ifelse((interval(arrival_dt, date_death)/ddays(1)) < 30, TRUE, FALSE)) %>%
+    mutate(mort_30 = coalesce(mort_30, FALSE)) %>%
+    select(ed_time, mort_30) %>%
+    mutate(pred_mort = full_pred) %>%
+    group_by(ed_time) %>%
+    summarise(n = n(), expected_mort = sum(pred_mort), actual_mort = sum(mort_30), smr = actual_mort/expected_mort) %>%
+    filter(n > 50,  ed_time > 0) %>%
+    ggplot(aes(x = ed_time, y = smr)) +
+    geom_point() +
+    geom_smooth(method = "lm") +
+    bnssgtheme() +
+    labs(y = "SMR", x = "Time waiting in ED"))
+
+
+(smr_plot <- dat_adm %>%
+    left_join(mortality_df) %>%
+    # filter(site == "SOUTHMEAD HOSPITAL") %>%
+    mutate(ed_time_cut = cut(ed_time, breaks = quantile(ed_time, seq(0, 1, 0.025)), include.lowest = TRUE)) %>%
+    mutate(mort_30 = ifelse((interval(arrival_dt, date_death)/ddays(1)) < 30, TRUE, FALSE)) %>%
+    mutate(mort_30 = coalesce(mort_30, FALSE)) %>%
+    select(ed_time, ed_time_cut, mort_30) %>%
+    mutate(pred_mort = full_pred) %>%
+    group_by(ed_time_cut) %>%
+    summarise(n = n(), ed_time = min(ed_time), expected_mort = sum(pred_mort), actual_mort = sum(mort_30), smr = actual_mort/expected_mort) %>%
+    # filter(n > 50,  ed_time > 0) %>%
+    ggplot(aes(x = ed_time, y = smr)) +
+    geom_point() +
+    geom_smooth(method = "lm") +
+    bnssgtheme() +
+    labs(y = "SMR", x = "Time waiting in ED"))
+
 
 
 
