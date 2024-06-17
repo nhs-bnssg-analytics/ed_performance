@@ -13,7 +13,7 @@ con<-odbcDriverConnect(con_string)
 
 report_start <- '2023-08-01'
 report_end <- '2024-03-01'
-n_hour <- 1
+n_hour <- 2
 
 # sequence of time snapshots (i.e. when we measure DTA queue)
 snapshot_seq <- seq.POSIXt(from = as.POSIXct(lubridate::ymd(report_start)),
@@ -504,13 +504,41 @@ ggsave("materials/ccf_plot.png",
     labs(y = "90% quantile ambulance handover time\n(min)", x = "DTA queue")
 )
 
+
+# fitting model
+# defn function with zero gradient at x = 0
+f <- function(x, a, c) {
+ a * x^2 + c 
+}
+
+f <- function(x, a, c) {
+ exp(a*x) + c 
+}
+
+# map(seq(0.7, 0.9, 0.1 ~
+
+dta_handover_mod_df <- dta_df %>% 
+  left_join(handover_df) %>% 
+  # left_join(minor_time_in_ed_df) %>%
+  filter(site == "SOUTHMEAD HOSPITAL") %>%
+  na.omit() %>%
+  group_by(n_dta) %>%
+  summarise(handover_time = quantile(handover_time/60, 0.85)) %>%
+  filter(n_dta <= 30)
+
+dta_handover_mod <- nls(formula = handover_time ~ f(n_dta, a, c), data = dta_handover_mod_df, start = list(a = 1, c = 0))
+
+dta_dummy <- data.frame(n_dta = 0:30)
+
+dta_dummy$pred <- predict(dta_handover_mod, newdata = dta_dummy)
+
 (scatter_1 <- dta_df %>% 
     left_join(handover_df) %>% 
     # left_join(minor_time_in_ed_df) %>%
     filter(site == "SOUTHMEAD HOSPITAL") %>%
     na.omit() %>%
     group_by(n_dta) %>%
-    summarise(handover_time = quantile(handover_time/60, 0.9)) %>%
+    summarise(handover_time = quantile(handover_time/60, 0.85)) %>%
     filter(n_dta <= 30) %>%
     ## this block will remove seasonality/trend
     # pivot_longer(cols = -c(site, dt), names_to = "metric", values_to = "value") %>%
@@ -525,7 +553,7 @@ ggsave("materials/ccf_plot.png",
     ggplot(aes(x = n_dta, y = handover_time)) +
     geom_point() +
     # coord_cartesian(ylim = c(0, 120)) +
-    stat_smooth(method = "lm", formula = y ~ x + I(x^2), size = 1) +
+    geom_line(data = dta_dummy, aes(y = pred), col = "blue") +
     bnssgtheme() +
     labs(y = "Median ambulance handover time\n(min)", x = "DTA queue")
 )
