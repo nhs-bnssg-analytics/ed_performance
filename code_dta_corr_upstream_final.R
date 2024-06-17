@@ -515,45 +515,33 @@ f <- function(x, a, c) {
  exp(a*x) + c 
 }
 
-# map(seq(0.7, 0.9, 0.1 ~
+plot_df <- map_dfr(seq(0.7, 0.9, 0.1), ~
 
-dta_handover_mod_df <- dta_df %>% 
+{plot_df <- dta_df %>% 
   left_join(handover_df) %>% 
   # left_join(minor_time_in_ed_df) %>%
   filter(site == "SOUTHMEAD HOSPITAL") %>%
   na.omit() %>%
   group_by(n_dta) %>%
-  summarise(handover_time = quantile(handover_time/60, 0.85)) %>%
+  summarise(handover_time = quantile(handover_time/60, .x)) %>%
   filter(n_dta <= 30)
 
-dta_handover_mod <- nls(formula = handover_time ~ f(n_dta, a, c), data = dta_handover_mod_df, start = list(a = 1, c = 0))
+dta_handover_mod <- nls(formula = handover_time ~ f(n_dta, a, c), data = plot_df, start = list(a = 1, c = 0))
 
-dta_dummy <- data.frame(n_dta = 0:30)
+plot_df <- bind_cols(plot_df, investr::predFit(dta_handover_mod, plot_df, interval = "confidence", level= 0.9))
+plot_df$q <- factor(.x)
 
-dta_dummy$pred <- predict(dta_handover_mod, newdata = dta_dummy)
+plot_df$r <- round(log(30 - coef(dta_handover_mod)[2])/coef(dta_handover_mod)[1])
 
-(scatter_1 <- dta_df %>% 
-    left_join(handover_df) %>% 
-    # left_join(minor_time_in_ed_df) %>%
-    filter(site == "SOUTHMEAD HOSPITAL") %>%
-    na.omit() %>%
-    group_by(n_dta) %>%
-    summarise(handover_time = quantile(handover_time/60, 0.85)) %>%
-    filter(n_dta <= 30) %>%
-    ## this block will remove seasonality/trend
-    # pivot_longer(cols = -c(site, dt), names_to = "metric", values_to = "value") %>%
-    # as_tsibble(index = dt, key = c(site, metric)) %>%
-    # tsibble::fill_gaps() %>%
-    # tidyr::fill(value, .direction = "down") %>%
-    # model(STL(value)) %>%
-    # components() %>% 
-    # select(dt, site, metric, remainder) %>%
-    # # as_tibble() %>%
-    # pivot_wider(names_from = "metric", values_from = "remainder") %>%
-    ggplot(aes(x = n_dta, y = handover_time)) +
+plot_df}
+)
+
+(scatter_1 <- plot_df %>%
+    ggplot(aes(x = n_dta, y = handover_time, col = q, group = q)) +
     geom_point() +
     # coord_cartesian(ylim = c(0, 120)) +
-    geom_line(data = dta_dummy, aes(y = pred), col = "blue") +
+    geom_ribbon(aes(ymin = lwr, ymax = upr, fill = q), col = NA, alpha = 0.25) +
+    geom_line(aes(y = fit, col = q)) +
     bnssgtheme() +
     labs(y = "Median ambulance handover time\n(min)", x = "DTA queue")
 )
