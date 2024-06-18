@@ -457,23 +457,21 @@ Conveyed_To_Ward_Type = 'A&E' AND
   
   actv_swafst <- RODBC::sqlQuery(con, string_actv_swafst)
   
-  
-  
-  response_time <- actv_swafst %>%
+   response_time <- actv_swafst %>%
     mutate(across(matches("Time|Clock"),
                   .f = ~lubridate::parse_date_time(.x, orders = c("ymd_HMS", "dmy_HMS")))) %>%
     filter(Outcome %in% c("See & Treat", "See & Convey"))  %>%
     filter(T0_Time_of_Call >= ymd(report_start),
            T0_Time_of_Call <= ymd(report_end) ) %>%
-    group_by(dt = floor_date(T0_Time_of_Call, "hour"),
-             call_category = Incident_Colour) %>%
-    summarise(avg_response = mean(`Response_Target_1_Clock Stop` - `Response_Target_1_Clock Start`, na.rm = TRUE)/dminutes(1)) %>%
+    mutate(dt = floor_date(T0_Time_of_Call, glue::glue("{n_hour} hours")),
+           call_category = Incident_Colour,
+           response = (`Response_Target_1_Clock Stop` - `Response_Target_1_Clock Start`)/dminutes(1)) %>%
     filter(call_category %in% str_c("Category ", c(1, 2, 3))) %>%
     mutate(call_category = recode(call_category,
                                   "Category 3"= "cat3",
                                   "Category 2"= "cat2",
                                   "Category 1"= "cat1")) %>%
-    pivot_wider(names_from = "call_category", values_from = "avg_response", names_prefix = "resp_time_")
+    select(dt, call_category, response) 
   
   response_time
 })
@@ -541,7 +539,7 @@ ggsave("materials/dta_handover_scatter_quant.png",
        scale = 0.9)
 
 # handover time for patients 65+
-(scatter_2 <- dta_df %>% 
+dta_df %>% 
         left_join(handover_df) %>% 
         # left_join(minor_time_in_ed_df) %>%
         filter(site == "SOUTHMEAD HOSPITAL") %>%
@@ -564,17 +562,17 @@ ggsave("materials/dta_handover_scatter_quant.png",
     geom_smooth(method = "lm") +
     scale_y_continuous(limits = c(0, 90), breaks = seq(0, 180, 30)) +
     bnssgtheme()
-)
+
 
 
 # time seen for treatment vs dta
 
-dta_df %>%
+(scatter_2 <- dta_df %>%
   left_join(trt_df) %>%
   filter(site == "SOUTHMEAD HOSPITAL") %>%
   na.omit() %>%
   group_by(n_dta) %>%
-  ggplot(aes(x = n_dta, y = trt_time/60)) + 
+  ggplot(aes(x = n_dta, y = trt_time)) + 
   geom_point(alpha = 0.015) +
   geom_smooth(data = {dta_df %>%
       left_join(trt_df) %>%
@@ -592,10 +590,16 @@ dta_df %>%
       summarise(trt_time = quantile(trt_time, 0.9))},
       col = bnssgcols[6],
       size = 2.5) +
-  scale_y_continuous(limits = c(NA, 10), breaks = 1:10) +
+  scale_y_continuous(limits = c(NA, 600), breaks = seq(0, 600, 60)) +
   bnssgtheme() +
-  labs(y = "Time between arrival and treatment\n(hour)",
-       x = "DTA queue")
+  labs(y = "Time to be seen for treatment\n(min)",
+       x = "DTA queue"))
+
+ggsave("materials/treat_time_scatter_quant.png",
+       scatter_2,
+       height = 5,
+       width = 7.5, 
+       scale = 0.9)
 
 
 
@@ -605,7 +609,7 @@ model_spec <- linear_reg() %>%
 dta_mod <- dta_df %>% 
   left_join(handover_df) %>% 
   left_join(ed_df) %>%
-  left_join(resp_time_df) %>%
+  # left_join(resp_time_df) %>%
   mutate(n_ed = n_ed - n_dta) %>%
   ungroup() %>%
   na.omit() %>%
@@ -647,50 +651,13 @@ error_pos = "right"#,
 # file.name = "materials/handover_reg.html"
 )
 
-dta_resp_lm <- lm(resp_time_cat2 ~ n_dta * n_ed + wkend + hour, data = dta_mod$data[[1]])
-summary(dta_resp_lm)
-jtools::export_summs(dta_resp_lm, coefs = c("(Intercept)",
-                                            "DTA Queue" = "n_dta",
-                                            "Patients in ED (non-DTA)" = "n_ed",
-                                            "Weekend" = "wkendyes",
-                                            "00:00-06:00" = "hour[0,6]",
-                                            "06:00-12:00" = "hour(6,12]",
-                                            "18:00-24:00" = "hour(18,24]",
-                                            "Interaction: DTA queue-Patients in ED" = "n_dta:n_ed"
-),
-error_pos = "right"
-)
 
-
-
-dta_resp_lm_1 <- dta_mod$data[[1]] %>%
-  mutate(n_ed_tot = n_dta + n_ed) %>%
-  lm(resp_time_cat2 ~ n_ed_tot + wkend + hour, data = .)
-summary(dta_resp_lm_1)
-
-anova(dta_resp_lm, dta_resp_lm_1)
-
-lm(resp_time_cat1 ~ n_dta * n_ed + wkend + hour, data = dta_mod$data[[1]]) %>%
-  jtools::export_summs(dta_resp_lm, coefs = c("(Intercept)",
-                                              "DTA Queue" = "n_dta",
-                                              "Patients in ED (non-DTA)" = "n_ed",
-                                              "Weekend" = "wkendyes",
-                                              "00:00-06:00" = "hour[0,6]",
-                                              "06:00-12:00" = "hour(6,12]",
-                                              "18:00-24:00" = "hour(18,24]",
-                                              "Interaction: DTA queue-Patients in ED" = "n_dta:n_ed"
-  ),
-  model.names = c("Category 1 response time", "Category 2 response time"),
-  error_pos = "right"#,
-  # to.file = huxtable::quick_html(),
-  # file.name = "materials/handover_reg.html"
-  )
 
 
 dta_mod_age <- dta_df %>% 
   left_join(handover_df) %>% 
   left_join(ed_df) %>%
-  left_join(resp_time_df) %>%
+  # left_join(resp_time_df) %>%
   mutate(n_ed = n_ed - n_dta) %>%
   ungroup() %>%
   na.omit() %>%
@@ -731,7 +698,7 @@ summary(dta_handover_age_lm)
 dta_mod_age_2 <- dta_df %>% 
   left_join(handover_df) %>% 
   left_join(ed_df) %>%
-  left_join(resp_time_df) %>%
+  # left_join(resp_time_df) %>%
   mutate(n_ed = n_ed - n_dta) %>%
   ungroup() %>%
   na.omit() %>%
@@ -794,7 +761,7 @@ jtools::effect_plot(dta_handover_age_lm_2,
 dta_mod_age_3 <- dta_df %>% 
   left_join(handover_df) %>% 
   left_join(ed_df) %>%
-  left_join(resp_time_df) %>%
+  # left_join(resp_time_df) %>%
   mutate(n_ed = n_ed - n_dta) %>%
   ungroup() %>%
   na.omit() %>%
@@ -834,13 +801,17 @@ summary(dta_handover_age_lm_3)
 
 
 
+resp_plot_df <- dta_df %>%
+  left_join(filter(resp_time_df, call_category == "cat3")) %>%
+  filter(site == "SOUTHMEAD HOSPITAL") %>%
+  na.omit()
+  
 
-
-dta_mod$data[[1]] %>%
+  (scatter_3 <- resp_plot_df %>%
   group_by(n_dta) %>%
-  summarise(resp_time_cat3 = quantile(resp_time_cat3, 0.9)) %>%
-  ggplot(aes(x = n_dta, y = resp_time_cat3, col = "90% quantile")) +
-  geom_point(data = dta_mod$data[[1]], aes(col = "All data"), alpha = 0.015) +
+  summarise(response = quantile(response, 0.9)) %>%
+  ggplot(aes(x = n_dta, y = response, col = "90% quantile")) +
+  geom_point(data = resp_plot_df, aes(col = "All data"), alpha = 0.015) +
   geom_point(size = 2.5) +
   geom_smooth(method = "lm", show.legend = FALSE)  +
   scale_y_continuous(limits = c(0, 480), breaks = seq(0, 480, 60)) +
@@ -854,7 +825,14 @@ dta_mod$data[[1]] %>%
        colour = "Category 3 response time:") +
   theme(legend.position = "bottom",
         legend.justification = "center",
-        legend.title = element_text())
+        legend.title = element_text()))
+
+
+ggsave("materials/resptime_scatter_quant.png",
+       scatter_3,
+       height = 5,
+       width = 7.5, 
+       scale = 0.9)  
 
 dta_mod$data[[1]] %>%
   group_by(n_dta, n_ed, wkend, hour) %>%
@@ -862,4 +840,43 @@ dta_mod$data[[1]] %>%
 lm(resp_time_cat3 ~ n_dta * n_ed + wkend + hour, data = .) %>%
   summary()
 
+
+dta_resp_lm <- lm(resp_time_cat2 ~ n_dta * n_ed + wkend + hour, data = dta_mod$data[[1]])
+summary(dta_resp_lm)
+jtools::export_summs(dta_resp_lm, coefs = c("(Intercept)",
+                                            "DTA Queue" = "n_dta",
+                                            "Patients in ED (non-DTA)" = "n_ed",
+                                            "Weekend" = "wkendyes",
+                                            "00:00-06:00" = "hour[0,6]",
+                                            "06:00-12:00" = "hour(6,12]",
+                                            "18:00-24:00" = "hour(18,24]",
+                                            "Interaction: DTA queue-Patients in ED" = "n_dta:n_ed"
+),
+error_pos = "right"
+)
+
+
+
+dta_resp_lm_1 <- dta_mod$data[[1]] %>%
+  mutate(n_ed_tot = n_dta + n_ed) %>%
+  lm(resp_time_cat2 ~ n_ed_tot + wkend + hour, data = .)
+summary(dta_resp_lm_1)
+
+anova(dta_resp_lm, dta_resp_lm_1)
+
+lm(resp_time_cat1 ~ n_dta * n_ed + wkend + hour, data = dta_mod$data[[1]]) %>%
+  jtools::export_summs(dta_resp_lm, coefs = c("(Intercept)",
+                                              "DTA Queue" = "n_dta",
+                                              "Patients in ED (non-DTA)" = "n_ed",
+                                              "Weekend" = "wkendyes",
+                                              "00:00-06:00" = "hour[0,6]",
+                                              "06:00-12:00" = "hour(6,12]",
+                                              "18:00-24:00" = "hour(18,24]",
+                                              "Interaction: DTA queue-Patients in ED" = "n_dta:n_ed"
+  ),
+  model.names = c("Category 1 response time", "Category 2 response time"),
+  error_pos = "right"#,
+  # to.file = huxtable::quick_html(),
+  # file.name = "materials/handover_reg.html"
+  )
 
