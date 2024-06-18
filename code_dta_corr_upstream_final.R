@@ -55,6 +55,7 @@ dta_df <- local({
     mutate(departure_dt=max(dta_dt,departure_dt,na.rm=TRUE)) %>%
     ungroup() %>%
     mutate(dta_int = interval(dta_dt, departure_dt)) %>%
+    mutate(trt_time = interval(arrival_dt, treatment_dt)/dminutes(1)) %>%
     mutate(date=floor_date(departure_dt,"day")) %>%
     mutate(ed_category=case_when(Acuity_Desc %in% c("Non-urgent level emergency care","Standard level emergency care") ~ "minor",
                                  TRUE~"major"))
@@ -75,6 +76,58 @@ dta_df <- local({
     unnest(dta_df)
   dat_dtas
 })
+
+# treatment time
+trt_df <- local({
+  string_ecds<-glue::glue("select Arrival_Date,
+                        Arrival_Time,
+                        Initial_Assessment_Date,
+                        Initial_Assessment_Time,
+                        Seen_For_Treatment_Date,
+                        Seen_For_Treatment_Time,
+                        Decision_To_Admit_Date,
+                        Decision_To_Admit_Time,
+                        Departure_Date,
+                        Departure_Time,
+                        Site_Name,
+                        Acuity_Desc
+      FROM Analyst_SQL_Area.dbo.tbl_BNSSG_ECDS
+      where Site_Name in ('BRISTOL ROYAL INFIRMARY', 'SOUTHMEAD HOSPITAL', 'WESTON GENERAL HOSPITAL')
+      and Arrival_Date >= '{report_start}'
+      ")
+  dat_ecds_raw<-sqlQuery(con,string_ecds)
+  
+  dat_ecds<-dat_ecds_raw %>%
+    mutate(arrival_dt=as.POSIXct(paste0(Arrival_Date," ",substr(Arrival_Time,1,8)),format="%Y-%m-%d %H:%M:%S")) %>%
+    mutate(initial_dt=as.POSIXct(paste0(Initial_Assessment_Date," ",substr(Initial_Assessment_Time,1,8)),format="%Y-%m-%d %H:%M:%S")) %>%
+    mutate(treatment_dt=as.POSIXct(paste0(Seen_For_Treatment_Date," ",substr(Seen_For_Treatment_Time,1,8)),format="%Y-%m-%d %H:%M:%S")) %>%
+    mutate(dta_dt=paste0(Decision_To_Admit_Date," ",substr(Decision_To_Admit_Time,1,8))) %>%
+    mutate(dta_dt=as.POSIXct(ifelse(grepl("NA",dta_dt),NA,dta_dt),format="%Y-%m-%d %H:%M:%S")) %>%
+    mutate(departure_dt=as.POSIXct(paste0(Departure_Date," ",substr(Departure_Time,1,8)),format="%Y-%m-%d %H:%M:%S")) %>%
+    select(arrival_dt,initial_dt,treatment_dt,dta_dt,departure_dt,Site_Name, Acuity_Desc) %>%
+    rowwise() %>%
+    mutate(departure_dt=max(dta_dt,departure_dt,na.rm=TRUE)) %>%
+    ungroup() %>%
+    mutate(dta_int = interval(dta_dt, departure_dt)) %>%
+    mutate(trt_time = interval(arrival_dt, treatment_dt)/dminutes(1)) %>%
+    mutate(date=floor_date(departure_dt,"day")) %>%
+    mutate(ed_category=case_when(Acuity_Desc %in% c("Non-urgent level emergency care","Standard level emergency care") ~ "minor",
+                                 TRUE~"major"))
+  
+  
+  
+  # max_dt <- max(dat_ecds$dta_dt, na.rm = TRUE)
+  # dta_seq <- seq.POSIXt(from = as.POSIXct(lubridate::ymd(report_start)), to = max_dt, by = glue::glue("{n_hour} hours"))
+  
+  dat_trt <- dat_ecds %>%
+    mutate(dt = floor_date(arrival_dt, unit = glue::glue("{n_hour} hours"))) %>%
+    select(dt, site = Site_Name, trt_time) %>%
+    na.omit()
+  
+  dat_trt
+})
+
+
 
 dta_df %>%
   filter(site == "SOUTHMEAD HOSPITAL") %>%
@@ -121,6 +174,7 @@ ed_df <- local({
     mutate(departure_dt=max(dta_dt,departure_dt,na.rm=TRUE)) %>%
     ungroup() %>%
     mutate(ed_int = interval(arrival_dt, departure_dt)) %>%
+    mutate(trt_time = interval(arrival_dt, treatment_dt)/dminutes(1)) %>%
     mutate(date=floor_date(departure_dt,"day")) %>%
     mutate(ed_category=case_when(Acuity_Desc %in% c("Non-urgent level emergency care","Standard level emergency care") ~ "minor",
                                  TRUE~"major"))
@@ -243,10 +297,10 @@ Conveyed_To_Ward_Type = 'A&E' AND
       snapshot_int,
       data,
       ~ filter(.y, handover_time %within% .x) %>%
-        pull(Handover_Duration__seconds_)
+        select(age = Age_Bracket, handover_time = Handover_Duration__seconds_)
     ))) %>%
     mutate(handover_df = map(handover_time, function(handover_time)
-      map2_df(handover_time, snapshot_seq, ~ tibble(dt = .y, handover_time = .x)))) %>%
+      map2_df(handover_time, snapshot_seq, ~ bind_cols(tibble(dt = .y), .x)))) %>%
     select(site, handover_df) %>%
     unnest(handover_df) %>%
     arrange(dt)
@@ -414,8 +468,9 @@ Conveyed_To_Ward_Type = 'A&E' AND
     group_by(dt = floor_date(T0_Time_of_Call, "hour"),
              call_category = Incident_Colour) %>%
     summarise(avg_response = mean(`Response_Target_1_Clock Stop` - `Response_Target_1_Clock Start`, na.rm = TRUE)/dminutes(1)) %>%
-    filter(call_category %in% str_c("Category ", c(1, 2))) %>%
-    mutate(call_category = recode(call_category, 
+    filter(call_category %in% str_c("Category ", c(1, 2, 3))) %>%
+    mutate(call_category = recode(call_category,
+                                  "Category 3"= "cat3",
                                   "Category 2"= "cat2",
                                   "Category 1"= "cat1")) %>%
     pivot_wider(names_from = "call_category", values_from = "avg_response", names_prefix = "resp_time_")
@@ -424,100 +479,16 @@ Conveyed_To_Ward_Type = 'A&E' AND
 })
 
 
-# handover time
-
-(p_ccf_1 <- dta_df %>% 
-    left_join(handover_df) %>%
-    filter(site == "SOUTHMEAD HOSPITAL") %>%
-    as_tsibble(key = site, index = dt) %>%
-    na.omit() %>%
-    tsibble::fill_gaps() %>%
-    CCF(x = n_dta, y = handover_time, , lag_max = 48) %>%
-    autoplot() +
-    bnssgtheme() + 
-    labs(title = "Raw time series",
-         x = "Lag of DTA queue [1hr]",
-         y = "Cross-correlation with mean handover time"))
-
-
-(p_ccf_2 <- dta_df %>% 
-    left_join(handover_df) %>%
-    filter(site == "SOUTHMEAD HOSPITAL") %>%
-    na.omit() %>% 
-    pivot_longer(cols = -c(site, dt), names_to = "metric", values_to = "value") %>%
-    as_tsibble(index = dt, key = c(site, metric)) %>%
-    tsibble::fill_gaps() %>%
-    tidyr::fill(value, .direction = "down") %>%
-    model(STL(value)) %>%
-    components() %>%  
-    select(dt, site, metric, remainder) %>%
-    # as_tibble() %>%
-    pivot_wider(names_from = "metric", values_from = "remainder") %>%
-    CCF(x = n_dta, y = handover_time, lag_max = 48) %>%
-    autoplot() +
-    bnssgtheme() + 
-    labs(title = "Time series with trend/seasonality removed",
-         x = "Lag of DTA queue [1hr]",
-         y = "Cross-correlation with mean handover time"))
-
-
-ccf_ptc <- patchwork::wrap_plots(p_ccf_1, p_ccf_2, ncol = 1, axis_titles = "collect")
-
-# apply_consistent_y_lims <- function(this_plot){
-#   num_plots <- length(this_plot$layers)
-#   y_lims <- lapply(1:num_plots, function(x) ggplot_build(this_plot[[x]])$layout$panel_scales_y[[1]]$range$range)
-#   min_y <- min(unlist(y_lims))
-#   max_y <- max(unlist(y_lims))
-#   this_plot & ylim(min_y, max_y)
-# }
-# 
-# apply_consistent_y_lims(ccf_ptc)
-
-ggsave("materials/ccf_plot.png",
-       ccf_ptc,
-       height = 7.5,
-       width = 7.5, 
-       scale = 0.9)
-
-# modelling 
-
-(scatter_1 <- dta_df %>% 
-    left_join(handover_df) %>% 
-    # left_join(minor_time_in_ed_df) %>%
-    filter(site == "SOUTHMEAD HOSPITAL") %>%
-    na.omit() %>% 
-    ## this block will remove seasonality/trend
-    # pivot_longer(cols = -c(site, dt), names_to = "metric", values_to = "value") %>%
-    # as_tsibble(index = dt, key = c(site, metric)) %>%
-    # tsibble::fill_gaps() %>%
-    # tidyr::fill(value, .direction = "down") %>%
-    # model(STL(value)) %>%
-    # components() %>% 
-    # select(dt, site, metric, remainder) %>%
-    # # as_tibble() %>%
-    # pivot_wider(names_from = "metric", values_from = "remainder") %>%
-    ggplot(aes(x = n_dta, y = handover_time/60)) +
-    geom_boxplot(aes(group = cut_interval(n_dta, 40)), position= position_nudge(x=.5)) +
-    coord_cartesian(ylim = c(0, 120)) +
-    # geom_smooth(method = "lm") +
-    bnssgtheme() +
-    labs(y = "90% quantile ambulance handover time\n(min)", x = "DTA queue")
-)
-
-
+# Handover time quantile analysis
 # fitting model
-# defn function with zero gradient at x = 0
-f <- function(x, a, c) {
- a * x^2 + c 
-}
-
+# exponential model fits well for n_dta < 30
 f <- function(x, a, c) {
  exp(a*x) + c 
 }
 
 plot_df <- map_dfr(seq(0.7, 0.9, 0.1), ~
 
-{plot_df <- dta_df %>% 
+{ plot_df <- dta_df %>% 
   left_join(handover_df) %>% 
   # left_join(minor_time_in_ed_df) %>%
   filter(site == "SOUTHMEAD HOSPITAL") %>%
@@ -529,52 +500,104 @@ plot_df <- map_dfr(seq(0.7, 0.9, 0.1), ~
 dta_handover_mod <- nls(formula = handover_time ~ f(n_dta, a, c), data = plot_df, start = list(a = 1, c = 0))
 
 plot_df <- bind_cols(plot_df, investr::predFit(dta_handover_mod, plot_df, interval = "confidence", level= 0.9))
-plot_df$q <- factor(.x)
+plot_df$q <- factor(.x, labels = scales::percent(.x))
 
-plot_df$r <- round(log(30 - coef(dta_handover_mod)[2])/coef(dta_handover_mod)[1])
+plot_df$r <- round(log(30 - min(29, coef(dta_handover_mod)[2]))/coef(dta_handover_mod)[1])
+plot_df$c <- coef(dta_handover_mod)[2]
 
 plot_df}
 )
 
+
+
 (scatter_1 <- plot_df %>%
-    ggplot(aes(x = n_dta, y = handover_time, col = q, group = q)) +
-    geom_point() +
-    # coord_cartesian(ylim = c(0, 120)) +
-    geom_ribbon(aes(ymin = lwr, ymax = upr, fill = q), col = NA, alpha = 0.25) +
+    ggplot(aes(x = n_dta, y = handover_time)) +
+    geom_point(data = {dta_df %>% 
+      left_join(handover_df) %>% 
+      # left_join(minor_time_in_ed_df) %>%
+      filter(site == "SOUTHMEAD HOSPITAL", n_dta < 30) %>%
+      mutate(handover_time = handover_time/60) %>%
+      na.omit()}, aes(x = n_dta, y = handover_time), alpha = 0.015) +
+    geom_point(aes(col = q, group = q), size = 2.5) +
+    scale_y_continuous(limits = c(0, 180), breaks = seq(0, 180, 30)) +
+    # geom_ribbon(aes(ymin = lwr, ymax = upr, fill = q), col = NA, alpha = 0.25) +
     geom_line(aes(y = fit, col = q)) +
+    geom_hline(yintercept = 30, linetype = 2) +
     bnssgtheme() +
-    labs(y = "Median ambulance handover time\n(min)", x = "DTA queue")
+    scale_colour_manual(values = viridis::viridis(n = 3, end = 0.8, begin = 0.2, direction = -1)) +
+    labs(y = "Ambulance handover time\n(min)",
+         x = "DTA queue",
+         colour = "Handover time quantile") +
+    theme(legend.position = "bottom",
+          legend.justification = "center",
+          legend.title = element_text())
 )
 
 
-ggsave("materials/dta_handover_scatter.png",
+ggsave("materials/dta_handover_scatter_quant.png",
        scatter_1,
        height = 5,
        width = 7.5, 
        scale = 0.9)
 
-
+# handover time for patients 65+
 (scatter_2 <- dta_df %>% 
-    left_join(handover_df) %>% 
-    # left_join(minor_time_in_ed_df) %>%
-    filter(site == "SOUTHMEAD HOSPITAL") %>%
-    na.omit() %>% 
-    # this block will remove seasonality/trend
-    pivot_longer(cols = -c(site, dt), names_to = "metric", values_to = "value") %>%
-    as_tsibble(index = dt, key = c(site, metric)) %>%
-    tsibble::fill_gaps() %>%
-    tidyr::fill(value, .direction = "down") %>%
-    model(STL(value)) %>%
-    components() %>%
-    select(dt, site, metric, remainder) %>%
-    # as_tibble() %>%
-    pivot_wider(names_from = "metric", values_from = "remainder") %>%
-    ggplot(aes(x = n_dta, y = handover_time/60)) +
-    geom_point() +
+        left_join(handover_df) %>% 
+        # left_join(minor_time_in_ed_df) %>%
+        filter(site == "SOUTHMEAD HOSPITAL") %>%
+    mutate(age_flag = if_else(
+      age %in% c(
+        "65-69 Years Old",
+        "70-74 Years Old",
+        "75-79 Years Old",
+        "80-84 Years Old",
+        "85-89 Years Old",
+        "90-94 Years Old",
+        "95-99 Years Old",
+        "100 Years Old Or Over"
+      ), "65+", "under 65")
+    ) %>%
+        mutate(handover_time = handover_time/60) %>%
+        na.omit() %>%
+  ggplot(aes(x = n_dta, y = handover_time, col = age_flag)) +
+    geom_point(alpha = 0.015) +
     geom_smooth(method = "lm") +
-    bnssgtheme() +
-    labs(y = "Mean handover time (min)", x = "DTA queue")
+    scale_y_continuous(limits = c(0, 90), breaks = seq(0, 180, 30)) +
+    bnssgtheme()
 )
+
+
+# time seen for treatment vs dta
+
+dta_df %>%
+  left_join(trt_df) %>%
+  filter(site == "SOUTHMEAD HOSPITAL") %>%
+  na.omit() %>%
+  group_by(n_dta) %>%
+  ggplot(aes(x = n_dta, y = trt_time/60)) + 
+  geom_point(alpha = 0.015) +
+  geom_smooth(data = {dta_df %>%
+      left_join(trt_df) %>%
+      filter(site == "SOUTHMEAD HOSPITAL") %>%
+      na.omit() %>%
+      group_by(n_dta) %>%
+      summarise(trt_time = quantile(trt_time, 0.9))},
+      col = bnssgcols[6],
+      method = "lm") +
+  geom_point(data = {dta_df %>%
+      left_join(trt_df) %>%
+      filter(site == "SOUTHMEAD HOSPITAL") %>%
+      na.omit() %>%
+      group_by(n_dta) %>%
+      summarise(trt_time = quantile(trt_time, 0.9))},
+      col = bnssgcols[6],
+      size = 2.5) +
+  scale_y_continuous(limits = c(NA, 10), breaks = 1:10) +
+  bnssgtheme() +
+  labs(y = "Time between arrival and treatment\n(hour)",
+       x = "DTA queue")
+
+
 
 model_spec <- linear_reg() %>%
   set_engine("lm")
@@ -635,9 +658,7 @@ jtools::export_summs(dta_resp_lm, coefs = c("(Intercept)",
                                             "18:00-24:00" = "hour(18,24]",
                                             "Interaction: DTA queue-Patients in ED" = "n_dta:n_ed"
 ),
-error_pos = "right"#,
-# to.file = huxtable::quick_html(),
-# file.name = "materials/handover_reg.html"
+error_pos = "right"
 )
 
 
@@ -665,17 +686,180 @@ lm(resp_time_cat1 ~ n_dta * n_ed + wkend + hour, data = dta_mod$data[[1]]) %>%
   # file.name = "materials/handover_reg.html"
   )
 
-(p_ccf_resp <- dta_df %>% 
-    left_join(resp_time_df) %>%
-    filter(site == "SOUTHMEAD HOSPITAL") %>%
-    as_tsibble(key = site, index = dt) %>%
-    na.omit() %>%
-    tsibble::fill_gaps() %>%
-    CCF(x = n_dta, y = resp_time_cat2, , lag_max = 48) %>%
-    autoplot() +
-    bnssgtheme() + 
-    labs(#title = "Raw time series",
-      x = "Lag of DTA queue [1hr]",
-      y = "Cross-correlation with mean cat 2 response time"))
+
+dta_mod_age <- dta_df %>% 
+  left_join(handover_df) %>% 
+  left_join(ed_df) %>%
+  left_join(resp_time_df) %>%
+  mutate(n_ed = n_ed - n_dta) %>%
+  ungroup() %>%
+  na.omit() %>%
+  filter(site == "SOUTHMEAD HOSPITAL") %>%
+  filter(
+    age %in% c(
+      "65-69 Years Old",
+      "70-74 Years Old",
+      "75-79 Years Old",
+      "80-84 Years Old",
+      "85-89 Years Old",
+      "90-94 Years Old",
+      "95-99 Years Old",
+      "100 Years Old Or Over"
+    )
+  ) %>%
+  filter(handover_time > 0) %>%
+  mutate(wkend = factor(ifelse(wday(dt, week_start = 1) < 6, "yes", "no")),
+         hour = factor(cut(hour(dt), breaks = seq(0, 24, 6), include.lowest = TRUE), ordered = FALSE)) %>% 
+  mutate(hour = fct_relevel(hour, "(12,18]", after = 0)) %>%
+  group_by(site) %>%
+  nest() %>%
+  mutate(splits = map(data, initial_split)) %>%
+  mutate(
+    rec = map(splits, ~recipe(formula = handover_time ~ n_dta + n_ed + wkend + hour, data = training(.x)) %>%
+                step_interact(~n_dta:n_ed)),
+    rec_trans = map(splits, ~recipe(formula = handover_time ~ n_dta + n_ed + wkend + hour, data = training(.x)) %>%
+                      step_interact(~n_dta:n_ed) %>%
+                      step_log(all_outcomes()))) %>%
+  mutate(wf = map(rec, ~workflow() %>% add_recipe(.x) %>% add_model(model_spec))) %>%
+  # mutate(wf_trans = map(rec_trans, ~workflow() %>% add_recipe(.x) %>% add_model(model_spec))) %>%
+  mutate(fit = map2(wf, splits, ~last_fit(.x, split = .y))) 
+
+
+dta_handover_age_lm <- lm(handover_time/60 ~ n_dta * n_ed + wkend + hour, data = dta_mod_age$data[[1]])
+summary(dta_handover_age_lm)
+
+dta_mod_age_2 <- dta_df %>% 
+  left_join(handover_df) %>% 
+  left_join(ed_df) %>%
+  left_join(resp_time_df) %>%
+  mutate(n_ed = n_ed - n_dta) %>%
+  ungroup() %>%
+  na.omit() %>%
+  filter(site == "SOUTHMEAD HOSPITAL") %>%
+  filter(
+    !age %in% c(
+      "65-69 Years Old",
+      "70-74 Years Old",
+      "75-79 Years Old",
+      "80-84 Years Old",
+      "85-89 Years Old",
+      "90-94 Years Old",
+      "95-99 Years Old",
+      "100 Years Old Or Over"
+    )
+  ) %>%
+  filter(handover_time > 0) %>%
+  mutate(wkend = factor(ifelse(wday(dt, week_start = 1) < 6, "yes", "no")),
+         hour = factor(cut(hour(dt), breaks = seq(0, 24, 6), include.lowest = TRUE), ordered = FALSE)) %>% 
+  mutate(hour = fct_relevel(hour, "(12,18]", after = 0)) %>%
+  group_by(site) %>%
+  nest() %>%
+  mutate(splits = map(data, initial_split)) %>%
+  mutate(
+    rec = map(splits, ~recipe(formula = handover_time ~ n_dta + n_ed + wkend + hour, data = training(.x)) %>%
+                step_interact(~n_dta:n_ed)),
+    rec_trans = map(splits, ~recipe(formula = handover_time ~ n_dta + n_ed + wkend + hour, data = training(.x)) %>%
+                      step_interact(~n_dta:n_ed) %>%
+                      step_log(all_outcomes()))) %>%
+  mutate(wf = map(rec, ~workflow() %>% add_recipe(.x) %>% add_model(model_spec))) %>%
+  # mutate(wf_trans = map(rec_trans, ~workflow() %>% add_recipe(.x) %>% add_model(model_spec))) %>%
+  mutate(fit = map2(wf, splits, ~last_fit(.x, split = .y))) 
+
+
+dta_handover_age_lm_2 <- lm(handover_time/60 ~ n_dta * n_ed + wkend + hour, data = dta_mod_age_2$data[[1]])
+summary(dta_handover_age_lm_2)
+
+huxtable::quick_pptx(jtools::export_summs(
+                     dta_handover_age_lm_2,
+                     dta_handover_age_lm,
+                     coefs = c("(Intercept)",
+                                                "DTA Queue" = "n_dta",
+                                                "Patients in ED (non-DTA)" = "n_ed",
+                                                "Weekend" = "wkendyes",
+                                                "00:00-06:00" = "hour[0,6]",
+                                                "06:00-12:00" = "hour(6,12]",
+                                                "18:00-24:00" = "hour(18,24]",
+                                                "Interaction: DTA queue-Patients in ED" = "n_dta:n_ed"
+),
+error_pos = "right",
+model.names = c("Under 65", "65+"),
+file.name = "materials/handover_reg.pptx"
+))
+
+jtools::effect_plot(dta_handover_age_lm_2,
+                    pred = "n_dta",
+                    interval = TRUE)
+
+
+dta_mod_age_3 <- dta_df %>% 
+  left_join(handover_df) %>% 
+  left_join(ed_df) %>%
+  left_join(resp_time_df) %>%
+  mutate(n_ed = n_ed - n_dta) %>%
+  ungroup() %>%
+  na.omit() %>%
+  filter(site == "SOUTHMEAD HOSPITAL") %>%
+  mutate(age_flag = if_else(
+    age %in% c(
+      "65-69 Years Old",
+      "70-74 Years Old",
+      "75-79 Years Old",
+      "80-84 Years Old",
+      "85-89 Years Old",
+      "90-94 Years Old",
+      "95-99 Years Old",
+      "100 Years Old Or Over"
+    ), "65+", "under 65")
+  ) %>%
+  filter(handover_time > 0) %>%
+  mutate(wkend = factor(ifelse(wday(dt, week_start = 1) < 6, "yes", "no")),
+         hour = factor(cut(hour(dt), breaks = seq(0, 24, 6), include.lowest = TRUE), ordered = FALSE)) %>% 
+  mutate(hour = fct_relevel(hour, "(12,18]", after = 0)) %>%
+  group_by(site) %>%
+  nest() %>%
+  mutate(splits = map(data, initial_split)) %>%
+  mutate(
+    rec = map(splits, ~recipe(formula = handover_time ~ n_dta + n_ed + wkend + hour, data = training(.x)) %>%
+                step_interact(~n_dta:n_ed)),
+    rec_trans = map(splits, ~recipe(formula = handover_time ~ n_dta + n_ed + wkend + hour, data = training(.x)) %>%
+                      step_interact(~n_dta:n_ed) %>%
+                      step_log(all_outcomes()))) %>%
+  mutate(wf = map(rec, ~workflow() %>% add_recipe(.x) %>% add_model(model_spec))) %>%
+  # mutate(wf_trans = map(rec_trans, ~workflow() %>% add_recipe(.x) %>% add_model(model_spec))) %>%
+  mutate(fit = map2(wf, splits, ~last_fit(.x, split = .y))) 
+
+
+dta_handover_age_lm_3 <- lm(handover_time/60 ~ n_dta * n_ed + n_dta*age_flag + wkend + hour, data = dta_mod_age_3$data[[1]])
+summary(dta_handover_age_lm_3)
+
+
+
+
+
+dta_mod$data[[1]] %>%
+  group_by(n_dta) %>%
+  summarise(resp_time_cat3 = quantile(resp_time_cat3, 0.9)) %>%
+  ggplot(aes(x = n_dta, y = resp_time_cat3, col = "90% quantile")) +
+  geom_point(data = dta_mod$data[[1]], aes(col = "All data"), alpha = 0.015) +
+  geom_point(size = 2.5) +
+  geom_smooth(method = "lm", show.legend = FALSE)  +
+  scale_y_continuous(limits = c(0, 480), breaks = seq(0, 480, 60)) +
+  bnssgtheme() +
+  scale_colour_manual(values = c(unname(bnssgcols[4]), "black"),
+                      guide = guide_legend(override.aes = list(size = 3,
+                                                               alpha = 1))) +
+  guides(alpha = "none") +
+  labs(y = "Category 3 response time\n(min)",
+       x = "DTA queue",
+       colour = "Category 3 response time:") +
+  theme(legend.position = "bottom",
+        legend.justification = "center",
+        legend.title = element_text())
+
+dta_mod$data[[1]] %>%
+  group_by(n_dta, n_ed, wkend, hour) %>%
+  summarise(resp_time_cat3 = quantile(resp_time_cat3, 0.9)) %>%
+lm(resp_time_cat3 ~ n_dta * n_ed + wkend + hour, data = .) %>%
+  summary()
 
 
