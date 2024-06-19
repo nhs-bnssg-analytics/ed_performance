@@ -515,14 +515,16 @@ plot_df}
       # left_join(minor_time_in_ed_df) %>%
       filter(site == "SOUTHMEAD HOSPITAL", n_dta < 30) %>%
       mutate(handover_time = handover_time/60) %>%
-      na.omit()}, aes(x = n_dta, y = handover_time), alpha = 0.015) +
+      na.omit()}, aes(x = n_dta, y = handover_time, col = "All data"), alpha = 0.015) +
     geom_point(aes(col = q, group = q), size = 2.5) +
     scale_y_continuous(limits = c(0, 180), breaks = seq(0, 180, 30)) +
     # geom_ribbon(aes(ymin = lwr, ymax = upr, fill = q), col = NA, alpha = 0.25) +
     geom_line(aes(y = fit, col = q)) +
     geom_hline(yintercept = 30, linetype = 2) +
     bnssgtheme() +
-    scale_colour_manual(values = viridis::viridis(n = 3, end = 0.8, begin = 0.2, direction = -1)) +
+    scale_colour_manual(values = c(viridis::viridis(n = 3, end = 0.8, begin = 0.2, direction = -1), "black"),
+                        guide = guide_legend(override.aes = list(size = 3,
+                                                                 alpha = 1))) +
     labs(y = "Ambulance handover time\n(min)",
          x = "DTA queue",
          colour = "Handover time quantile") +

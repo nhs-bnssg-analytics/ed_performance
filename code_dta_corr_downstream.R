@@ -79,17 +79,24 @@ dta_df <- local({
   dat_ecds_n_ed <- 
     dat_ecds %>%
     select(nhs_number, arrival_dt, dta_dt) %>%
-    mutate(arrival_dt = floor_date(arrival_dt, "days")) %>%
+    mutate(
+      arrival_day = floor_date(arrival_dt, "days"),
+      dta_day = floor_date(dta_dt, "days")
+      
+    ) %>%
     distinct() %>%
     filter(!is.na(nhs_number)) %>%
-    arrange(nhs_number, arrival_dt) %>%
+    arrange(nhs_number, arrival_day) %>%
+    group_by(nhs_number, arrival_day) %>%
+    filter(arrival_dt == max(arrival_dt, na.rm = TRUE)) %>%
     group_by(nhs_number) %>%
     # remove patients that never DTA
     filter(!all(is.na(dta_dt))) %>%
-    mutate(max_arr = arrival_dt[which.max(dta_dt)]) %>%
-    # remove non DTA ed attendances after the max DTA date
-    filter(arrival_dt <= max_arr) %>%
-    mutate(arr_diff = (max_arr - lag(arrival_dt))/ddays(1)) %>%
+    # earliest arrival with dta
+    mutate(min_arr = arrival_day[which.min(dta_dt)]) %>%
+    # remove ed attendances after the min DTA date
+    filter(arrival_day <= min_arr) %>%
+    mutate(arr_diff = (min_arr - lag(arrival_day))/ddays(1)) %>%
     mutate(n_ed = sum(na.omit(arr_diff) < pre_window_days)) %>%
     mutate(n_adm = sum(na.omit(arr_diff[!is.na(dta_dt)]) < pre_window_days)) %>%
     mutate(n_ed = ifelse(n_ed > 0, n_ed -1, 0)) %>%
@@ -101,8 +108,6 @@ dta_df <- local({
   dat_ecds_perf <- dat_ecds %>%
     group_by(site, arrival_hour = floor_date(arrival_dt, unit = "hour")) %>%
     summarise(perf = 1-mean(breach))
-  
-  
   
   string_attr <- {glue::glue("SELECT
  a.[nhs_number]
@@ -319,7 +324,24 @@ mod_df <- dta_df %>%
   mutate(arrival_time = factor(hms::as_hms(floor_date(arrival_dt, "6 hour")))) %>%
   mutate(arrival_month = factor(month(arrival_dt))) %>%
   mutate(arrival_year = factor(year(arrival_dt))) %>%
-  select(arrival_time, arrival_month, arrival_year, perf, age, age_sq, n_ed, n_ed_sq, n_adm, n_adm_sq, sex, imd, cambridge_score, cambridge_score_sq, specialty, mort_30)
+  select(
+    arrival_time,
+    arrival_month,
+    arrival_year,
+    perf,
+    age,
+    age_sq,
+    n_ed,
+    n_ed_sq,
+    # n_adm,
+    # n_adm_sq,
+    sex,
+    imd,
+    cambridge_score,
+    cambridge_score_sq,
+    specialty,
+    mort_30
+  )
 
 saveRDS(mod_df, "data/smr_mod_df.RDS")
 mod_df <- readRDS("data/smr_mod_df.RDS")
@@ -752,35 +774,10 @@ los_df <- local({
     group_by(nhs_number, Date_Of_Admission) %>%
     mutate(spell_id = cur_group_id()) %>%
     group_by(spell_id) %>%
-    mutate(
-      der_los = (as.Date(Census_Date) - as.Date(Date_Of_Admission))/lubridate::ddays(1),
-      der_ctr = case_when(
-        Criteria_To_Reside == "Y" | is.na(Criteria_To_Reside) ~ TRUE,
-        !is.na(Days_NCTR) ~ FALSE,
-        !is.na(Date_NCTR) ~ FALSE,
-        Criteria_To_Reside == "N" ~ FALSE
-      ),
-      der_date_nctr = as.Date(if_else(any(!der_ctr),min(Census_Date[!der_ctr]) - lubridate::ddays(1),max(Census_Date)))) %>%
-    ungroup() %>%
-    mutate(der_date_nctr = pmin(der_date_nctr, Date_NCTR, na.rm = TRUE)) %>%
-    arrange(Census_Date) %>%
-    group_by(spell_id) %>%
-    # mutate(
-    #   discharge_rdy_los = case_when(
-    #     !any(der_ctr) ~ max(der_los), # if never NCTR, take max LOS
-    #     der_ctr ~ tail(der_los, 1),  # where CTR take last LOS
-    #     length(der_los) == 1 ~ der_los, # if only 1 LOS record, take that
-    #   )
-    # ) %>%
-    mutate(discharge_rdy_los = (der_date_nctr - as.Date(Date_Of_Admission))/lubridate::ddays(1)) %>%
-    # take first discharge ready value
-    group_by(NHS_Number, adm_date = Date_Of_Admission) %>%
-    arrange(discharge_rdy_los) %>% 
-    slice(1) %>%
+    group_by(nhs_number, adm_date = Date_Of_Admission) %>%
+    filter(Current_LOS == max(Current_LOS)) %>%
     mutate(day_of_admission = weekdays(Date_Of_Admission)) %>%
     ungroup() %>%
-    filter(discharge_rdy_los > 0) %>%
-    # filter(discharge_rdy_los < 60) %>%
     filter(Organisation_Site_Code %in% c('RVJ01', 'RA701', 'RA301', 'RA7C2')) %>%
     mutate(Organisation_Site_Code = case_when(Organisation_Site_Code == 'RVJ01' ~ 'nbt',
                                               Organisation_Site_Code == 'RA701' ~ 'bri',
@@ -790,7 +787,7 @@ los_df <- local({
     dplyr::select(
       nhs_number,
       adm_date,
-      los = discharge_rdy_los
+      los = Current_LOS
     )
   })
 
@@ -855,6 +852,119 @@ ggsave("materials/los_plot.png",
        width = 7.5, 
        scale = 0.9)
 
+(los_plot <- local({
+  plot_df <- dta_df %>%
+  filter(site == "SOUTHMEAD HOSPITAL") %>%
+  left_join(los_df) %>%
+  mutate(diff = abs(departure_dt - adm_date)/ddays(1)) %>%
+  group_by(nhs_number) %>%
+  # find nearest adm match, and reject any over 1 day
+  filter(diff == min(diff), diff < 1) %>%
+  mutate(age_sq = age^2) %>%
+  mutate(n_ed_sq = n_ed^2) %>%
+  mutate(n_adm_sq = n_adm^2) %>%
+  mutate(cambridge_score_sq = cambridge_score^2) %>%
+  mutate(imd = factor(imd)) %>%
+  mutate(arrival_time = factor(hms::as_hms(floor_date(arrival_dt, "6 hour")))) %>%
+  mutate(arrival_month = factor(month(arrival_dt))) %>%
+  mutate(arrival_year = factor(year(arrival_dt))) %>%
+  ungroup() %>%
+    select(
+      arrival_time,
+      arrival_month,
+      arrival_year,
+      dta_time,
+      perf,
+      age,
+      age_sq,
+      n_ed,
+      n_ed_sq,
+      n_adm,
+      n_adm_sq,
+      sex,
+      imd,
+      cambridge_score,
+      cambridge_score_sq,
+      los
+    ) %>%
+    distinct() %>%
+  filter(between(dta_time, 0, 60*24)) %>%
+  filter(los < 75) 
+  
+  plot_df %>%
+  mutate(dta_time = 30*dta_time%/%30) %>%
+  group_by(dta_time) %>%
+  summarise(los = quantile(los, 0.9)) %>%
+  ggplot(aes(x = dta_time/60, y = los, col = "90% quantile")) +
+  geom_point(data = plot_df, aes(col = "All data"),  alpha = 0.015) +
+  geom_point(size = 2.5) +
+  geom_smooth(method = "lm", show.legend = FALSE) +
+  bnssgtheme() +
+    scale_colour_manual(values = c(unname(bnssgcols[4]), "black"),
+                        guide = guide_legend(override.aes = list(size = 3,
+                                                                 alpha = 1))) +
+    scale_y_continuous(limits = c(0, 45), breaks = seq(0, 45, 10)) +
+    guides(alpha = "none") +
+    theme(legend.position = "bottom",
+          legend.justification = "center",
+          legend.title = element_text()) +
+  labs(x = "Time waiting for admission (hour)",
+       y = "LOS (day)",
+       colour = "Total length of stay")
+})
+)
+
+ggsave("materials/downstream_los.png",
+       los_plot,
+       height = 5,
+       width = 7.5, 
+       scale = 0.9)  
+
+
+los_mod_df <- dta_df %>%
+  filter(site == "SOUTHMEAD HOSPITAL") %>%
+  left_join(los_df) %>%
+  mutate(diff = abs(departure_dt - adm_date)/ddays(1)) %>%
+  group_by(nhs_number) %>%
+  # find nearest adm match, and reject any over 1 day
+  filter(diff == min(diff), diff < 1) %>%
+  mutate(age_sq = age^2) %>%
+  mutate(n_ed_sq = n_ed^2) %>%
+  mutate(n_adm_sq = n_adm^2) %>%
+  mutate(cambridge_score_sq = cambridge_score^2) %>%
+  mutate(imd = factor(imd)) %>%
+  mutate(arrival_time = factor(hms::as_hms(floor_date(arrival_dt, "6 hour")))) %>%
+  mutate(arrival_month = factor(month(arrival_dt))) %>%
+  mutate(arrival_year = factor(year(arrival_dt))) %>%
+  ungroup() %>%
+  select(
+    arrival_time,
+    arrival_month,
+    arrival_year,
+    dta_time,
+    perf,
+    age,
+    age_sq,
+    n_ed,
+    n_ed_sq,
+    n_adm,
+    n_adm_sq,
+    sex,
+    imd,
+    cambridge_score,
+    cambridge_score_sq,
+    los
+  ) %>%
+  distinct() %>%
+  filter(between(dta_time, 0, 60*24)) %>%
+  filter(los < 75)  %>%
+  mutate(dta_time = 30*dta_time%/%30) %>%
+  group_by(dta_time) %>%
+  summarise(los = quantile(los, 0.9))
+
+
+los_mod <- lm(los ~ dta_time, data = los_mod_df)
+summary(los_mod)
 
 dta_df %>%
   filter(site == "SOUTHMEAD HOSPITAL") %>%
