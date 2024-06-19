@@ -597,11 +597,22 @@ dta_df %>%
   labs(y = "Time to be seen for treatment\n(min)",
        x = "DTA queue"))
 
+
+
 ggsave("materials/treat_time_scatter_quant.png",
        scatter_2,
        height = 5,
        width = 7.5, 
        scale = 0.9)
+
+dta_df %>%
+  left_join(trt_df) %>%
+  filter(site == "SOUTHMEAD HOSPITAL") %>%
+  na.omit() %>%
+  group_by(n_dta) %>%
+  summarise(trt_time = quantile(trt_time, 0.9)) %>%
+  lm(trt_time ~ n_dta, data = .) %>%
+  summary()
 
 
 

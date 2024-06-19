@@ -1135,11 +1135,11 @@ dat_socare <- local({
 
 
 
-dat_adm_id %>%
+dat_sc_outcome <- dat_adm_id %>%
   select(nhs_number,
          arr_id,
          arrival_dt,
-         departure_dt)
+         departure_dt) %>%
 inner_join(dat_socare) %>%
   group_by(nhs_number, arr_id) %>%
   # course filter any patients who have had SC before
@@ -1149,62 +1149,40 @@ inner_join(dat_socare) %>%
   distinct() %>%
   mutate(sc = "yes")
 
+dat_sc_outcome <- 
+  bind_rows(dat_sc_outcome, {dat_adm_id %>%
+  filter(!nhs_number %in% dat_sc_outcome) %>%
+  select(nhs_number, arr_id) %>%
+  distinct() %>%
+  mutate(sc = "no")}) %>%
+  mutate(sc = factor(sc, levels = c("no", "yes"))) 
 
-dat_adm <- dat_ecds %>%
-  mutate(nhs_number = as.character(nhs_number)) %>%
-  group_by(nhs_number) %>%
-  filter(dta_dt == min(dta_dt, na.rm = TRUE)) %>%
-  ungroup() %>%
+
+dat_adm <- dat_adm_id %>%
   select(site, nhs_number, imd, age, sex, arr_id, arrival_dt, dta_dt, departure_dt, dta_time, ed_time) %>%
   mutate(arrival_hour = floor_date(arrival_dt, "hour")) %>%
   left_join(dat_ecds_perf) %>%
   left_join(dat_ecds_n_ed) %>% 
   left_join(dat_scores) %>%
   left_join(dat_spec) %>%
+  left_join(dat_sc_outcome) %>%
   select(-arr_id) %>%
   na.omit()
-
-# outcomes:
-
-# readmission/attendance within 30 days of dta (in future this could be extended
-# to post discharge)
-
-dat_re_att_adm <- dat_adm %>%
-  select(nhs_number, index_dep = departure_dt) %>%
-  left_join(dat_ecds) %>%
-  filter(arrival_dt > index_dep) %>%
-  filter(interval(index_dep, arrival_dt)/ddays(1) < 30) %>%
-  group_by(nhs_number) %>%
-  summarise(re_att = n() > 0,
-            re_adm = any(!is.na(dta_dt))) 
-
-dat_re_att_adm <-
-  bind_rows(dat_re_att_adm, {
-    dat_adm %>%
-      select(nhs_number) %>%
-      filter(!nhs_number %in% dat_re_att_adm$nhs_number) %>%
-      mutate(re_att = FALSE, re_adm = FALSE)
-  })
-
-
 
 
 
 mod_df <- dat_adm %>%
-  left_join(dat_re_att_adm) %>%
   mutate(age_sq = age^2) %>%
   mutate(n_ed_sq = n_ed^2) %>%
   mutate(n_adm_sq = n_adm^2) %>%
   mutate(vw_score_sq = vw_score^2) %>%
   mutate(imd = factor(imd)) %>%
-  mutate(re_adm = factor(ifelse(re_adm, "yes", "no"), levels = c("no", "yes"))) %>%
   mutate(arrival_time = factor(hms::as_hms(floor_date(arrival_dt, "6 hour")))) %>%
   mutate(arrival_month = factor(month(arrival_dt))) %>%
   mutate(arrival_year = factor(year(arrival_dt))) %>%
   select(
     arrival_time,
     arrival_month,
-    arrival_year,
     perf,
     age,
     age_sq,
@@ -1217,17 +1195,17 @@ mod_df <- dat_adm %>%
     imd,
     vw_score,
     vw_score_sq,
-    re_adm
+    sc
   )
 
 saveRDS(mod_df, "data/smr_mod_df.RDS")
 mod_df <- readRDS("data/smr_mod_df.RDS")
 
-split <- initial_split(mod_df, strata = re_adm) 
+split <- initial_split(mod_df, strata = sc) 
 glm_spec <- logistic_reg()
 
-rec <- recipe(re_adm ~ ., data = training(split)) %>%
-  embed::step_lencode_glm(spec, outcome = vars(re_adm)) %>%
+rec <- recipe(sc ~ ., data = training(split)) %>%
+  embed::step_lencode_glm(spec, outcome = vars(sc)) %>%
   step_other(all_nominal_predictors()) %>%
   step_dummy(all_nominal_predictors()) %>%
   step_nzv()
@@ -1239,7 +1217,7 @@ wf <- workflow() %>%
 fit <- last_fit(wf, split)
 
 augment(fit) %>%
-  roc_curve(re_adm,
+  roc_curve(sc,
             .pred_yes,
             event_level = "second") %>%
   autoplot()
@@ -1254,16 +1232,12 @@ full_pred <- predict(extract_fit_engine(full_fit), bake(prep(rec), new_data = mo
 # smr
 
 (smr_plot <- dat_adm %>%
-    left_join(mortality_df) %>%
-    # filter(site == "SOUTHMEAD HOSPITAL") %>%
-    mutate(dta_time = 30*(dta_time %/% 30)) %>%
-    mutate(mort_30 = ifelse((interval(arrival_dt, date_death)/ddays(1)) < 30, TRUE, FALSE)) %>%
-    mutate(mort_30 = coalesce(mort_30, FALSE)) %>%
-    select(dta_time, mort_30) %>%
-    mutate(pred_mort = full_pred) %>%
+    select(dta_time, sc) %>%
+    mutate(dta_time = 60*(dta_time %/% 60)) %>%
+    mutate(pred_sc = full_pred) %>%
     group_by(dta_time) %>%
-    summarise(n = n(), expected_mort = sum(pred_mort), actual_mort = sum(mort_30), smr = actual_mort/expected_mort) %>%
-    filter(n > 50,  dta_time > 0) %>%
+    summarise(n = n(), expected_sc = sum(pred_sc), actual_sc = sum(sc == "yes"), smr = actual_sc/expected_sc) %>% 
+    filter(between(dta_time, 0, 16*60)) %>%
     ggplot(aes(x = dta_time/60, y = smr)) +
     geom_point() +
     geom_smooth(method = "lm") +
