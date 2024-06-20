@@ -582,7 +582,7 @@ dta_df %>%
       na.omit() %>%
       group_by(n_dta) %>%
       summarise(trt_time = quantile(trt_time, 0.9))},
-      col = bnssgcols[6],
+      col = bnssgcols[4],
       method = "lm") +
   geom_point(data = {dta_df %>%
       left_join(trt_df) %>%
@@ -590,7 +590,7 @@ dta_df %>%
       na.omit() %>%
       group_by(n_dta) %>%
       summarise(trt_time = quantile(trt_time, 0.9))},
-      col = bnssgcols[6],
+      col = bnssgcols[4],
       size = 2.5) +
   scale_y_continuous(limits = c(NA, 600), breaks = seq(0, 600, 60)) +
   bnssgtheme() +
@@ -604,6 +604,16 @@ ggsave("materials/treat_time_scatter_quant.png",
        height = 5,
        width = 7.5, 
        scale = 0.9)
+
+dta_df %>%
+  left_join(trt_df) %>%
+  filter(site == "SOUTHMEAD HOSPITAL") %>%
+  na.omit() %>%
+  group_by(n_dta) %>%
+  summarise(trt_time = quantile(trt_time, 0.9)) %>%
+  lm(trt_time ~ n_dta, data = .) %>%
+  summary()
+
 
 dta_df %>%
   left_join(trt_df) %>%

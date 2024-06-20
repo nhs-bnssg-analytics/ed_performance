@@ -576,8 +576,11 @@ pathway_df <- local({
             bed_type = Bed_Type[1]) %>%
     select(nhs_number,
            adm_date,
-           pathway
-    )
+           pathway,
+           spec,
+           bed_type 
+    ) %>%
+  filter(adm_date > ymd("2023-06-01"))
   pathway_df
 })
 
@@ -586,7 +589,8 @@ pw_complexity <- map(head(seq_along(pw), -1), ~pw[1:.x]) %>%
   set_names(nm = c("pw_t1", "pw_t2", "pw_t3"))
 
 d2a_mod_df <- dta_df %>%
-  filter(site == "SOUTHMEAD HOSPITAL") %>%
+  # filter(site == "SOUTHMEAD HOSPITAL") %>%
+  filter(departure_dt > as.Date(min(pathway_df$adm_date))) %>%
   left_join(pathway_df) %>%
   mutate(diff = abs(departure_dt - adm_date)/ddays(1)) %>%
   group_by(nhs_number) %>%
@@ -597,6 +601,8 @@ d2a_mod_df <- dta_df %>%
   mutate(n_adm_sq = n_adm^2) %>%
   mutate(cambridge_score_sq = cambridge_score^2) %>%
   mutate(imd = factor(imd)) %>%
+  mutate(spec = factor(spec)) %>%
+  mutate(bed_type = factor(bed_type)) %>%
   mutate(pathway_target = list(map_lgl(pw_complexity, ~!pathway %in% .x))) %>% 
   mutate(pathway_target = map(pathway_target, ~factor(ifelse(.x, "yes", "no"), levels = c("no", "yes")))) %>%
   unnest_wider(pathway_target) %>%
@@ -608,27 +614,30 @@ d2a_mod_df <- dta_df %>%
   mutate(arrival_month = factor(month(arrival_dt))) %>%
   mutate(arrival_year = factor(year(arrival_dt))) %>%
   ungroup() %>%
-  select(arrival_time, arrival_month, arrival_year, perf, age, age_sq, n_ed, n_ed_sq, n_adm, n_adm_sq, sex, imd, cambridge_score, cambridge_score_sq, pw_t1, pw_t2, pw_t3) %>%
-  distinct()
+  select(
+    arrival_time,
+    arrival_month,
+    arrival_year,
+    perf,
+    age,
+    age_sq,
+    n_ed,
+    n_ed_sq,
+    n_adm,
+    n_adm_sq,
+    sex,
+    imd,
+    cambridge_score,
+    cambridge_score_sq,
+    spec,
+    bed_type,
+    pw_t1,
+    pw_t2,
+    pw_t3
+  ) %>%
+  distinct() %>%
+  na.omit()
 
-# d2a_split <- initial_split(d2a_mod_df, strata = pathway) 
-# glm_spec <- logistic_reg()
-# 
-# d2a_rec <- recipe(pathway ~ ., data = training(d2a_split)) %>%
-#   step_dummy(all_nominal_predictors()) %>%
-#   step_nzv()
-# 
-# d2a_wf <- workflow() %>%
-#   add_recipe(d2a_rec) %>%
-#   add_model(glm_spec)
-# 
-# d2a_fit <- last_fit(d2a_wf, d2a_split)
-# 
-# augment(d2a_fit) %>%
-#   roc_curve(pathway,
-#             .pred_yes,
-#             event_level = "second") %>%
-#   autoplot()
 
 targets <- names(pw_complexity)
 predictors <- setdiff(names(d2a_mod_df), targets)
@@ -673,7 +682,7 @@ d2a_preds <- map(d2a_fits, ~predict(extract_fit_engine(.x),
 
 (d2a_smr_plot <- 
   dta_df %>%
-  filter(site == "SOUTHMEAD HOSPITAL") %>%
+  # filter(site == "SOUTHMEAD HOSPITAL") %>%
   left_join(pathway_df) %>%
   mutate(diff = abs(departure_dt - adm_date)/ddays(1)) %>%
   group_by(nhs_number) %>%
@@ -686,6 +695,7 @@ d2a_preds <- map(d2a_fits, ~predict(extract_fit_engine(.x),
   mutate(pathway_target = list(map_lgl(pw_complexity, ~!pathway %in% .x))) %>% 
   unnest_wider(pathway_target) %>%
   ungroup() %>%
+  na.omit() %>%
   select(dta_time, any_of(names(pw_complexity))) %>%
   # mutate(pred_pathway = d2a_full_pred) %>% 
   bind_cols(d2a_preds %>% set_names(paste0("pred_", names(pw_complexity))) %>% as_tibble()) %>%
@@ -720,6 +730,93 @@ ggsave("materials/d2a_smr_plot.png",
        height = 9,
        width = 7.5, 
        scale = 0.9)
+
+(d2a_smr_plot <- 
+  dta_df %>%
+  # filter(site == "SOUTHMEAD HOSPITAL") %>%
+  left_join(pathway_df) %>%
+  mutate(diff = abs(departure_dt - adm_date)/ddays(1)) %>%
+  group_by(nhs_number) %>%
+  # find nearest adm match, and reject any over 1 day
+  filter(diff == min(diff), diff < 1) %>%
+  mutate(ed_time = 60*(ed_time %/% 60)) %>%
+  # mutate(pathway = ifelse(pathway == "Other", FALSE, TRUE)) %>%
+  # mutate(pathway = ifelse(pathway %in% c("Other", "P1", "P2"), FALSE, TRUE)) %>%
+  # mutate(pathway = coalesce(pathway, FALSE)) %>%
+  mutate(pathway_target = list(map_lgl(pw_complexity, ~!pathway %in% .x))) %>% 
+  unnest_wider(pathway_target) %>%
+  ungroup() %>%
+  na.omit() %>%
+  select(ed_time, any_of(names(pw_complexity))) %>%
+  # mutate(pred_pathway = d2a_full_pred) %>% 
+  bind_cols(d2a_preds %>% set_names(paste0("pred_", names(pw_complexity))) %>% as_tibble()) %>%
+  group_by(ed_time) %>%
+  summarise(across(starts_with("pred_"), sum, .names = "expected_{.col}"),
+            across(starts_with("pw_"), sum, .names = "actual_{.col}")) %>%
+  pivot_longer(cols = -ed_time, names_to = "metric", values_to = "value") %>%
+  separate_wider_delim(metric, "_", names = c("cat", "metric"), too_many = "merge") %>%
+  mutate(metric = str_remove_all(metric, "pred_")) %>%
+  pivot_wider(names_from = cat, values_from = value) %>%
+  mutate(ratio = actual/expected) %>%
+  mutate(metric = recode(metric, 
+                         "pw_t1" = "Discharge pathway complexity tier 1",
+                         "pw_t2" = "Discharge pathway complexity tier 2",
+                         "pw_t3" = "Discharge pathway complexity tier 3"
+                         )) %>%
+    
+  # summarise(expected_pathway = sum(pred_pathway),
+  #           actual_pathway = sum(pathway),
+  #           smr = actual_pathway/expected_pathway) %>%
+  filter(ed_time < 16*60, ed_time > 0) %>%
+  # filter out only tier 1 (as other tiers dont show anything interesting)
+  filter(metric == "Discharge pathway complexity tier 1") %>%
+  ggplot(aes(x = ed_time/60, y = ratio)) +
+  geom_smooth(method = "lm",  col = bnssgcols[4]) +
+  geom_point(col = bnssgcols[4]) +
+  # facet_wrap(vars(metric), ncol = 1) +
+  bnssgtheme() +
+  labs(y = "Actual:expected discharge\npathway requirement", x = "Time waiting in ED (hour)")
+)
+
+ggsave("materials/d2a_smr_plot.png",
+       d2a_smr_plot,
+       height = 5,
+       width = 7.5, 
+       scale = 0.9)
+
+
+# NNH d2a
+
+dta_df %>%
+  # filter(site == "SOUTHMEAD HOSPITAL") %>%
+  left_join(pathway_df) %>%
+  mutate(diff = abs(departure_dt - adm_date)/ddays(1)) %>%
+  group_by(nhs_number) %>%
+  # find nearest adm match, and reject any over 1 day
+  filter(diff == min(diff), diff < 1) %>%
+  mutate(ed_time = 60*(ed_time %/% 60)) %>%
+  mutate(pathway_target = list(map_lgl(pw_complexity, ~!pathway %in% .x))) %>% 
+  unnest_wider(pathway_target) %>%
+  ungroup() %>%
+  na.omit() %>%
+  select(dta_time, pw_t1) %>%
+  mutate(pred_d2a = d2a_preds[[1]]) %>%
+  filter(dta_time < 12*60, dta_time > 0) %>%
+  mutate(dta_time = cut(dta_time,
+                        breaks = 60*c(0, 4, 6, 10, 12),
+                        labels = c("0-4 hours",
+                                   "4-6 hours",
+                                   "6-10 hours",
+                                   "10-12 hours"
+                        ))) %>%
+  group_by(dta_time) %>%
+  summarise(n = n(),
+            expected_d2a_rate = sum(pred_d2a)/n,
+            actual_d2a_rate = sum(pw_t1)/n,
+            nnh = 1/(actual_d2a_rate - expected_d2a_rate))
+
+# %>%
+#   show_in_excel()
 
 
 # LOS

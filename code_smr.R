@@ -1173,6 +1173,7 @@ smr_df <- local({
 
 
 mod_df <- dat_adm %>%
+  # filter(site == "SOUTHMEAD HOSPITAL") %>%
   left_join(mortality_df) %>%
   mutate(age_sq = age^2) %>%
   mutate(n_ed_sq = n_ed^2) %>%
@@ -1247,10 +1248,11 @@ full_pred <- predict(extract_fit_engine(full_fit), bake(prep(rec), new_data = mo
     summarise(n = n(), expected_mort = sum(pred_mort), actual_mort = sum(mort_30), smr = actual_mort/expected_mort) %>%
     filter(n > 50,  dta_time > 0) %>%
     ggplot(aes(x = dta_time/60, y = smr)) +
-    geom_point() +
-    geom_smooth(method = "lm") +
+    geom_smooth(method = "lm", col = bnssgcols[4]) +
+    geom_point(col = bnssgcols[4]) +
     bnssgtheme() +
-    labs(y = "SMR", x = "Time waiting for admission (hours)"))
+    labs(y = "Standardised Mortality Ratio",
+         x = "Time waiting for admission (hours)"))
 
 ggsave("materials/smr_plot_adm.png",
        smr_plot,
@@ -1258,29 +1260,130 @@ ggsave("materials/smr_plot_adm.png",
        width = 7.5, 
        scale = 0.9)
 
+dat_adm %>%
+  left_join(mortality_df) %>%
+  # filter(site == "SOUTHMEAD HOSPITAL") %>%
+  mutate(dta_time = 120*(dta_time %/% 120)) %>%
+  mutate(mort_30 = ifelse((
+    interval(arrival_dt, date_death) / ddays(1)
+  ) < 30, TRUE, FALSE)) %>%
+  mutate(mort_30 = coalesce(mort_30, FALSE)) %>%
+  select(dta_time, mort_30) %>%
+  mutate(pred_mort = full_pred) %>%
+  filter(dta_time < 24*60, dta_time > 0) %>%
+  mutate(dta_time = cut(dta_time,
+                       breaks = 60*c(0, 4, 8, 12, 20, Inf),
+                       labels = c("0-4 hours",
+                                  "4-8 hours",
+                                  "8-12 hours",
+                                  "12-20 hours",
+                                  "20-24 hours")
+  )) %>%
+  # mutate(dta_time = cut(dta_time,
+  #                      breaks = 60*c(0, 4, 10, 16, 20, Inf),
+  #                      labels = c("0-4 hours",
+  #                                 "4-10 hours",
+  #                                 "10-16 hours",
+  #                                 "16-20 hours",
+  #                                 "20-24 hours"
+  #                      )
+  # )) %>%
+  group_by(dta_time) %>%
+  summarise(n = n(),
+            expected_mort_rate = sum(pred_mort)/n,
+            actual_mort_rate = sum(mort_30)/n,
+            nnh = 1/(actual_mort_rate - expected_mort_rate)) %>%
+  show_in_excel()
+
+
+
+dat_adm %>%
+  left_join(mortality_df) %>%
+  # filter(site == "SOUTHMEAD HOSPITAL") %>%
+  mutate(dta_time = 30*(dta_time %/% 30)) %>%
+  mutate(mort_30 = ifelse((interval(arrival_dt, date_death)/ddays(1)) < 30, TRUE, FALSE)) %>%
+  mutate(mort_30 = coalesce(mort_30, FALSE)) %>%
+  select(dta_time, mort_30) %>%
+  mutate(pred_mort = full_pred) %>%
+  group_by(dta_time) %>%
+  summarise(
+    n = n(),
+    expected_mort = sum(pred_mort),
+    actual_mort = sum(mort_30),
+    smr = actual_mort / expected_mort
+  ) %>%
+  filter(n > 50,  dta_time > 0) %>%
+  mutate(dta_time = dta_time/60) %>%
+  lm(smr ~ dta_time, data = .) %>%
+  summary()
+
 
 (smr_plot_ed <- dat_adm %>%
     left_join(mortality_df) %>%
     # filter(site == "SOUTHMEAD HOSPITAL") %>%
-    mutate(ed_time = 30*(ed_time %/% 30)) %>%
-    mutate(mort_30 = ifelse((interval(arrival_dt, date_death)/ddays(1)) < 30, TRUE, FALSE)) %>%
+    mutate(ed_time = (0.5*60) * (ed_time %/% (0.5*60))) %>%
+    mutate(mort_30 = ifelse((
+      interval(arrival_dt, date_death) / ddays(1)
+    ) < 30, TRUE, FALSE)) %>%
     mutate(mort_30 = coalesce(mort_30, FALSE)) %>%
     select(ed_time, mort_30) %>%
     mutate(pred_mort = full_pred) %>%
-    group_by(ed_time) %>%
-    summarise(n = n(), expected_mort = sum(pred_mort), actual_mort = sum(mort_30), smr = actual_mort/expected_mort) %>%
-    filter(n > 50,  ed_time > 0) %>%
+    group_by(ed_time) %>% 
+    summarise(
+      n = n(),
+      expected_mort = sum(pred_mort),
+      actual_mort = sum(mort_30),
+      smr = actual_mort / expected_mort
+    ) %>%
+    filter(n > 50,  ed_time > 0, ed_time < 24*60) %>%
     ggplot(aes(x = ed_time/60, y = smr)) +
-    geom_point() +
-    geom_smooth(method = "lm") +
+    geom_smooth(method = "lm",col = bnssgcols[4]) +
+    geom_point(col = bnssgcols[4]) +
     bnssgtheme() +
-    labs(y = "SMR", x = "Time waiting in ED (hours)"))
+    labs(y = "Standardised Mortality Ratio", x = "Time waiting in ED (hour)"))
 
 ggsave("materials/smr_plot_ed.png",
        smr_plot_ed,
        height = 5,
        width = 7.5, 
        scale = 0.9)
+
+show_in_excel <- function(.data){
+  
+  tmp <- paste0(tempfile(), ".csv")
+  
+  write.csv(.data, tmp)
+  
+  fs::file_show(path = tmp)
+  
+}
+
+dat_adm %>%
+  left_join(mortality_df) %>%
+  # filter(site == "SOUTHMEAD HOSPITAL") %>%
+  mutate(ed_time = (2*60)*(ed_time %/% (2*60))) %>%
+  mutate(mort_30 = ifelse((interval(arrival_dt, date_death)/ddays(1)) < 30, TRUE, FALSE)) %>%
+  mutate(mort_30 = coalesce(mort_30, FALSE)) %>%
+  select(ed_time, mort_30) %>%
+  mutate(pred_mort = full_pred) %>%
+  filter(ed_time < 24*60, ed_time > 0) %>%
+  mutate(ed_time = cut(ed_time,
+                        breaks = 60*c(0, 4, 10, 16, 20, Inf),
+                        labels = c("0-4 hours",
+                                   "4-10 hours",
+                                   "10-16 hours",
+                                   "16-20 hours",
+                                   "20-24 hours"
+                                   )
+                       )) %>%
+  group_by(ed_time) %>%
+  summarise(n = n(),
+            expected_mort_rate = sum(pred_mort)/n,
+            actual_mort_rate = sum(mort_30)/n,
+            nnh = 1/(actual_mort_rate - expected_mort_rate)) %>%
+  show_in_excel()
+
+
 
 
 (smr_plot <- dat_adm %>%
