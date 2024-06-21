@@ -838,6 +838,7 @@ resp_plot_df <- dta_df %>%
   geom_point(size = 2.5) +
   geom_smooth(method = "lm", show.legend = FALSE)  +
   scale_y_continuous(limits = c(0, 480), breaks = seq(0, 480, 60)) +
+  scale_x_continuous(limits = c(0, 35)) +
   bnssgtheme() +
   scale_colour_manual(values = c(unname(bnssgcols[4]), "black"),
                       guide = guide_legend(override.aes = list(size = 3,

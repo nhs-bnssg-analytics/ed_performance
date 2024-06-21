@@ -1198,8 +1198,8 @@ mod_df <- dat_adm %>%
     sc
   )
 
-saveRDS(mod_df, "data/smr_mod_df.RDS")
-mod_df <- readRDS("data/smr_mod_df.RDS")
+# saveRDS(mod_df, "data/smr_mod_df.RDS")
+# mod_df <- readRDS("data/smr_mod_df.RDS")
 
 split <- initial_split(mod_df, strata = sc) 
 glm_spec <- logistic_reg()
@@ -1232,23 +1232,55 @@ full_pred <- predict(extract_fit_engine(full_fit), bake(prep(rec), new_data = mo
 # smr
 
 (smr_plot <- dat_adm %>%
-    select(dta_time, sc) %>%
-    mutate(dta_time = 60*(dta_time %/% 60)) %>%
+    select(ed_time, sc) %>%
+    mutate(ed_time = (2*60)*(ed_time %/% (2*60))) %>%
     mutate(pred_sc = full_pred) %>%
-    group_by(dta_time) %>%
+    group_by(ed_time) %>%
     summarise(n = n(), expected_sc = sum(pred_sc), actual_sc = sum(sc == "yes"), smr = actual_sc/expected_sc) %>% 
-    filter(between(dta_time, 0, 16*60)) %>%
-    ggplot(aes(x = dta_time/60, y = smr)) +
-    geom_point() +
-    geom_smooth(method = "lm") +
+    filter(between(ed_time, 0, 24*60)) %>%
+    ggplot(aes(x = ed_time/60, y = smr)) +
+    geom_smooth(method = "lm", col = bnssgcols[4]) +
+    geom_point(col = bnssgcols[4]) +
     bnssgtheme() +
-    labs(y = "SMR", x = "Time waiting for admission (hours)"))
+    labs(y = "Actual:expected social\ncare requirement", x = "Time waiting in ED (hour)"))
 
-ggsave("materials/smr_plot_adm.png",
+ggsave("materials/smr_plot_sc.png",
        smr_plot,
        height = 5,
        width = 7.5, 
        scale = 0.9)
+
+
+show_in_excel <- function(.data) {
+  tmp <- paste0(tempfile(), ".csv")
+  write.csv(.data, tmp)
+  fs::file_show(path = tmp)
+}
+
+
+# NNH sc
+
+
+dat_adm %>%
+  mutate(ed_time = (2*60)*(ed_time %/% (2*60))) %>%
+  select(ed_time, sc) %>%
+  mutate(pred_sc = full_pred) %>%
+  filter(ed_time < 24*60, ed_time > 0) %>%
+  # mutate(ed_time = cut(ed_time,
+  #                       breaks = 60*c(0, 4, 10, 16, 24))) %>%
+  mutate(ed_time = cut(ed_time,
+                        breaks = 60*c(0, 4, 10, 16, 24),
+                        labels = c("0-4 hours",
+                                   "4-10 hours",
+                                   "10-16 hours",
+                                   "16-24 hours"
+                        ))) %>%
+  group_by(ed_time) %>%
+  summarise(n = n(),
+            expected_sc_rate = sum(pred_sc)/n,
+            actual_sc_rate = sum(sc == "yes")/n,
+            nnh = 1/(actual_sc_rate - expected_sc_rate)) %>%
+   show_in_excel()
 
 
 (smr_plot_ed <- dat_adm %>%

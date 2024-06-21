@@ -785,6 +785,13 @@ ggsave("materials/d2a_smr_plot.png",
        scale = 0.9)
 
 
+show_in_excel <- function(.data) {
+  tmp <- paste0(tempfile(), ".csv")
+  write.csv(.data, tmp)
+  fs::file_show(path = tmp)
+}
+
+
 # NNH d2a
 
 dta_df %>%
@@ -799,24 +806,22 @@ dta_df %>%
   unnest_wider(pathway_target) %>%
   ungroup() %>%
   na.omit() %>%
-  select(dta_time, pw_t1) %>%
+  select(ed_time, pw_t1) %>%
   mutate(pred_d2a = d2a_preds[[1]]) %>%
-  filter(dta_time < 12*60, dta_time > 0) %>%
-  mutate(dta_time = cut(dta_time,
+  filter(ed_time < 12*60, ed_time > 0) %>%
+  mutate(ed_time = cut(ed_time,
                         breaks = 60*c(0, 4, 6, 10, 12),
                         labels = c("0-4 hours",
                                    "4-6 hours",
                                    "6-10 hours",
                                    "10-12 hours"
                         ))) %>%
-  group_by(dta_time) %>%
+  group_by(ed_time) %>%
   summarise(n = n(),
             expected_d2a_rate = sum(pred_d2a)/n,
             actual_d2a_rate = sum(pw_t1)/n,
-            nnh = 1/(actual_d2a_rate - expected_d2a_rate))
-
-# %>%
-#   show_in_excel()
+            nnh = 1/(actual_d2a_rate - expected_d2a_rate)) %>%
+  show_in_excel()
 
 
 # LOS
