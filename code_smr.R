@@ -14,7 +14,7 @@ con_string <- "driver={SQL Server};\n  server=xsw-000-sp09;\n  trusted_connectio
 con<-odbcDriverConnect(con_string)
 
 
-report_start <- '2022-01-01'
+report_start <- '2018-01-01'
 report_end <- '2024-05-01'
 pre_window_days <- 60
 
@@ -1239,7 +1239,7 @@ full_pred <- predict(extract_fit_engine(full_fit), bake(prep(rec), new_data = mo
 (smr_plot <- dat_adm %>%
     left_join(mortality_df) %>%
     # filter(site == "SOUTHMEAD HOSPITAL") %>%
-    mutate(dta_time = 30*(dta_time %/% 30)) %>%
+    mutate(dta_time = (2*60)*(dta_time %/% (2*60))) %>%
     mutate(mort_30 = ifelse((interval(arrival_dt, date_death)/ddays(1)) < 30, TRUE, FALSE)) %>%
     mutate(mort_30 = coalesce(mort_30, FALSE)) %>%
     select(dta_time, mort_30) %>%
@@ -1321,7 +1321,7 @@ dat_adm %>%
 (smr_plot_ed <- dat_adm %>%
     left_join(mortality_df) %>%
     # filter(site == "SOUTHMEAD HOSPITAL") %>%
-    mutate(ed_time = (0.5*60) * (ed_time %/% (0.5*60))) %>%
+    mutate(ed_time = (2*60) * (ed_time %/% (2*60))) %>%
     mutate(mort_30 = ifelse((
       interval(arrival_dt, date_death) / ddays(1)
     ) < 30, TRUE, FALSE)) %>%
@@ -1342,7 +1342,7 @@ dat_adm %>%
     bnssgtheme() +
     labs(y = "Standardised Mortality Ratio", x = "Time waiting in ED (hour)"))
 
-ggsave("materials/smr_plot_ed.png",
+ggsave("materials/smr_plot_ed_2hr.png",
        smr_plot_ed,
        height = 5,
        width = 7.5, 
