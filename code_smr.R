@@ -54,7 +54,7 @@ dat_ecds_raw<-sqlQuery(con,string_ecds)
 saveRDS(dat_ecds_raw, "data/dat_ecds_raw_new.RDS")
 dat_ecds_raw <- readRDS("data/dat_ecds_raw_new.RDS")
 
-dat_ecds <- dat_ecds_raw %>% 
+dat_ecds<-dat_ecds_raw %>%
   mutate(NHS_Number = as.character(NHS_Number)) %>%
   mutate(arrival_dt=as.POSIXct(paste0(Arrival_Date," ",substr(Arrival_Time,1,8)),format="%Y-%m-%d %H:%M:%S")) %>%
   mutate(initial_dt=as.POSIXct(paste0(Initial_Assessment_Date," ",substr(Initial_Assessment_Time,1,8)),format="%Y-%m-%d %H:%M:%S")) %>%
@@ -282,8 +282,7 @@ dat_scores <- arrivals %>%
 dat_adm <- dat_ecds %>%
   mutate(nhs_number = as.character(nhs_number)) %>%
   group_by(nhs_number) %>%
-  slice_min(dta_dt, na_rm = TRUE, n = 1)
-  # filter(dta_dt == min(dta_dt, na.rm = TRUE)) %>%
+  filter(dta_dt == min(dta_dt, na.rm = TRUE)) %>%
   ungroup() %>%
   select(
     site,
