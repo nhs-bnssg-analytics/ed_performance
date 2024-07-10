@@ -134,19 +134,17 @@ dat_ecds_n_ed <-
 
 
 # get bnssg nhs nums for filtering
-string_attr <- glue::glue("	select
-	nhs_number
-	,max(attribute_period) as max_date
-	,count(attribute_period) as date_count
-	from
-	MODELLING_SQL_AREA.dbo.primary_care_attributes
-	where attribute_period between '{report_start}' and '{report_end}'
-	group by nhs_number")
+string_attr <- glue::glue("select distinct 
+ nhs_number
+from MODELLING_SQL_AREA.dbo.primary_care_attributes
+where attribute_period between '{report_start}' and '{report_end}'")
 
 
 dat_attr <- sqlQuery(con,string_attr) %>%
   filter(!is.na(nhs_number)) %>%
   mutate(nhs_number = as.character(nhs_number))
+
+saveRDS(dat_attr, "data/dat_attr.RDS")
 
 # arrivals for joining to sus
 arrivals <- 
@@ -288,6 +286,7 @@ dat_adm <- dat_ecds %>%
   group_by(nhs_number) %>%
   slice_min(dta_dt, na_rm = TRUE) %>%
   filter(dta_time >= 0) %>% # some records are negative seems to be DQ
+  filter(age < 120, !is.na(age)) %>%
   # filter(dta_dt == min(dta_dt, na.rm = TRUE)) %>%
   ungroup() %>%
   select(
@@ -373,15 +372,22 @@ smr_df <- local({
 })
 
 
+t_max <- 24*60
+days_mort <- 7
+
 mod_df <- dat_adm %>%
   # filter(site == "SOUTHMEAD HOSPITAL") %>%
+  filter(dta_time <= t_max) %>%
   left_join(mortality_df) %>%
+  # mutate(age = cut(age, breaks = seq(0, 120, 10), include.lowest = TRUE)) %>%
+  # mutate(dta_time = dta_time > 4*60) %>%
+  # mutate(dta_time = cut(dta_time, breaks = 60*seq(0, 24, 4), include.lowest = TRUE)) %>%
   mutate(age_sq = age^2) %>%
   mutate(n_ed_sq = n_ed^2) %>%
   mutate(n_adm_sq = n_adm^2) %>%
   mutate(vw_score_sq = vw_score^2) %>%
   mutate(imd = factor(imd)) %>%
-  mutate(mort_30 = ifelse((interval(arrival_dt, date_death)/ddays(1)) < 30, TRUE, FALSE)) %>%
+  mutate(mort_30 = ifelse((interval(arrival_dt, date_death)/ddays(1)) < days_mort, TRUE, FALSE)) %>%
   mutate(mort_30 = coalesce(mort_30, FALSE)) %>%
   mutate(mort_30 = factor(ifelse(mort_30, "yes", "no"), levels = c("no", "yes"))) %>%
   mutate(arrival_time = factor(hms::as_hms(floor_date(arrival_dt, "6 hour")))) %>%
@@ -396,18 +402,19 @@ mod_df <- dat_adm %>%
     age_sq,
     n_ed,
     n_ed_sq,
-    Acuity_Desc,
-    arrival_mode,
-    arrival_cat,
-    diagnoses,
-    investigation,
+    # Acuity_Desc,
+    # arrival_mode,
+    # arrival_cat,
+    # diagnoses,
+    # investigation,
     # n_adm,    # bring these back in when they aren't all
     # n_adm_sq,
     sex,
     imd,
     vw_score,
     vw_score_sq,
-    mort_30
+    mort_30,
+   dta_time
   )
 
 saveRDS(mod_df, "data/smr_mod_df_new.RDS")
@@ -417,7 +424,8 @@ split <- initial_split(mod_df, strata = mort_30)
 glm_spec <- logistic_reg()
 
 rec <- recipe(mort_30 ~ ., data = training(split)) %>%
-  step_other(all_nominal_predictors(), other = "other") %>%
+  # update_role(dta_time, new_role = "not for prediction") %>%
+  step_other(all_nominal_predictors(), -dta_time, other = "other") %>%
   step_novel(all_nominal_predictors(), new_level = "novel") %>%
   step_dummy(all_nominal_predictors()) %>%
   step_nzv()
@@ -428,7 +436,7 @@ wf <- workflow() %>%
 
 fit <- last_fit(wf, split)
 
-augment(fit) %>%
+fiaugment(fit) %>%
   roc_curve(mort_30,
             .pred_yes,
             event_level = "second") %>%
@@ -449,7 +457,7 @@ smr_plot <- function(t_var, bin = 2*60, x_lab = "Time waiting for admission"){
     left_join(mortality_df) %>%
     # filter(site == "SOUTHMEAD HOSPITAL") %>%
     mutate({{t_var}} := (bin)*({{t_var}} %/% (bin))) %>%
-    mutate(mort_30 = ifelse((interval(arrival_dt, date_death)/ddays(1)) < 30, TRUE, FALSE)) %>%
+    mutate(mort_30 = ifelse((interval(arrival_dt, date_death)/ddays(1)) < days_mort, TRUE, FALSE)) %>%
     mutate(mort_30 = coalesce(mort_30, FALSE)) %>%
     select({{t_var}}, mort_30) %>%
     mutate(pred_mort = full_pred) %>%
@@ -460,7 +468,7 @@ smr_plot <- function(t_var, bin = 2*60, x_lab = "Time waiting for admission"){
       actual_mort = sum(mort_30),
       smr = actual_mort / expected_mort
     ) %>%
-    filter(n > 50,  {{t_var}} => 0)
+    filter(n > 50,  {{t_var}} <= 0)
   
   df_mod <- bind_cols(x = pull(plot_df, {{t_var}}), y = pull(plot_df, smr), n = pull(plot_df, n))
   
@@ -528,60 +536,22 @@ smr_plot_quant <- function(t_var,
   
   p = seq(0, 1, length = n_bin + 1)
   
-  t_var_raw <- dat_adm %>%
+  t_var_raw <- mod_df %>%
     filter({{t_var}} <= time_max) %>%
     pull({{t_var}})
   
-  full_pred <- dat_adm %>%
+  full_pred <- mod_df %>%
     filter({{t_var}} <= time_max) %>%
-    left_join(mortality_df) %>%
-    mutate(age_sq = age^2) %>%
-    mutate(n_ed_sq = n_ed^2) %>%
-    mutate(n_adm_sq = n_adm^2) %>%
-    mutate(vw_score_sq = vw_score^2) %>%
-    mutate(imd = factor(imd)) %>%
-    mutate(mort_30 = ifelse((interval(arrival_dt, date_death)/ddays(1)) < 30, TRUE, FALSE)) %>%
-    mutate(mort_30 = coalesce(mort_30, FALSE)) %>%
-    mutate(mort_30 = factor(ifelse(mort_30, "yes", "no"), levels = c("no", "yes"))) %>%
-    mutate(arrival_time = factor(hms::as_hms(floor_date(arrival_dt, "6 hour")))) %>%
-    mutate(arrival_month = factor(month(arrival_dt))) %>%
-    mutate(arrival_year = factor(year(arrival_dt))) %>%
-    select(
-      arrival_time,
-      arrival_month,
-      arrival_year,
-      perf,
-      age,
-      age_sq,
-      n_ed,
-      n_ed_sq,
-      Acuity_Desc,
-      arrival_mode,
-      arrival_cat,
-      diagnoses,
-      investigation,
-      # n_adm,    # bring these back in when they aren't all
-      # n_adm_sq,
-      sex,
-      imd,
-      vw_score,
-      vw_score_sq,
-      mort_30
-    ) %>%
     bake(prep(rec), new_data = .) %>%
     predict(extract_fit_engine(full_fit),
                        newdata = .,
                        type = "response")
   
   plot_df <- 
-  dat_adm %>%
-  left_join(mortality_df) %>%
-  # filter(site == "SOUTHMEAD HOSPITAL") %>%
-  # mutate({{t_var}} = pmin({{t_var}}, time_max, na.rm = TRUE)) %>%
+  mod_df %>%
   filter({{t_var}} <= time_max) %>%
   mutate({{t_var}} := cut({{t_var}}, breaks = unique(quantile({{t_var}}, p)), include.lowest = TRUE)) %>%
-  mutate(mort_30 = ifelse((interval(arrival_dt, date_death)/ddays(1)) < 30, TRUE, FALSE)) %>%
-  mutate(mort_30 = coalesce(mort_30, FALSE)) %>%
+  mutate(mort_30 = mort_30 == "yes") %>%
   select({{t_var}}, mort_30) %>%
   mutate(pred_mort = full_pred) %>%
   group_by({{t_var}}) %>%
@@ -628,7 +598,7 @@ ggplot(plot_df, aes(x = left/60, y = smr)) +
 }
 
 map(seq(5, 25, 5), ~smr_plot_quant(dta_time,
-                                   time_max = 24*60,
+                                   time_max = 12*60,
                                    n_bin = .x)) %>%
 patchwork::wrap_plots(axes = "collect")
 
@@ -647,7 +617,7 @@ dat_adm %>%
   mutate(dta_time = 120*(dta_time %/% 120)) %>%
   mutate(mort_30 = ifelse((
     interval(arrival_dt, date_death) / ddays(1)
-  ) < 30, TRUE, FALSE)) %>%
+  ) < days_mort, TRUE, FALSE)) %>%
   mutate(mort_30 = coalesce(mort_30, FALSE)) %>%
   select(dta_time, mort_30) %>%
   mutate(pred_mort = full_pred) %>%
@@ -682,7 +652,7 @@ dat_adm %>%
   left_join(mortality_df) %>%
   # filter(site == "SOUTHMEAD HOSPITAL") %>%
   mutate(dta_time = 30*(dta_time %/% 30)) %>%
-  mutate(mort_30 = ifelse((interval(arrival_dt, date_death)/ddays(1)) < 30, TRUE, FALSE)) %>%
+  mutate(mort_30 = ifelse((interval(arrival_dt, date_death)/ddays(1)) < days_mort, TRUE, FALSE)) %>%
   mutate(mort_30 = coalesce(mort_30, FALSE)) %>%
   select(dta_time, mort_30) %>%
   mutate(pred_mort = full_pred) %>%
@@ -705,7 +675,7 @@ dat_adm %>%
     mutate(ed_time = (2*60) * (ed_time %/% (2*60))) %>%
     mutate(mort_30 = ifelse((
       interval(arrival_dt, date_death) / ddays(1)
-    ) < 30, TRUE, FALSE)) %>%
+    ) < days_mort, TRUE, FALSE)) %>%
     mutate(mort_30 = coalesce(mort_30, FALSE)) %>%
     select(ed_time, mort_30) %>%
     mutate(pred_mort = full_pred) %>%
@@ -743,7 +713,7 @@ dat_adm %>%
   left_join(mortality_df) %>%
   # filter(site == "SOUTHMEAD HOSPITAL") %>%
   mutate(ed_time = (2*60)*(ed_time %/% (2*60))) %>%
-  mutate(mort_30 = ifelse((interval(arrival_dt, date_death)/ddays(1)) < 30, TRUE, FALSE)) %>%
+  mutate(mort_30 = ifelse((interval(arrival_dt, date_death)/ddays(1)) < days_mort, TRUE, FALSE)) %>%
   mutate(mort_30 = coalesce(mort_30, FALSE)) %>%
   select(ed_time, mort_30) %>%
   mutate(pred_mort = full_pred) %>%
@@ -771,7 +741,7 @@ dat_adm %>%
     left_join(mortality_df) %>%
     # filter(site == "SOUTHMEAD HOSPITAL") %>%
     mutate(ed_time_cut = cut(ed_time, breaks = quantile(ed_time, seq(0, 1, 0.025)), include.lowest = TRUE)) %>%
-    mutate(mort_30 = ifelse((interval(arrival_dt, date_death)/ddays(1)) < 30, TRUE, FALSE)) %>%
+    mutate(mort_30 = ifelse((interval(arrival_dt, date_death)/ddays(1)) < days_mort, TRUE, FALSE)) %>%
     mutate(mort_30 = coalesce(mort_30, FALSE)) %>%
     select(ed_time, ed_time_cut, mort_30) %>%
     mutate(pred_mort = full_pred) %>%
