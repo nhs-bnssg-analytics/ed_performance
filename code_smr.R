@@ -83,6 +83,7 @@ dat_ecds<-dat_ecds_raw %>%
   ) %>%
   rowwise() %>%
   mutate(departure_dt=max(dta_dt,departure_dt, conclusion_dt, na.rm=TRUE)) %>%
+  # mutate(departure_dt=max(departure_dt, conclusion_dt, na.rm=TRUE)) %>%
   ungroup() %>%
   mutate(dta_time = interval(dta_dt, departure_dt)/dminutes(1)) %>%
   mutate(ed_time = interval(arrival_dt, departure_dt)/dminutes(1)) %>%
@@ -114,7 +115,8 @@ dat_ecds_n_ed <-
   group_by(nhs_number, arrival_day) %>%
   # for any given patient & day of arrival, take the last record (if there is
   # more than one)
-  filter(arrival_dt == max(arrival_dt, na.rm = TRUE)) %>%
+  slice_max(arrival_dt, na_rm = TRUE) %>%
+  # filter(arrival_dt == max(arrival_dt, na.rm = TRUE)) %>%
   group_by(nhs_number) %>%
   # remove patients that never DTA
   filter(!all(is.na(dta_dt))) %>%
@@ -143,12 +145,13 @@ string_attr <- glue::glue("	select
 
 
 dat_attr <- sqlQuery(con,string_attr) %>%
+  filter(!is.na(nhs_number)) %>%
   mutate(nhs_number = as.character(nhs_number))
 
 # arrivals for joining to sus
 arrivals <- 
   dat_ecds %>%
-  filter(!is.na(dta_time), nhs_number %in% unique(dat_attr$nhs_number)) %>%
+  filter(!is.na(dta_time), nhs_number %in% unique(dat_attr$nhs_number), !is.na(nhs_number)) %>%
   group_by(nhs_number, arr_id) %>%
   summarise(departure_dt = as.Date(departure_dt)[1]
   )
@@ -260,11 +263,12 @@ dat_scores <- arrivals %>%
   left_join(
     dat_apc %>%
       select(AIMTC_Pseudo_NHS, StartDate_HospitalProviderSpell, contains("ICD")) %>%
-      mutate(AIMTC_Pseudo_NHS = as.character(AIMTC_Pseudo_NHS)),
+      mutate(AIMTC_Pseudo_NHS = as.character(AIMTC_Pseudo_NHS)) %>%
+      filter(!is.na(AIMTC_Pseudo_NHS)),
     by = join_by(nhs_number == AIMTC_Pseudo_NHS)) %>% 
   mutate(diff = abs(interval(departure_dt, StartDate_HospitalProviderSpell)/ddays(1))) %>%
   group_by(arr_id) %>%
-  filter(diff == min(diff), diff < 2)  %>%
+  filter(diff == min(diff), diff <= 1)  %>%
   select(-DiagnosisSchemeInUse_ICD) %>%
   select(nhs_number, arr_id, matches("ICD")) %>%
   pivot_longer(-c(nhs_number, arr_id)) %>%
@@ -282,7 +286,9 @@ dat_scores <- arrivals %>%
 dat_adm <- dat_ecds %>%
   mutate(nhs_number = as.character(nhs_number)) %>%
   group_by(nhs_number) %>%
-  filter(dta_dt == min(dta_dt, na.rm = TRUE)) %>%
+  slice_min(dta_dt, na_rm = TRUE) %>%
+  filter(dta_time >= 0) %>% # some records are negative seems to be DQ
+  # filter(dta_dt == min(dta_dt, na.rm = TRUE)) %>%
   ungroup() %>%
   select(
     site,
@@ -308,6 +314,8 @@ dat_adm <- dat_ecds %>%
   left_join(dat_scores) %>%
   select(-arr_id) %>%
   na.omit()
+
+saveRDS(dat_adm, "data/dat_adm_new.RDS")
 
 
 mortality_df <- local({
@@ -403,13 +411,14 @@ mod_df <- dat_adm %>%
   )
 
 saveRDS(mod_df, "data/smr_mod_df_new.RDS")
-mod_df <- readRDS("data/smr_mod_df.RDS")
+mod_df <- readRDS("data/smr_mod_df_new.RDS")
 
 split <- initial_split(mod_df, strata = mort_30) 
 glm_spec <- logistic_reg()
 
 rec <- recipe(mort_30 ~ ., data = training(split)) %>%
-  step_other(all_nominal_predictors()) %>%
+  step_other(all_nominal_predictors(), other = "other") %>%
+  step_novel(all_nominal_predictors(), new_level = "novel") %>%
   step_dummy(all_nominal_predictors()) %>%
   step_nzv()
 
@@ -451,7 +460,7 @@ smr_plot <- function(t_var, bin = 2*60, x_lab = "Time waiting for admission"){
       actual_mort = sum(mort_30),
       smr = actual_mort / expected_mort
     ) %>%
-    filter(n > 50,  {{t_var}} > 0)
+    filter(n > 50,  {{t_var}} => 0)
   
   df_mod <- bind_cols(x = pull(plot_df, {{t_var}}), y = pull(plot_df, smr), n = pull(plot_df, n))
   
@@ -510,6 +519,127 @@ ggsave("materials/smr_plot_adm.png",
        height = 5,
        width = 7.5, 
        scale = 0.9)
+
+
+smr_plot_quant <- function(t_var,
+                           time_max = 30*60,
+                           n_bin = 10,
+                           x_lab = "Time waiting for admission"){ 
+  
+  p = seq(0, 1, length = n_bin + 1)
+  
+  t_var_raw <- dat_adm %>%
+    filter({{t_var}} <= time_max) %>%
+    pull({{t_var}})
+  
+  full_pred <- dat_adm %>%
+    filter({{t_var}} <= time_max) %>%
+    left_join(mortality_df) %>%
+    mutate(age_sq = age^2) %>%
+    mutate(n_ed_sq = n_ed^2) %>%
+    mutate(n_adm_sq = n_adm^2) %>%
+    mutate(vw_score_sq = vw_score^2) %>%
+    mutate(imd = factor(imd)) %>%
+    mutate(mort_30 = ifelse((interval(arrival_dt, date_death)/ddays(1)) < 30, TRUE, FALSE)) %>%
+    mutate(mort_30 = coalesce(mort_30, FALSE)) %>%
+    mutate(mort_30 = factor(ifelse(mort_30, "yes", "no"), levels = c("no", "yes"))) %>%
+    mutate(arrival_time = factor(hms::as_hms(floor_date(arrival_dt, "6 hour")))) %>%
+    mutate(arrival_month = factor(month(arrival_dt))) %>%
+    mutate(arrival_year = factor(year(arrival_dt))) %>%
+    select(
+      arrival_time,
+      arrival_month,
+      arrival_year,
+      perf,
+      age,
+      age_sq,
+      n_ed,
+      n_ed_sq,
+      Acuity_Desc,
+      arrival_mode,
+      arrival_cat,
+      diagnoses,
+      investigation,
+      # n_adm,    # bring these back in when they aren't all
+      # n_adm_sq,
+      sex,
+      imd,
+      vw_score,
+      vw_score_sq,
+      mort_30
+    ) %>%
+    bake(prep(rec), new_data = .) %>%
+    predict(extract_fit_engine(full_fit),
+                       newdata = .,
+                       type = "response")
+  
+  plot_df <- 
+  dat_adm %>%
+  left_join(mortality_df) %>%
+  # filter(site == "SOUTHMEAD HOSPITAL") %>%
+  # mutate({{t_var}} = pmin({{t_var}}, time_max, na.rm = TRUE)) %>%
+  filter({{t_var}} <= time_max) %>%
+  mutate({{t_var}} := cut({{t_var}}, breaks = unique(quantile({{t_var}}, p)), include.lowest = TRUE)) %>%
+  mutate(mort_30 = ifelse((interval(arrival_dt, date_death)/ddays(1)) < 30, TRUE, FALSE)) %>%
+  mutate(mort_30 = coalesce(mort_30, FALSE)) %>%
+  select({{t_var}}, mort_30) %>%
+  mutate(pred_mort = full_pred) %>%
+  group_by({{t_var}}) %>%
+  summarise(
+    n = n(),
+    expected_mort = sum(pred_mort),
+    actual_mort = sum(mort_30),
+    smr = actual_mort / expected_mort
+  ) %>%
+  mutate(
+    left = head(unique(quantile(t_var_raw, p)), -1),
+    right = tail(unique(quantile(t_var_raw, p)), -1),
+    mid = (left + right) / 2,
+    width = right - left,
+    weight = 1/width
+  )
+  
+  plot_df <- bind_rows(plot_df, 
+                       {tail(plot_df, 1) %>% mutate(left = right)})
+  
+
+  
+pred_df <- lm(smr~mid,
+              weights = weight,
+              data = plot_df) %>%
+  predict(newdata = plot_df, se.fit = TRUE) %>%
+  as_tibble() %>%
+  transmute(pred = fit, u_se = fit + se.fit, l_se = fit - se.fit) %>%
+  bind_cols(select(plot_df, mid))
+# 
+
+x_lab = glue::glue("{x_lab}\n(hours, {n_bin} bins)")
+ggplot(plot_df, aes(x = left/60, y = smr)) +
+  # geom_smooth(method = "lm", col = bnssgcols[4]) +
+  geom_ribbon(data = pred_df, aes(x = mid/60, y = pred, ymin = l_se, ymax = u_se), alpha = 0.25) +
+  geom_line(data = pred_df, aes(x = mid/60, y = pred), col = bnssgcols[4]) +
+  geom_step(col = bnssgcols[4]) +
+  geom_point(col = bnssgcols[4]) +
+  bnssgtheme() +
+  coord_cartesian(ylim = c(0, 2), xlim = c(0, time_max/60)) +
+  labs(y = "Standardised Mortality Ratio",
+       x = x_lab)
+
+}
+
+map(seq(5, 25, 5), ~smr_plot_quant(dta_time,
+                                   time_max = 24*60,
+                                   n_bin = .x)) %>%
+patchwork::wrap_plots(axes = "collect")
+
+
+ggsave("materials/smr_quant_bin.png",
+       last_plot(),
+       height = 7.5,
+       width = 12.5, 
+       scale = 0.9)
+
+
 
 dat_adm %>%
   left_join(mortality_df) %>%
