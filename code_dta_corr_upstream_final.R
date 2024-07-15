@@ -484,7 +484,7 @@ f <- function(x, a, c) {
  exp(a*x) + c 
 }
 
-plot_df <- map_dfr(seq(0.7, 0.9, 0.1), ~
+plot_df <- map_dfr(c(0.5, seq(0.7, 0.9, 0.1)), ~
 
 { plot_df <- dta_df %>% 
   left_join(handover_df) %>% 
@@ -498,7 +498,7 @@ plot_df <- map_dfr(seq(0.7, 0.9, 0.1), ~
 dta_handover_mod <- nls(formula = handover_time ~ f(n_dta, a, c), data = plot_df, start = list(a = 1, c = 0))
 
 plot_df <- bind_cols(plot_df, investr::predFit(dta_handover_mod, plot_df, interval = "confidence", level= 0.9))
-plot_df$q <- factor(.x, labels = scales::percent(.x))
+plot_df$q <- factor(.x, labels = scales::percent(.x)) %>% forcats::fct_recode("Median" = "50%")
 
 plot_df$r <- round(log(30 - min(29, coef(dta_handover_mod)[2]))/coef(dta_handover_mod)[1])
 plot_df$c <- coef(dta_handover_mod)[2]
@@ -522,7 +522,7 @@ plot_df}
     geom_line(aes(y = fit, col = q)) +
     geom_hline(yintercept = 30, linetype = 2) +
     bnssgtheme() +
-    scale_colour_manual(values = c(viridis::viridis(n = 3, end = 0.8, begin = 0.2, direction = -1), "black"),
+    scale_colour_manual(values = c(viridis::viridis(n = 4, end = 0.8, begin = 0.2, direction = -1), "black"),
                         guide = guide_legend(override.aes = list(size = 3,
                                                                  alpha = 1))) +
     labs(y = "Ambulance handover time\n(min)",
@@ -584,18 +584,41 @@ dta_df %>%
       summarise(trt_time = quantile(trt_time, 0.9))},
       col = bnssgcols[4],
       method = "lm") +
+  geom_smooth(data = {dta_df %>%
+      left_join(trt_df) %>%
+      filter(site == "SOUTHMEAD HOSPITAL") %>%
+      na.omit() %>%
+      group_by(n_dta) %>%
+      summarise(trt_time = quantile(trt_time, 0.5))},
+      col = bnssgcols[7],
+      method = "lm") +
+  geom_point(data = {dta_df %>%
+      left_join(trt_df) %>%
+      filter(site == "SOUTHMEAD HOSPITAL") %>%
+      na.omit() %>%
+      group_by(n_dta) %>%
+      summarise(trt_time = quantile(trt_time, 0.5))},
+      aes(col = "Median"),
+      size = 2.5) +
   geom_point(data = {dta_df %>%
       left_join(trt_df) %>%
       filter(site == "SOUTHMEAD HOSPITAL") %>%
       na.omit() %>%
       group_by(n_dta) %>%
       summarise(trt_time = quantile(trt_time, 0.9))},
-      col = bnssgcols[4],
+      aes(col = "90%"),
       size = 2.5) +
+    scale_colour_manual(values = c(unname(bnssgcols[c(4, 7)])),
+                        guide = guide_legend(override.aes = list(size = 3,
+                                                                 alpha = 1))) +
   scale_y_continuous(limits = c(NA, 600), breaks = seq(0, 600, 60)) +
   bnssgtheme() +
+  theme(legend.position = "bottom",
+        legend.justification = "center",
+        legend.title = element_text()) +
   labs(y = "Time to be seen for treatment\n(min)",
-       x = "DTA queue"))
+       x = "DTA queue",
+       col = "Time to be seen for treatment quantile")) 
 
 
 

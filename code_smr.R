@@ -15,7 +15,7 @@ con<-odbcDriverConnect(con_string)
 
 
 report_start <- '2018-01-01'
-report_end <- '2024-05-01'
+report_end <- '2024-01-01'
 pre_window_days <- 60
 
 
@@ -281,6 +281,19 @@ dat_scores <- arrivals %>%
   bind_cols()
 
 
+dat_spec <- arrivals %>%
+  left_join(
+    dat_apc %>%
+      select(AIMTC_Pseudo_NHS, MainSpecialtyCode, StartDate_HospitalProviderSpell) %>%
+      mutate(AIMTC_Pseudo_NHS = as.character(AIMTC_Pseudo_NHS)) %>%
+      filter(!is.na(AIMTC_Pseudo_NHS)),
+    by = join_by(nhs_number == AIMTC_Pseudo_NHS)) %>% 
+  mutate(diff = abs(interval(departure_dt, StartDate_HospitalProviderSpell)/ddays(1))) %>%
+  group_by(arr_id) %>%
+  filter(diff == min(diff), diff <= 1) %>%
+  select(nhs_number, arr_id, MainSpecialtyCode)
+
+
 dat_adm <- dat_ecds %>%
   mutate(nhs_number = as.character(nhs_number)) %>%
   group_by(nhs_number) %>%
@@ -311,7 +324,10 @@ dat_adm <- dat_ecds %>%
   left_join(dat_ecds_perf) %>%
   left_join(dat_ecds_n_ed) %>% 
   left_join(dat_scores) %>%
+  left_join(dat_spec) %>%
   select(-arr_id) %>%
+  filter(MainSpecialtyCode %in% c(300)) %>% # filter General Internal Medicine
+  select(-MainSpecialtyCode) %>%
   na.omit()
 
 saveRDS(dat_adm, "data/dat_adm_new.RDS")
@@ -378,6 +394,7 @@ days_mort <- 7
 mod_df <- dat_adm %>%
   # filter(site == "SOUTHMEAD HOSPITAL") %>%
   filter(dta_time <= t_max) %>%
+  filter(dta_time > 0) %>%
   left_join(mortality_df) %>%
   # mutate(age = cut(age, breaks = seq(0, 120, 10), include.lowest = TRUE)) %>%
   # mutate(dta_time = dta_time > 4*60) %>%
@@ -414,7 +431,8 @@ mod_df <- dat_adm %>%
     vw_score,
     vw_score_sq,
     mort_30,
-   dta_time
+   dta_time,
+   ed_time
   )
 
 saveRDS(mod_df, "data/smr_mod_df_new.RDS")
@@ -424,7 +442,7 @@ split <- initial_split(mod_df, strata = mort_30)
 glm_spec <- logistic_reg()
 
 rec <- recipe(mort_30 ~ ., data = training(split)) %>%
-  # update_role(dta_time, new_role = "not for prediction") %>%
+  update_role(dta_time, ed_time, new_role = "not for prediction") %>%
   step_other(all_nominal_predictors(), -dta_time, other = "other") %>%
   step_novel(all_nominal_predictors(), new_level = "novel") %>%
   step_dummy(all_nominal_predictors()) %>%
@@ -436,7 +454,7 @@ wf <- workflow() %>%
 
 fit <- last_fit(wf, split)
 
-fiaugment(fit) %>%
+augment(fit) %>%
   roc_curve(mort_30,
             .pred_yes,
             event_level = "second") %>%
@@ -452,23 +470,22 @@ full_pred <- predict(extract_fit_engine(full_fit), bake(prep(rec), new_data = mo
 # smr
 
 smr_plot <- function(t_var, bin = 2*60, x_lab = "Time waiting for admission"){
+  
+  
   plot_df <- 
-  dat_adm %>%
-    left_join(mortality_df) %>%
+  mod_df %>%
     # filter(site == "SOUTHMEAD HOSPITAL") %>%
     mutate({{t_var}} := (bin)*({{t_var}} %/% (bin))) %>%
-    mutate(mort_30 = ifelse((interval(arrival_dt, date_death)/ddays(1)) < days_mort, TRUE, FALSE)) %>%
-    mutate(mort_30 = coalesce(mort_30, FALSE)) %>%
     select({{t_var}}, mort_30) %>%
     mutate(pred_mort = full_pred) %>%
     group_by({{t_var}}) %>%
     summarise(
       n = n(),
       expected_mort = sum(pred_mort),
-      actual_mort = sum(mort_30),
+      actual_mort = sum(mort_30 == "yes"),
       smr = actual_mort / expected_mort
     ) %>%
-    filter(n > 50,  {{t_var}} <= 0)
+    filter(n > 50)
   
   df_mod <- bind_cols(x = pull(plot_df, {{t_var}}), y = pull(plot_df, smr), n = pull(plot_df, n))
   
@@ -584,21 +601,22 @@ pred_df <- lm(smr~mid,
 # 
 
 x_lab = glue::glue("{x_lab}\n(hours, {n_bin} bins)")
-ggplot(plot_df, aes(x = left/60, y = smr)) +
+ggplot(plot_df, aes(x = mid/60, y = smr)) +
   # geom_smooth(method = "lm", col = bnssgcols[4]) +
   geom_ribbon(data = pred_df, aes(x = mid/60, y = pred, ymin = l_se, ymax = u_se), alpha = 0.25) +
   geom_line(data = pred_df, aes(x = mid/60, y = pred), col = bnssgcols[4]) +
-  geom_step(col = bnssgcols[4]) +
+  # geom_linerange(aes(xmin = left/60, xmax = right/60)) +
+  # geom_vline(aes(xintercept = right/60), linetype = 2) +
   geom_point(col = bnssgcols[4]) +
   bnssgtheme() +
-  coord_cartesian(ylim = c(0, 2), xlim = c(0, time_max/60)) +
+  coord_cartesian(ylim = c(0.5, 1.5), xlim = c(0, time_max/60)) +
   labs(y = "Standardised Mortality Ratio",
        x = x_lab)
 
 }
 
-map(seq(5, 25, 5), ~smr_plot_quant(dta_time,
-                                   time_max = 12*60,
+map(seq(5, 15, 2), ~smr_plot_quant(dta_time,
+                                   time_max = 10*60,
                                    n_bin = .x)) %>%
 patchwork::wrap_plots(axes = "collect")
 
