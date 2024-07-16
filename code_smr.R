@@ -389,7 +389,7 @@ smr_df <- local({
 
 
 t_max <- 24*60
-days_mort <- 7
+days_mort <- 21
 
 mod_df <- dat_adm %>%
   # filter(site == "SOUTHMEAD HOSPITAL") %>%
@@ -469,6 +469,92 @@ full_pred <- predict(extract_fit_engine(full_fit), bake(prep(rec), new_data = mo
 
 # smr
 
+smr_plot_quant <- function(t_var,
+                           time_max = 30*60,
+                           n_bin = 10,
+                           x_lab = "Time waiting for admission"){ 
+  
+  p = seq(0, 1, length = n_bin + 1)
+  
+  t_var_raw <- mod_df %>%
+    filter({{t_var}} <= time_max) %>%
+    pull({{t_var}})
+  
+  full_pred <- mod_df %>%
+    filter({{t_var}} <= time_max) %>%
+    bake(prep(rec), new_data = .) %>%
+    predict(extract_fit_engine(full_fit),
+            newdata = .,
+            type = "response")
+  
+  plot_df <- 
+    mod_df %>%
+    filter({{t_var}} <= time_max) %>%
+    mutate({{t_var}} := cut({{t_var}}, breaks = unique(quantile({{t_var}}, p)), include.lowest = TRUE)) %>%
+    mutate(mort_30 = mort_30 == "yes") %>%
+    select({{t_var}}, mort_30) %>%
+    mutate(pred_mort = full_pred) %>%
+    group_by({{t_var}}) %>%
+    summarise(
+      n = n(),
+      expected_mort = sum(pred_mort),
+      actual_mort = sum(mort_30),
+      smr = actual_mort / expected_mort
+    ) %>%
+    mutate(
+      left = head(unique(quantile(t_var_raw, p)), -1),
+      right = tail(unique(quantile(t_var_raw, p)), -1),
+      mid = (left + right) / 2,
+      width = right - left,
+      weight = 1/width
+    )
+  
+  plot_df <- bind_rows(plot_df, 
+                       {tail(plot_df, 1) %>% mutate(left = right)})
+  
+  
+  
+  pred_df <- lm(smr~mid,
+                weights = weight,
+                data = plot_df) %>%
+    predict(newdata = plot_df, se.fit = TRUE) %>%
+    as_tibble() %>%
+    transmute(pred = fit, u_se = fit + se.fit, l_se = fit - se.fit) %>%
+    bind_cols(select(plot_df, mid))
+  # 
+  
+  x_lab = glue::glue("{x_lab}\n(hours, {n_bin} bins)")
+  ggplot(plot_df, aes(x = mid/60, y = smr)) +
+    geom_step(aes(x = left/60)) +
+    geom_ribbon(data = pred_df, aes(x = mid/60, y = pred, ymin = l_se, ymax = u_se), alpha = 0.25) +
+    geom_line(data = pred_df, aes(x = mid/60, y = pred), col = bnssgcols[4]) +
+    # geom_linerange(aes(xmin = left/60, xmax = right/60)) +
+    # geom_vline(aes(xintercept = right/60), linetype = 2) +
+    geom_point(col = bnssgcols[4]) +
+    bnssgtheme() +
+    # coord_cartesian(ylim = c(0.75, 1.2), xlim = c(0, time_max/60)) +
+    labs(y = "Standardised Mortality Ratio",
+         x = x_lab)
+  
+}
+
+map(seq(5, 10, 1), ~smr_plot_quant(dta_time,
+                                   time_max = 10*60,
+                                   n_bin = .x)) %>%
+  patchwork::wrap_plots(axes = "collect")
+
+
+ggsave("materials/smr_quant_bin.png",
+       last_plot(),
+       height = 7.5,
+       width = 12.5, 
+       scale = 0.9)
+
+
+
+
+
+
 smr_plot <- function(t_var, bin = 2*60, x_lab = "Time waiting for admission"){
   
   
@@ -543,88 +629,6 @@ ggsave("materials/smr_plot_adm.png",
        smr_plot,
        height = 5,
        width = 7.5, 
-       scale = 0.9)
-
-
-smr_plot_quant <- function(t_var,
-                           time_max = 30*60,
-                           n_bin = 10,
-                           x_lab = "Time waiting for admission"){ 
-  
-  p = seq(0, 1, length = n_bin + 1)
-  
-  t_var_raw <- mod_df %>%
-    filter({{t_var}} <= time_max) %>%
-    pull({{t_var}})
-  
-  full_pred <- mod_df %>%
-    filter({{t_var}} <= time_max) %>%
-    bake(prep(rec), new_data = .) %>%
-    predict(extract_fit_engine(full_fit),
-                       newdata = .,
-                       type = "response")
-  
-  plot_df <- 
-  mod_df %>%
-  filter({{t_var}} <= time_max) %>%
-  mutate({{t_var}} := cut({{t_var}}, breaks = unique(quantile({{t_var}}, p)), include.lowest = TRUE)) %>%
-  mutate(mort_30 = mort_30 == "yes") %>%
-  select({{t_var}}, mort_30) %>%
-  mutate(pred_mort = full_pred) %>%
-  group_by({{t_var}}) %>%
-  summarise(
-    n = n(),
-    expected_mort = sum(pred_mort),
-    actual_mort = sum(mort_30),
-    smr = actual_mort / expected_mort
-  ) %>%
-  mutate(
-    left = head(unique(quantile(t_var_raw, p)), -1),
-    right = tail(unique(quantile(t_var_raw, p)), -1),
-    mid = (left + right) / 2,
-    width = right - left,
-    weight = 1/width
-  )
-  
-  plot_df <- bind_rows(plot_df, 
-                       {tail(plot_df, 1) %>% mutate(left = right)})
-  
-
-  
-pred_df <- lm(smr~mid,
-              weights = weight,
-              data = plot_df) %>%
-  predict(newdata = plot_df, se.fit = TRUE) %>%
-  as_tibble() %>%
-  transmute(pred = fit, u_se = fit + se.fit, l_se = fit - se.fit) %>%
-  bind_cols(select(plot_df, mid))
-# 
-
-x_lab = glue::glue("{x_lab}\n(hours, {n_bin} bins)")
-ggplot(plot_df, aes(x = mid/60, y = smr)) +
-  # geom_smooth(method = "lm", col = bnssgcols[4]) +
-  geom_ribbon(data = pred_df, aes(x = mid/60, y = pred, ymin = l_se, ymax = u_se), alpha = 0.25) +
-  geom_line(data = pred_df, aes(x = mid/60, y = pred), col = bnssgcols[4]) +
-  # geom_linerange(aes(xmin = left/60, xmax = right/60)) +
-  # geom_vline(aes(xintercept = right/60), linetype = 2) +
-  geom_point(col = bnssgcols[4]) +
-  bnssgtheme() +
-  coord_cartesian(ylim = c(0.5, 1.5), xlim = c(0, time_max/60)) +
-  labs(y = "Standardised Mortality Ratio",
-       x = x_lab)
-
-}
-
-map(seq(5, 15, 2), ~smr_plot_quant(dta_time,
-                                   time_max = 10*60,
-                                   n_bin = .x)) %>%
-patchwork::wrap_plots(axes = "collect")
-
-
-ggsave("materials/smr_quant_bin.png",
-       last_plot(),
-       height = 7.5,
-       width = 12.5, 
        scale = 0.9)
 
 
