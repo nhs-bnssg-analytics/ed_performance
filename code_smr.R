@@ -14,8 +14,8 @@ con_string <- "driver={SQL Server};\n  server=xsw-000-sp09;\n  trusted_connectio
 con<-odbcDriverConnect(con_string)
 
 
-report_start <- '2018-01-01'
-report_end <- '2024-01-01'
+report_start <- '2022-06-01'
+report_end <- '2024-06-01'
 pre_window_days <- 60
 
 
@@ -145,6 +145,7 @@ dat_attr <- sqlQuery(con,string_attr) %>%
   mutate(nhs_number = as.character(nhs_number))
 
 saveRDS(dat_attr, "data/dat_attr.RDS")
+dat_attr <- readRDS("data/dat_attr.RDS")
 
 # arrivals for joining to sus
 arrivals <- 
@@ -298,7 +299,7 @@ dat_adm <- dat_ecds %>%
   mutate(nhs_number = as.character(nhs_number)) %>%
   group_by(nhs_number) %>%
   slice_min(dta_dt, na_rm = TRUE) %>%
-  filter(dta_time >= 0) %>% # some records are negative seems to be DQ
+  filter(dta_time >= 0) %>% # some records are negative 0 exactly, seems to be DQ
   filter(age < 120, !is.na(age)) %>%
   # filter(dta_dt == min(dta_dt, na.rm = TRUE)) %>%
   ungroup() %>%
@@ -326,7 +327,7 @@ dat_adm <- dat_ecds %>%
   left_join(dat_scores) %>%
   left_join(dat_spec) %>%
   select(-arr_id) %>%
-  filter(MainSpecialtyCode %in% c(300)) %>% # filter General Internal Medicine
+  filter(MainSpecialtyCode %in% c(300, 326, 430)) %>% # filter General Internal Medicine
   select(-MainSpecialtyCode) %>%
   na.omit()
 
@@ -389,7 +390,7 @@ smr_df <- local({
 
 
 t_max <- 24*60
-days_mort <- 21
+days_mort <- 7
 
 mod_df <- dat_adm %>%
   # filter(site == "SOUTHMEAD HOSPITAL") %>%

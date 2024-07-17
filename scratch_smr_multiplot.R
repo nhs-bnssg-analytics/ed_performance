@@ -2,7 +2,9 @@
 mort <- seq(5, 25, 5)
 bin <- seq(5, 10, 1)
 
-out <- map(mort, function(days_mort){
+smr_plots <- function(mort, bin){
+
+map(mort, function(days_mort){
   map(bin, function(bins){
 
 mod_df <- dat_adm %>%
@@ -127,24 +129,63 @@ smr_plot_quant <- function(t_var,
                        {tail(plot_df, 1) %>% mutate(left = right)})
   
   
-  
-  pred_df <- lm(smr~mid,
-                weights = weight,
-                data = plot_df) %>%
+
+  pred_df <- lm(smr ~ mid, weights = weight, data = plot_df) %>%
     predict(newdata = plot_df, se.fit = TRUE) %>%
     as_tibble() %>%
-    transmute(pred = fit, u_se = fit + se.fit, l_se = fit - se.fit) %>%
-    bind_cols(select(plot_df, mid))
-  # 
+    transmute(pred = fit,
+              u_se = fit + se.fit,
+              l_se = fit - se.fit) %>%
+    bind_cols(select(plot_df, mid)) 
+    
+    
+    pred_df <- bind_rows(pred_df, {
+      #predict at limits
+      lm(smr ~ mid, weights = weight, data = plot_df) %>%
+        predict(newdata = data.frame(mid = range(plot_df$left, plot_df$right)), se.fit = TRUE) %>%
+        as_tibble() %>%
+        transmute(pred = fit,
+                  u_se = fit + se.fit,
+                  l_se = fit - se.fit) %>%
+        mutate(mid = range(plot_df$left, plot_df$right))
+    })
+    
   
+    shade_df <- unique(plot_df$left) %>%
+      sort() %>%
+      head(n = 2*length(.) %/% 2) %>% # slice the nearest multiple of 2 values 
+      matrix(ncol = 2, byrow = TRUE) %>%
+      as_tibble() %>%
+      mutate(min = min(pred_df$l_se, plot_df$smr))
+    
+    x_breaks <- unique(plot_df$left, plot_df$right) %>%
+    tail(-1) %>%
+    head(-1) %>%
+    c(0, time_max) %>%
+    sort()
+    
+    lab_fn <- function(x) {
+
+      x <- round(x)
+      glue::glue("{x%/%60}h {x - (60*x%/%60)}m") |>
+      str_replace_all(" 0m", "") |>
+      str_replace_all("0h ", "")
+    }
+    
   x_lab = glue::glue("{x_lab}\n(hours, {n_bin} bins)")
+  
   ggplot(plot_df, aes(x = mid/60, y = smr)) +
-    geom_step(aes(x = left/60)) +
+    # geom_step(aes(x = left/60)) +
+    geom_rect(shade_df, mapping = aes(x = NULL, y = NULL, xmin = V1/60, xmax = V2/60, ymin = min, ymax = Inf), alpha = 0.15) + 
     geom_ribbon(data = pred_df, aes(x = mid/60, y = pred, ymin = l_se, ymax = u_se), alpha = 0.25) +
     geom_line(data = pred_df, aes(x = mid/60, y = pred), col = bnssgcols[4]) +
-    # geom_linerange(aes(xmin = left/60, xmax = right/60)) +
+    geom_linerange(aes(xmin = left/60, xmax = right/60)) +
     # geom_vline(aes(xintercept = right/60), linetype = 2) +
+    # geom_vline(aes(xintercept = left/60), linetype = 2) +
+    # geom_col(aes(width = (right-left)/60),col = bnssgcols[4]) +
     geom_point(col = bnssgcols[4]) +
+    # scale_x_continuous(breaks = x_breaks/60, labels = scales::number_format(accuracy = 0.1)) +
+    scale_x_continuous(breaks = x_breaks/60, labels = lab_fn(x_breaks)) +
     bnssgtheme() +
     # coord_cartesian(ylim = c(0.75, 1.2), xlim = c(0, time_max/60)) +
     labs(y = "Standardised Mortality Ratio",
@@ -155,9 +196,23 @@ smr_plot_quant <- function(t_var,
 map(bins, ~smr_plot_quant(dta_time,
                                    time_max = 10*60,
                                    n_bin = .x))})})
+}
 
+
+out <- smr_plots(mort, bin)
 
 out %>%
   flatten() %>%
   flatten() %>%
-  patchwork::wrap_plots(, byrow = TRUE, ncol = length(bin), nrow = length(mort), axes = "collect")
+  patchwork::wrap_plots(ncol = length(bin), nrow = length(mort), axes = "collect")
+
+
+smr_5_6 <-  smr_plots(mort = 5, bin = 6)
+smr_5_6
+
+
+ggsave("materials/smr_quant_bin_scratch.png",
+       last_plot(),
+       height = 5,
+       width = 7.5, 
+       scale = 1)
