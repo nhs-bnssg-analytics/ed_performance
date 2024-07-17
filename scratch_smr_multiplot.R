@@ -1,8 +1,4 @@
-
-mort <- seq(5, 25, 5)
-bin <- seq(5, 10, 1)
-
-smr_plots <- function(mort, bin){
+smr_plots <- function(mort, bin, time_max){
 
 map(mort, function(days_mort){
   map(bin, function(bins){
@@ -194,12 +190,14 @@ smr_plot_quant <- function(t_var,
 }
 
 map(bins, ~smr_plot_quant(dta_time,
-                                   time_max = 10*60,
+                                   time_max = time_max,
                                    n_bin = .x))})})
 }
 
 
-out <- smr_plots(mort, bin)
+mort <- seq(5, 25, 5)
+bin <- seq(5, 10, 1)
+out <- smr_plots(mort, bin, time_max = 12*60)
 
 out %>%
   flatten() %>%
@@ -207,8 +205,16 @@ out %>%
   patchwork::wrap_plots(ncol = length(bin), nrow = length(mort), axes = "collect")
 
 
-smr_5_6 <-  smr_plots(mort = 5, bin = 6)
+smr_5_6 <-  smr_plots(mort = 5, bin = 6, time_max = 12*60)
 smr_5_6
+
+out <- smr_plots(mort = 30, bin = seq(5, 10, 1), time_max = 12*60)
+
+
+out %>%
+  flatten() %>%
+  flatten() %>%
+  patchwork::wrap_plots()
 
 
 ggsave("materials/smr_quant_bin_scratch.png",

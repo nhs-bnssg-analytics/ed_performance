@@ -393,7 +393,7 @@ t_max <- 24*60
 days_mort <- 7
 
 mod_df <- dat_adm %>%
-  # filter(site == "SOUTHMEAD HOSPITAL") %>%
+  filter(site == "SOUTHMEAD HOSPITAL") %>%
   filter(dta_time <= t_max) %>%
   filter(dta_time > 0) %>%
   left_join(mortality_df) %>%
