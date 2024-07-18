@@ -390,7 +390,7 @@ smr_df <- local({
 
 
 t_max <- 24*60
-days_mort <- 7
+days_mort <- 30
 
 mod_df <- dat_adm %>%
   filter(site == "SOUTHMEAD HOSPITAL") %>%

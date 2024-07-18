@@ -252,8 +252,8 @@ FROM
   dat_dtas
 })
 
-saveRDS(dta_df, "data/smr_dta_df.RDS")
-dta_df <- readRDS("data/smr_dta_df.RDS")
+# saveRDS(dta_df, "data/smr_dta_df.RDS")
+# dta_df <- readRDS("data/smr_dta_df.RDS")
 
 mortality_df <- local({
   string_mortality <- glue::glue("SELECT
