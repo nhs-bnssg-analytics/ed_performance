@@ -5,7 +5,7 @@ map(mort, function(days_mort){
 
 mod_df <- dat_adm %>%
   # filter(site == "SOUTHMEAD HOSPITAL") %>%
-  filter(dta_time <= t_max) %>%
+  filter(dta_time <= time_max) %>%
   filter(dta_time > 0) %>%
   left_join(mortality_df) %>%
   # mutate(age = cut(age, breaks = seq(0, 120, 10), include.lowest = TRUE)) %>%
@@ -61,13 +61,13 @@ wf <- workflow() %>%
   add_recipe(rec) %>%
   add_model(glm_spec)
 
-fit <- last_fit(wf, split)
-
-augment(fit) %>%
-  roc_curve(mort_30,
-            .pred_yes,
-            event_level = "second") %>%
-  autoplot()
+# fit <- last_fit(wf, split)
+# 
+# augment(fit) %>%
+#   roc_curve(mort_30,
+#             .pred_yes,
+#             event_level = "second") %>%
+#   autoplot()
 
 # fit on all data
 
@@ -237,7 +237,7 @@ time_max <- 24*60
 
 mod_df <- dat_adm %>%
   # filter(site == "SOUTHMEAD HOSPITAL") %>%
-  filter(dta_time <= t_max) %>%
+  filter(dta_time <= time_max) %>%
   filter(dta_time > 0) %>%
   left_join(mortality_df) %>%
   # mutate(age = cut(age, breaks = seq(0, 120, 10), include.lowest = TRUE)) %>%
@@ -279,6 +279,8 @@ mod_df <- dat_adm %>%
     ed_time
   )
 
+
+saveRDS(mod_df, "data/mod_df_smr_figure_final.RDS")
 
 split <- initial_split(mod_df, strata = mort_30) 
 glm_spec <- logistic_reg()
@@ -341,8 +343,9 @@ full_pred <- predict(extract_fit_engine(full_fit), bake(prep(rec), new_data = mo
       weight = 1/width
     ) %>%
     mutate(
-      u_ci = smr + qnorm(1-0.05/2)*sqrt(smr/n),
-      l_ci = smr - qnorm(1-0.05/2)*sqrt(smr/n)
+      z = qnorm(0.95 + (1 - 0.95) / 2),
+       u_ci = smr + z*sqrt(smr/n),
+       l_ci = smr - z*sqrt(smr/n)
       )
   
   plot_df <- bind_rows(plot_df, 
@@ -395,29 +398,31 @@ full_pred <- predict(extract_fit_engine(full_fit), bake(prep(rec), new_data = mo
   
   ggplot(plot_df, aes(x = mid/60, y = smr)) +
     # geom_step(aes(x = left/60)) +
-    geom_rect(shade_df, mapping = aes(x = NULL, y = NULL, xmin = V1/60, xmax = V2/60, ymin = min, ymax = Inf), alpha = 0.15) + 
+    geom_rect(shade_df, mapping = aes(x = NULL, y = NULL, xmin = V1/60, xmax = V2/60, ymin = -Inf, ymax = Inf), alpha = 0.15) + 
     # geom_ribbon(data = pred_df, aes(x = mid/60, y = pred, ymin = l_se, ymax = u_se), alpha = 0.25) +
     # geom_line(data = pred_df, aes(x = mid/60, y = pred), col = bnssgcols[4]) +
-    geom_linerange(aes(xmin = left/60, xmax = right/60), linetype = 2) +
+    # geom_linerange(aes(xmin = left/60, xmax = right/60), linetype = 2) +
     geom_errorbar(aes(ymin = l_ci, ymax = u_ci, width = width/(2*60))) +
     # geom_vline(aes(xintercept = right/60), linetype = 2) +
     # geom_vline(aes(xintercept = left/60), linetype = 2) +
     # geom_col(aes(width = (right-left)/60),col = bnssgcols[4]) +
-    # geom_line() +
+    geom_line(linetype = 2) +
     # geom_point(col = bnssgcols[4]) +
     
     # scale_x_continuous(breaks = x_breaks/60, labels = scales::number_format(accuracy = 0.1)) +
     scale_x_continuous(breaks = x_breaks/60,
                        labels = lab_fn(x_breaks),
                        guide = guide_axis(n.dodge = 2)) +
-    bnssgtheme() +
+    # bnssgtheme() +
+    theme_minimal() +
     # coord_cartesian(ylim = c(0.75, 1.2), xlim = c(0, time_max/60)) +
      labs(y = "Standardised Mortality Ratio",
           x = "Time waiting for admission")
   
-  ggsave("materials/smr_quant_5_bin.png",
+  ggsave("materials/smr_quant_5_bin_3yrs_white_bg_with_line.png",
          last_plot(),
+         bg = "white",
          height = 5,
          width = 7.5, 
-         scale = 1)
+         scale = 0.7)
   

@@ -11,8 +11,10 @@ con_string <- "driver={SQL Server};\n  server=Xsw-00-ash01;\n  trusted_connectio
 con<-odbcDriverConnect(con_string)
 
 
-report_start <- '2023-08-01'
-report_end <- '2024-03-01'
+# report_start <- '2023-08-01'
+# report_end <- '2024-03-01'
+report_start <- '2021-06-01'
+report_end <- '2024-06-01'
 n_hour <- 2
 
 # sequence of time snapshots (i.e. when we measure DTA queue)
@@ -55,6 +57,7 @@ dta_df <- local({
     mutate(departure_dt=max(dta_dt,departure_dt,na.rm=TRUE)) %>%
     ungroup() %>%
     mutate(dta_int = interval(dta_dt, departure_dt)) %>%
+    mutate(dta_time = dta_int/dminutes(1)) %>%
     mutate(trt_time = interval(arrival_dt, treatment_dt)/dminutes(1)) %>%
     mutate(date=floor_date(departure_dt,"day")) %>%
     mutate(ed_category=case_when(Acuity_Desc %in% c("Non-urgent level emergency care","Standard level emergency care") ~ "minor",
@@ -66,6 +69,7 @@ dta_df <- local({
   # dta_seq <- seq.POSIXt(from = as.POSIXct(lubridate::ymd(report_start)), to = max_dt, by = glue::glue("{n_hour} hours"))
   
   dat_dtas <- dat_ecds %>%
+    filter(dta_time > 0) %>%
     group_by(site = Site_Name) %>%
     nest() %>%
     mutate(dtas = list(map2_dbl(snapshot_seq, data, ~ sum(
@@ -484,12 +488,14 @@ f <- function(x, a, c) {
  exp(a*x) + c 
 }
 
-plot_df <- map_dfr(c(0.5, seq(0.7, 0.9, 0.1)), ~
+# plot_df <- map_dfr(c(0.5, seq(0.7, 0.9, 0.1)), ~
+plot_df <- map_dfr(c(0.5, 0.9), ~
 
 { plot_df <- dta_df %>% 
+  filter(site == "SOUTHMEAD HOSPITAL") %>%
+  filter(!between(dt, ymd("2022-04-01"), ymd("2022-07-10"))) %>%
   left_join(handover_df) %>% 
   # left_join(minor_time_in_ed_df) %>%
-  filter(site == "SOUTHMEAD HOSPITAL") %>%
   na.omit() %>%
   group_by(n_dta) %>%
   summarise(handover_time = quantile(handover_time/60, .x)) %>%
@@ -513,18 +519,22 @@ plot_df}
     geom_point(data = {dta_df %>% 
       left_join(handover_df) %>% 
       # left_join(minor_time_in_ed_df) %>%
-      filter(site == "SOUTHMEAD HOSPITAL", n_dta < 30) %>%
+      filter(site == "SOUTHMEAD HOSPITAL", n_dta <= 30) %>%
+      filter(!between(dt, ymd("2022-04-01"), ymd("2022-07-10"))) %>%
       mutate(handover_time = handover_time/60) %>%
       na.omit()}, aes(x = n_dta, y = handover_time, col = "All data"), alpha = 0.015) +
     geom_point(aes(col = q, group = q), size = 2.5) +
     scale_y_continuous(limits = c(0, 180), breaks = seq(0, 180, 30)) +
     # geom_ribbon(aes(ymin = lwr, ymax = upr, fill = q), col = NA, alpha = 0.25) +
-    geom_line(aes(y = fit, col = q)) +
+    # geom_line(aes(y = fit, col = q)) +
     geom_hline(yintercept = 30, linetype = 2) +
     bnssgtheme() +
-    scale_colour_manual(values = c(viridis::viridis(n = 4, end = 0.8, begin = 0.2, direction = -1), "black"),
+    scale_colour_manual(values = c(unname(bnssgcols[c(7,4)]), "black"),
                         guide = guide_legend(override.aes = list(size = 3,
                                                                  alpha = 1))) +
+    # scale_colour_manual(values = c(viridis::viridis(n = 2, end = 0.6, begin = 0.2, direction = -1), "black"),
+    #                     guide = guide_legend(override.aes = list(size = 3,
+    #                                                              alpha = 1))) +
     labs(y = "Ambulance handover time\n(min)",
          x = "DTA queue",
          colour = "Handover time quantile") +
@@ -539,6 +549,47 @@ ggsave("materials/dta_handover_scatter_quant.png",
        height = 5,
        width = 7.5, 
        scale = 0.9)
+
+(scatter_1 <- plot_df %>%
+    ggplot(aes(x = n_dta, y = handover_time)) +
+    geom_point(data = {dta_df %>% 
+        left_join(handover_df) %>% 
+        # left_join(minor_time_in_ed_df) %>%
+        filter(site == "SOUTHMEAD HOSPITAL", n_dta <= 30) %>%
+        filter(!between(dt, ymd("2022-04-01"), ymd("2022-07-10"))) %>%
+        mutate(handover_time = handover_time/60) %>%
+        na.omit()}, aes(x = n_dta, y = handover_time, shape = "All data"), alpha = 0.015) +
+    geom_point(aes(shape = q, group = q), fill = "white", size = 2.5) +
+    scale_y_continuous(limits = c(0, 180), breaks = seq(0, 180, 30)) +
+    # geom_ribbon(aes(ymin = lwr, ymax = upr, fill = q), col = NA, alpha = 0.25) +
+    # geom_line(aes(y = fit, group = q)) +
+    geom_hline(yintercept = 30, linetype = 2) +
+    # bnssgtheme() +
+    theme_minimal() +
+    scale_shape_manual(values = c(21, 24, 19), guide = guide_legend(override.aes = list(size = 3,
+                                                                                      alpha = 1))) +
+    # scale_colour_manual(values = c("black", "black", "black"),
+    #                     guide = guide_legend(override.aes = list(size = 3,
+    #                                                              alpha = 1))) +
+    # scale_colour_manual(values = c(viridis::viridis(n = 2, end = 0.6, begin = 0.2, direction = -1), "black"),
+    #                     guide = guide_legend(override.aes = list(size = 3,
+    #                                                              alpha = 1))) +
+    labs(y = "Ambulance handover time\n(min)",
+         x = "DTA queue",
+         shape = "Handover time quantile") +
+    theme(legend.position = "bottom",
+          legend.justification = "center",
+          legend.title = element_text())
+)
+
+
+ggsave("materials/dta_handover_scatter_quant_paper.png",
+       scatter_1,
+       bg = "white",
+       height = 5,
+       width = 7.5, 
+       scale = 0.7)
+
 
 # handover time for patients 65+
 dta_df %>% 
@@ -660,6 +711,7 @@ dta_mod <- dta_df %>%
   ungroup() %>%
   na.omit() %>%
   filter(site == "SOUTHMEAD HOSPITAL") %>%
+  filter(!between(dt, ymd("2022-04-01"), ymd("2022-07-10"))) %>%
   filter(handover_time > 0) %>%
   mutate(wkend = factor(ifelse(wday(dt, week_start = 1) < 6, "yes", "no")),
          hour = factor(cut(hour(dt), breaks = seq(0, 24, 6), include.lowest = TRUE), ordered = FALSE)) %>% 
@@ -850,20 +902,25 @@ summary(dta_handover_age_lm_3)
 resp_plot_df <- dta_df %>%
   left_join(filter(resp_time_df, call_category == "cat3")) %>%
   filter(site == "SOUTHMEAD HOSPITAL") %>%
+  filter(!between(dt, ymd("2022-04-01"), ymd("2022-07-10"))) %>%
   na.omit()
-  
+
 
   (scatter_3 <- resp_plot_df %>%
-  group_by(n_dta) %>%
-  summarise(response = quantile(response, 0.9)) %>%
-  ggplot(aes(x = n_dta, y = response, col = "90% quantile")) +
+      nest() %>%
+      expand_grid(q = c(0.5, 0.9)) %>%
+      mutate(data = map2(data, q,
+                         ~.x %>% group_by(n_dta) %>% summarise(response = quantile(response, .y))
+      )) %>%
+      unnest(cols = c(data)) %>%
+  ggplot(aes(x = n_dta, y = response, col = factor(q))) +
   geom_point(data = resp_plot_df, aes(col = "All data"), alpha = 0.015) +
   geom_point(size = 2.5) +
-  geom_smooth(method = "lm", show.legend = FALSE)  +
-  scale_y_continuous(limits = c(0, 480), breaks = seq(0, 480, 60)) +
+  geom_smooth(method = "lm", se = FALSE, show.legend = FALSE)  +
+  scale_y_continuous(limits = c(0, 660), breaks = seq(0, 660, 60)) +
   scale_x_continuous(limits = c(0, 35)) +
   bnssgtheme() +
-  scale_colour_manual(values = c(unname(bnssgcols[4]), "black"),
+  scale_colour_manual(values = c(unname(bnssgcols[c(7, 4)]), "black"),
                       guide = guide_legend(override.aes = list(size = 3,
                                                                alpha = 1))) +
   guides(alpha = "none") +
@@ -880,6 +937,63 @@ ggsave("materials/resptime_scatter_quant.png",
        height = 5,
        width = 7.5, 
        scale = 0.9)  
+
+
+  (scatter_3 <- resp_plot_df %>%
+      nest() %>%
+      expand_grid(q = c(0.5, 0.9)) %>%
+      mutate(data = map2(data, q,
+                         ~.x %>% group_by(n_dta) %>% summarise(response = quantile(response, .y))
+      )) %>%
+      unnest(cols = c(data)) %>%
+  ggplot(aes(x = n_dta, y = response, shape = factor(q))) +
+  geom_point(data = resp_plot_df, aes(shape = "All data"), alpha = 0.01) +
+  geom_point(size = 2.5, fill = "white") +
+  geom_smooth(method = "lm", se = FALSE, show.legend = FALSE, col = "black")  +
+  scale_y_continuous(limits = c(0, 660), breaks = seq(0, 660, 60)) +
+  scale_x_continuous(limits = c(0, 35)) +
+  theme_minimal() +
+  scale_shape_manual(values = c(21, 24, 19),
+                      guide = guide_legend(override.aes = list(size = 3,
+                                                               alpha = 1))) +
+  guides(alpha = "none") +
+  labs(y = "Category 3 response time\n(min)",
+       x = "DTA queue",
+       shape = "Category 3 response time:") +
+  theme(legend.position = "bottom",
+        legend.justification = "center",
+        legend.title = element_text()))
+
+
+ggsave("materials/resptime_scatter_quant_paper.png",
+       scatter_3,
+       bg = "white",
+       height = 5,
+       width = 7.5, 
+       scale = 0.7)  
+
+
+dta_df %>%
+  left_join(filter(resp_time_df, call_category == "cat3")) %>%
+  filter(site == "SOUTHMEAD HOSPITAL") %>%
+  filter(!between(dt, ymd("2022-04-01"), ymd("2022-07-10"))) %>%
+  na.omit() %>%
+  nest() %>%
+  expand_grid(q = c(0.5, 0.9)) %>%
+  mutate(data = map2(data, q,
+                     ~.x %>% group_by(n_dta) %>% summarise(response = quantile(response, .y))
+  )) %>%
+  unnest(cols = c(data)) %>%
+  group_by(site, q) %>%
+  nest() %>%
+  mutate(mod = map(data, ~lm(response ~ n_dta, data = .x))) %>%
+  mutate(stats = map(mod, broom::tidy)) %>%
+  unnest(stats)
+
+# q = 0.5, coeff = 5.89
+# q = 0.9, coeff = 15.0
+
+
 
 dta_mod$data[[1]] %>%
   group_by(n_dta, n_ed, wkend, hour) %>%
