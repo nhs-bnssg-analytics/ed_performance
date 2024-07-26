@@ -14,8 +14,8 @@ con_string <- "driver={SQL Server};\n  server=xsw-000-sp09;\n  trusted_connectio
 con<-odbcDriverConnect(con_string)
 
 
-report_start <- '2022-01-01'
-report_end <- '2024-05-01'
+report_start <- '2021-06-01'
+report_end <- '2024-06-01'
 pre_window_days <- 60
 
 string_ecds<-glue::glue("select 

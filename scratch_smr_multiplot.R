@@ -4,7 +4,9 @@ map(mort, function(days_mort){
   map(bin, function(bins){
 
 mod_df <- dat_adm %>%
-  # filter(site == "SOUTHMEAD HOSPITAL") %>%
+  filter(site == "SOUTHMEAD HOSPITAL") %>%
+  filter(!between(dta_dt, ymd("2022-04-01"), ymd("2022-07-10"))) %>% # filter bad DQ period for NBT
+  filter(sex %in% c("1", "2")) %>%
   filter(dta_time <= time_max) %>%
   filter(dta_time > 0) %>%
   left_join(mortality_df) %>%
@@ -52,7 +54,7 @@ glm_spec <- logistic_reg()
 
 rec <- recipe(mort_30 ~ ., data = training(split)) %>%
   update_role(dta_time, ed_time, new_role = "not for prediction") %>%
-  step_other(all_nominal_predictors(), -dta_time, other = "other") %>%
+  # step_other(all_nominal_predictors(), -dta_time, other = "other") %>%
   step_novel(all_nominal_predictors(), new_level = "novel") %>%
   step_dummy(all_nominal_predictors()) %>%
   step_nzv()
@@ -194,7 +196,7 @@ map(bins, ~smr_plot_quant(dta_time,
 
 mort <- seq(10, 30, 5)
 bin <- seq(5, 10, 1)
-out <- smr_plots(mort, bin, time_max = 18*60)
+out <- smr_plots(mort, bin, time_max = 24*60)
 
 out %>%
   flatten() %>%
@@ -202,7 +204,7 @@ out %>%
   patchwork::wrap_plots(ncol = length(bin), nrow = length(mort), axes = "collect")
 
 
-smr_final <-  smr_plots(mort = 30, bin = 5:10, time_max = 20*60)
+smr_final <-  smr_plots(mort = 30, bin = 5:10, time_max = 24*60)
 
 
 smr_final %>%
@@ -230,13 +232,14 @@ ggsave("materials/smr_quant_bin_scratch.png",
 # making final plot
 
 days_mort  <- 30
-bin <- 5
+bin <- 6
 time_max <- 24*60
 
 
 
 mod_df <- dat_adm %>%
-  # filter(site == "SOUTHMEAD HOSPITAL") %>%
+  filter(site == "SOUTHMEAD HOSPITAL") %>%
+  filter(!between(dta_dt, ymd("2022-04-01"), ymd("2022-07-10"))) %>% # filter bad DQ period for NBT
   filter(dta_time <= time_max) %>%
   filter(dta_time > 0) %>%
   left_join(mortality_df) %>%
@@ -287,7 +290,7 @@ glm_spec <- logistic_reg()
 
 rec <- recipe(mort_30 ~ ., data = training(split)) %>%
   update_role(dta_time, ed_time, new_role = "not for prediction") %>%
-  step_other(all_nominal_predictors(), -dta_time, other = "other") %>%
+  # step_other(all_nominal_predictors(), -dta_time, other = "other") %>%
   step_novel(all_nominal_predictors(), new_level = "novel") %>%
   step_dummy(all_nominal_predictors()) %>%
   step_nzv()
@@ -406,23 +409,46 @@ full_pred <- predict(extract_fit_engine(full_fit), bake(prep(rec), new_data = mo
     # geom_vline(aes(xintercept = right/60), linetype = 2) +
     # geom_vline(aes(xintercept = left/60), linetype = 2) +
     # geom_col(aes(width = (right-left)/60),col = bnssgcols[4]) +
-    geom_line(linetype = 2) +
-    # geom_point(col = bnssgcols[4]) +
+    # geom_line(linetype = 2) +
+    geom_point() +
     
     # scale_x_continuous(breaks = x_breaks/60, labels = scales::number_format(accuracy = 0.1)) +
-    scale_x_continuous(breaks = x_breaks/60,
+    scale_x_continuous(limits = c(NA, (time_max/60)-1),
+                       breaks = x_breaks/60,
                        labels = lab_fn(x_breaks),
-                       guide = guide_axis(n.dodge = 2)) +
+                       guide = guide_axis(n.dodge = 2)
+                       ) +
     # bnssgtheme() +
     theme_minimal() +
     # coord_cartesian(ylim = c(0.75, 1.2), xlim = c(0, time_max/60)) +
      labs(y = "Standardised Mortality Ratio",
           x = "Time waiting for admission")
   
-  ggsave("materials/smr_quant_5_bin_3yrs_white_bg_with_line.png",
+  ggsave("materials/smr_quant_5_bin_3yrs_white_bg.png",
          last_plot(),
          bg = "white",
          height = 5,
          width = 7.5, 
          scale = 0.7)
+  
+  mod_df_dta <- mod_df %>%
+    mutate(dta_time = dta_time > 4*60)
+  
+  split_dta <- initial_split(mod_df_dta, strata = mort_30)
+  
+  rec_dta <- recipe(mort_30 ~ ., data = training(split_dta)) %>%
+    update_role(ed_time, new_role = "not for prediction") %>%
+    # step_other(all_nominal_predictors(), -dta_time, other = "other") %>%
+    step_novel(all_nominal_predictors(), new_level = "novel") %>%
+    step_dummy(all_nominal_predictors()) %>%
+    step_nzv()
+  
+  wf_dta <- workflow() %>%
+    add_recipe(rec_dta) %>%
+    add_model(glm_spec)
+  
+  full_fit_dta <- fit(wf_dta, mod_df_dta)
+
+  
+  full_fit_dta %>% broom::tidy()
   

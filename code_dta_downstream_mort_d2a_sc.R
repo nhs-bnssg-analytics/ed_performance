@@ -435,6 +435,7 @@ dat_adm <- dat_ecds %>%
   slice_min(dta_dt, na_rm = TRUE) %>%
   filter(dta_time >= 0) %>% # some records are negative 0 exactly, seems to be DQ
   filter(age < 120, !is.na(age)) %>%
+  filter(!between(dta_dt, ymd("2022-04-01"), ymd("2022-07-10"))) %>%
   # filter(dta_dt == min(dta_dt, na.rm = TRUE)) %>%
   ungroup() %>%
   select(

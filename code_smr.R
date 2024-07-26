@@ -332,6 +332,7 @@ dat_adm <- dat_ecds %>%
   na.omit()
 
 saveRDS(dat_adm, "data/dat_adm_new.RDS")
+# dat_adm <- readRDS("data/dat_adm_new.RDS")
 
 
 mortality_df <- local({
@@ -389,11 +390,12 @@ smr_df <- local({
 })
 
 
-t_max <- 20*60
+t_max <- 24*60
 days_mort <- 30
 
 mod_df <- dat_adm %>%
-  filter(site == "SOUTHMEAD HOSPITAL") %>%
+  # filter(site == "SOUTHMEAD HOSPITAL") %>%
+  filter(!between(dta_dt, ymd("2022-04-01"), ymd("2022-07-10"))) %>% # filter bad DQ period for NBT
   filter(dta_time <= t_max) %>%
   filter(dta_time > 0) %>%
   left_join(mortality_df) %>%

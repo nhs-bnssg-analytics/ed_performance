@@ -492,7 +492,7 @@ f <- function(x, a, c) {
 plot_df <- map_dfr(c(0.5, 0.9), ~
 
 { plot_df <- dta_df %>% 
-  filter(site == "SOUTHMEAD HOSPITAL") %>%
+  # filter(site == "SOUTHMEAD HOSPITAL") %>%
   filter(!between(dt, ymd("2022-04-01"), ymd("2022-07-10"))) %>%
   left_join(handover_df) %>% 
   # left_join(minor_time_in_ed_df) %>%
@@ -504,7 +504,7 @@ plot_df <- map_dfr(c(0.5, 0.9), ~
 dta_handover_mod <- nls(formula = handover_time ~ f(n_dta, a, c), data = plot_df, start = list(a = 1, c = 0))
 
 plot_df <- bind_cols(plot_df, investr::predFit(dta_handover_mod, plot_df, interval = "confidence", level= 0.9))
-plot_df$q <- factor(.x, labels = scales::percent(.x)) %>% forcats::fct_recode("Median" = "50%")
+plot_df$q <- factor(.x, labels = scales::percent(.x)) %>% paste0(" quantile") %>% forcats::fct_recode("Median" = "50% quantile")
 
 plot_df$r <- round(log(30 - min(29, coef(dta_handover_mod)[2]))/coef(dta_handover_mod)[1])
 plot_df$c <- coef(dta_handover_mod)[2]
@@ -544,7 +544,7 @@ plot_df}
 )
 
 
-ggsave("materials/dta_handover_scatter_quant.png",
+ggsave("materials/dta_handover_scatter_quant_all_site.png",
        scatter_1,
        height = 5,
        width = 7.5, 
@@ -575,15 +575,15 @@ ggsave("materials/dta_handover_scatter_quant.png",
     #                     guide = guide_legend(override.aes = list(size = 3,
     #                                                              alpha = 1))) +
     labs(y = "Ambulance handover time\n(min)",
-         x = "DTA queue",
-         shape = "Handover time quantile") +
+         x = "Queue size for admission",
+         shape = "") +
     theme(legend.position = "bottom",
           legend.justification = "center",
           legend.title = element_text())
 )
 
 
-ggsave("materials/dta_handover_scatter_quant_paper.png",
+ggsave("materials/dta_handover_scatter_quant_paper_all_site.png",
        scatter_1,
        bg = "white",
        height = 5,
@@ -901,12 +901,15 @@ summary(dta_handover_age_lm_3)
 
 resp_plot_df <- dta_df %>%
   left_join(filter(resp_time_df, call_category == "cat3")) %>%
-  filter(site == "SOUTHMEAD HOSPITAL") %>%
+  # filter(site == "SOUTHMEAD HOSPITAL") %>%
   filter(!between(dt, ymd("2022-04-01"), ymd("2022-07-10"))) %>%
   na.omit()
 
+saveRDS(resp_plot_df, "data/dta_resp_plot_df_all_site.RDS")
+
 
   (scatter_3 <- resp_plot_df %>%
+      ungroup() %>%
       nest() %>%
       expand_grid(q = c(0.5, 0.9)) %>%
       mutate(data = map2(data, q,
@@ -914,10 +917,10 @@ resp_plot_df <- dta_df %>%
       )) %>%
       unnest(cols = c(data)) %>%
   ggplot(aes(x = n_dta, y = response, col = factor(q))) +
-  geom_point(data = resp_plot_df, aes(col = "All data"), alpha = 0.015) +
+  geom_point(data = resp_plot_df, aes(col = "All data"), alpha = 0.01) +
   geom_point(size = 2.5) +
   geom_smooth(method = "lm", se = FALSE, show.legend = FALSE)  +
-  scale_y_continuous(limits = c(0, 660), breaks = seq(0, 660, 60)) +
+  scale_y_continuous(limits = c(0, 900), breaks = seq(0, 900, 60)) +
   scale_x_continuous(limits = c(0, 35)) +
   bnssgtheme() +
   scale_colour_manual(values = c(unname(bnssgcols[c(7, 4)]), "black"),
@@ -932,7 +935,7 @@ resp_plot_df <- dta_df %>%
         legend.title = element_text()))
 
 
-ggsave("materials/resptime_scatter_quant.png",
+ggsave("materials/resptime_scatter_quant_all_site.png",
        scatter_3,
        height = 5,
        width = 7.5, 
@@ -940,32 +943,34 @@ ggsave("materials/resptime_scatter_quant.png",
 
 
   (scatter_3 <- resp_plot_df %>%
+      ungroup() %>%
       nest() %>%
       expand_grid(q = c(0.5, 0.9)) %>%
       mutate(data = map2(data, q,
                          ~.x %>% group_by(n_dta) %>% summarise(response = quantile(response, .y))
       )) %>%
       unnest(cols = c(data)) %>%
-  ggplot(aes(x = n_dta, y = response, shape = factor(q))) +
+      mutate(q = factor(q, labels = c("Median", "90% quantile"))) %>%
+  ggplot(aes(x = n_dta, y = response/60, shape = q)) +
   geom_point(data = resp_plot_df, aes(shape = "All data"), alpha = 0.01) +
   geom_point(size = 2.5, fill = "white") +
-  geom_smooth(method = "lm", se = FALSE, show.legend = FALSE, col = "black")  +
-  scale_y_continuous(limits = c(0, 660), breaks = seq(0, 660, 60)) +
+  # geom_smooth(method = "lm", se = FALSE, show.legend = FALSE, col = "black")  +
+  scale_y_continuous(limits = c(0, 24), breaks = seq(0, 24, 4)) +
   scale_x_continuous(limits = c(0, 35)) +
   theme_minimal() +
   scale_shape_manual(values = c(21, 24, 19),
                       guide = guide_legend(override.aes = list(size = 3,
                                                                alpha = 1))) +
   guides(alpha = "none") +
-  labs(y = "Category 3 response time\n(min)",
-       x = "DTA queue",
-       shape = "Category 3 response time:") +
+  labs(y = "Category 3 response time\n(hour)",
+       x = "Queue size for admission",
+       shape = "") +
   theme(legend.position = "bottom",
         legend.justification = "center",
         legend.title = element_text()))
 
 
-ggsave("materials/resptime_scatter_quant_paper.png",
+ggsave("materials/resptime_scatter_quant_paper_all_site.png",
        scatter_3,
        bg = "white",
        height = 5,
@@ -973,25 +978,41 @@ ggsave("materials/resptime_scatter_quant_paper.png",
        scale = 0.7)  
 
 
+
+sct_ptc <- patchwork::wrap_plots(scatter_1, scatter_3,
+                                 ncol = 1,
+                                 axes = "collect",
+                                 guides = "collect") &
+  theme(legend.position = "bottom")
+
+ggsave("materials/queue_paper_all_site.png",
+       sct_ptc,
+       bg = "white",
+       height = 7.5,
+       width = 7.5, 
+       scale = 0.7)  
+
+
 dta_df %>%
   left_join(filter(resp_time_df, call_category == "cat3")) %>%
-  filter(site == "SOUTHMEAD HOSPITAL") %>%
+  # filter(site == "SOUTHMEAD HOSPITAL") %>%
   filter(!between(dt, ymd("2022-04-01"), ymd("2022-07-10"))) %>%
   na.omit() %>%
+  ungroup() %>%
   nest() %>%
   expand_grid(q = c(0.5, 0.9)) %>%
   mutate(data = map2(data, q,
                      ~.x %>% group_by(n_dta) %>% summarise(response = quantile(response, .y))
   )) %>%
   unnest(cols = c(data)) %>%
-  group_by(site, q) %>%
+  group_by(q) %>%
   nest() %>%
   mutate(mod = map(data, ~lm(response ~ n_dta, data = .x))) %>%
   mutate(stats = map(mod, broom::tidy)) %>%
   unnest(stats)
 
-# q = 0.5, coeff = 5.89
-# q = 0.9, coeff = 15.0
+# q = 0.5, coeff = 6.01
+# q = 0.9, coeff = 14.4
 
 
 
