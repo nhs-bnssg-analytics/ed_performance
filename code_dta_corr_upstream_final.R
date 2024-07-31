@@ -312,19 +312,19 @@ Conveyed_To_Ward_Type = 'A&E' AND
   handover_df
 })
 
-handover_df %>%
-  filter(site == "SOUTHMEAD HOSPITAL") %>%
-  filter(dt %within% interval(ymd("2024-02-15"), ymd("2024-02-15")+dweeks(4))) %>%
-  ggplot(aes(x = dt, y = handover_time/60)) +
-  geom_line() + 
-  bnssgtheme() +
-  labs(x = "Date", y = "Median ambulance handover time\n(mins)") 
-
-ggsave("materials/handover_plot.png",
-       last_plot(),
-       height = 5,
-       width = 7.5, 
-       scale = 0.9)
+# handover_df %>%
+#   filter(site == "SOUTHMEAD HOSPITAL") %>%
+#   filter(dt %within% interval(ymd("2024-02-15"), ymd("2024-02-15")+dweeks(4))) %>%
+#   ggplot(aes(x = dt, y = handover_time/60)) +
+#   geom_line() + 
+#   bnssgtheme() +
+#   labs(x = "Date", y = "Median ambulance handover time\n(mins)") 
+# 
+# ggsave("materials/handover_plot.png",
+#        last_plot(),
+#        height = 5,
+#        width = 7.5, 
+#        scale = 0.9)
 
 
 
@@ -1156,12 +1156,37 @@ dta_df %>%
 
 # adv model
 
+
+
 resp_mods <- dta_df %>% 
   left_join(handover_df) %>% 
   left_join(ed_df) %>%
   left_join(resp_time_df) %>%
   # left_join(resp_time_df) %>%
   mutate(n_ed = n_ed - n_dta) %>%
+  mutate(age = factor(age)) %>%
+  mutate(age = fct_recode(age, 
+      "0-9 Years Old" = "0-4 Years Old",
+      "0-9 Years Old" = "5-9 Years Old",
+      "10-19 Years Old" = "10-14 Years Old",
+      "10-19 Years Old" = "15-19 Years Old",
+      "20-29 Years Old" = "20-24 Years Old",
+      "20-29 Years Old" = "25-29 Years Old",
+      "30-39 Years Old" = "30-34 Years Old",
+      "30-39 Years Old" = "35-39 Years Old",
+      "40-49 Years Old" = "40-44 Years Old",
+      "40-49 Years Old" = "45-49 Years Old",
+      "50-59 Years Old" = "50-54 Years Old",
+      "50-59 Years Old" = "55-59 Years Old",
+      "60-69 Years Old" = "60-64 Years Old",
+      "60-69 Years Old" = "65-69 Years Old",
+      "70-79 Years Old" = "70-74 Years Old",
+      "70-79 Years Old" = "75-79 Years Old",
+      "80-89 Years Old" = "80-84 Years Old",
+      "80-89 Years Old" = "85-89 Years Old",
+      "90-99 Years Old" = "90-94 Years Old",
+      "90-99 Years Old" = "95-99 Years Old"
+  )) %>%
   ungroup() %>%
   na.omit() %>%
   # filter(site == "SOUTHMEAD HOSPITAL") %>%
@@ -1188,24 +1213,46 @@ resp_mods <- dta_df %>%
   mutate(q = recode(q, "50%" = "Median")) %>%
   mutate(label = glue::glue("{q} {call_category} response"))
 
-
+saveRDS("data/resp_mods.RDS")
+resp_mods <- readRDS("data/resp_mods.RDS")
 
 resp_mods %>%
   pull(mod) %>%
-  jtools::export_summs(coefs = c("(Intercept)",
-                                              "DTA Queue" = "n_dta",
-                                              "Patients in ED (non-DTA)" = "n_ed",
-                                              "Weekend" = "wkendyes",
-                                              "00:00-06:00" = "hour[0,6]",
-                                              "06:00-12:00" = "hour(6,12]",
-                                              "18:00-24:00" = "hour(18,24]",
-                                              "Interaction: DTA queue-Patients in ED" = "n_dta:n_ed"
-  ),
+  jtools::export_summs(
+    coefs = c(
+      "(Intercept)",
+      "DTA Queue" = "n_dta",
+      "Patients in ED (non-DTA)" = "n_ed",
+      "Weekend" = "wkendyes",
+      "00:00-06:00" = "hour[0,6]",
+      "06:00-12:00" = "hour(6,12]",
+      "18:00-24:00" = "hour(18,24]",
+      "Interaction: DTA queue-Patients in ED" = "n_dta:n_ed",
+            "10-19 Years Old" ="age10-19 Years Old",
+            "10-19 Years Old" ="age10-19 Years Old",
+            "20-29 Years Old" ="age20-29 Years Old",
+            "20-29 Years Old" ="age20-29 Years Old",
+            "30-39 Years Old" ="age30-39 Years Old",
+            "30-39 Years Old" ="age30-39 Years Old",
+            "40-49 Years Old" ="age40-49 Years Old",
+            "40-49 Years Old" ="age40-49 Years Old",
+            "50-59 Years Old" ="age50-59 Years Old",
+            "50-59 Years Old" ="age50-59 Years Old",
+            "60-69 Years Old" ="age60-69 Years Old",
+            "60-69 Years Old" ="age60-69 Years Old",
+            "70-79 Years Old" ="age70-79 Years Old",
+            "70-79 Years Old" ="age70-79 Years Old",
+            "80-89 Years Old" ="age80-89 Years Old",
+            "80-89 Years Old" ="age80-89 Years Old",
+            "90-99 Years Old" ="age90-99 Years Old",
+            "90-99 Years Old" ="age90-99 Years Old"
+    ),
+    
   error_pos = "right",
   model.names = resp_mods %>%
     pull(label)
   ) %>%
-  huxtable::quick_xlsx(file = "resp_reg.xlxs")
+  huxtable::quick_xlsx(file = "materials/resp_reg.xlsx")
   # mutate(stats = map(mod, broom::tidy)) %>%
   # unnest(stats) %>%
   # filter(term == "n_dta")
