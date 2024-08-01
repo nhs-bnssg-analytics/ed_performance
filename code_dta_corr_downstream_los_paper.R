@@ -297,7 +297,6 @@ dat_los <- arrivals %>%
   distinct()
 
 
-
 dat_spec <- arrivals %>%
   left_join(
     dat_apc %>%
@@ -311,7 +310,7 @@ dat_spec <- arrivals %>%
   select(nhs_number, arr_id, MainSpecialtyCode)
 
 
-dat_adm <- dat_ecds %>%
+dat_adm_los <- dat_ecds %>%
   mutate(nhs_number = as.character(nhs_number)) %>%
   group_by(nhs_number) %>%
   slice_min(dta_dt, na_rm = TRUE) %>%
@@ -350,9 +349,8 @@ dat_adm <- dat_ecds %>%
   select(-MainSpecialtyCode) %>%
   na.omit()
 
-saveRDS(dat_adm, "data/dat_adm_new_LOS.RDS")
-
-dat_adm_los <- readRDS("data/dat_adm_new_LOS.RDS")
+saveRDS(dat_adm_los, "data/dat_adm_new_LOS.RDS")
+# dat_adm_los <- readRDS("data/dat_adm_new_LOS.RDS")
 
 (los_plot <- local({
   
@@ -390,6 +388,8 @@ dat_adm_los <- readRDS("data/dat_adm_new_LOS.RDS")
          colour = "Total length of stay")
 })
 )
+
+
 
 
 ggsave("materials/los_downstream_paper.png",

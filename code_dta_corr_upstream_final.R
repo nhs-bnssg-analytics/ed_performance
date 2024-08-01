@@ -480,6 +480,10 @@ Conveyed_To_Ward_Type = 'A&E' AND
   response_time
 })
 
+# saveRDS(dta_df, "data/upstream_dta_df.RDS")
+# saveRDS(ed_df, "data/upstream_ed_df.RDS")
+# saveRDS(handover_df, "data/upstream_handover_df.RDS")
+
 
 # Handover time quantile analysis
 # fitting model
@@ -1187,14 +1191,19 @@ resp_mods <- dta_df %>%
       "90-99 Years Old" = "90-94 Years Old",
       "90-99 Years Old" = "95-99 Years Old"
   )) %>%
+  mutate(age = fct_relevel(age, "100 Years Old Or Over", after = 10)) %>%
   ungroup() %>%
   na.omit() %>%
   # filter(site == "SOUTHMEAD HOSPITAL") %>%
   filter(!between(dt, ymd("2022-04-01"), ymd("2022-07-10"))) %>%
   filter(handover_time > 0) %>%
-  mutate(wkend = factor(ifelse(wday(dt, week_start = 1) < 6, "yes", "no")),
+  mutate(wkend = factor(ifelse(wday(dt, week_start = 1) < 6, "Yes", "No")),
          hour = factor(cut(hour(dt), breaks = seq(0, 24, 6), include.lowest = TRUE), ordered = FALSE)) %>% 
   mutate(hour = fct_relevel(hour, "(12,18]", after = 0)) %>%
+  mutate(hour = fct_recode(hour, "00:00-06:00" = "[0,6]",
+                           "06:00-12:00" = "(6,12]",
+                           "12:00-18:00" = "(12,18]",
+                           "18:00-24:00" = "(18,24]")) %>%
   select(-site, -handover_time, -dt) %>%
   ungroup() %>%
   group_by(call_category) %>%
@@ -1213,7 +1222,7 @@ resp_mods <- dta_df %>%
   mutate(q = recode(q, "50%" = "Median")) %>%
   mutate(label = glue::glue("{q} {call_category} response"))
 
-saveRDS("data/resp_mods.RDS")
+saveRDS(resp_mods, "data/resp_mods.RDS")
 resp_mods <- readRDS("data/resp_mods.RDS")
 
 resp_mods %>%
@@ -1258,6 +1267,79 @@ resp_mods %>%
   # filter(term == "n_dta")
 
 
+tbl1 <- gtsummary::tbl_regression(resp_mods$mod[[1]],
+                          label = list(
+                            age = "Age",
+                            n_dta = "Queue size for admission",
+                            n_ed = "Number in ED (excluding DTA)",
+                            wkend = "Weekend",
+                            hour = "Time of day"
+                            )) %>%
+  gtsummary::add_glance_table(include = c(nobs, r.squared)) 
+
+tbl2 <- gtsummary::tbl_regression(resp_mods$mod[[2]],
+                          label = list(
+                            age = "Age",
+                            n_dta = "Queue size for admission",
+                            n_ed = "Number in ED (excluding DTA)",
+                            wkend = "Weekend",
+                            hour = "Time of day"
+                            )) %>%
+  gtsummary::add_glance_table(include = c(nobs, r.squared)) 
+
+
+tab_out <- resp_mods %>%
+  ungroup() %>%
+  select(call_category, mod) %>%
+  mutate(tab = map(mod, ~{
+    gtsummary::tbl_regression(.x,
+                              label = list(
+                                age = "Age",
+                                n_dta = "Queue size for admission",
+                                n_ed = "Number in ED (excluding DTA)",
+                                wkend = "Weekend",
+                                hour = "Time of day"
+                              )) %>%
+      gtsummary::add_glance_table(include = c(nobs, r.squared))
+    })) %>%
+  select(call_category, tab) %>%
+  group_by(call_category) %>%
+  nest() %>%
+  mutate(tab = map2(call_category, data, ~{
+    gtsummary::tbl_merge(.y$tab,
+                         tab_spanner = c("**Median response time (min)**", "**90% quantile response time (min)**")) |>
+      gtsummary::as_gt() %>%
+      gt::tab_header(
+        title = gt::md(glue::glue('**{.x} ambulance response time**'))#,
+        # subtitle = "These are some fine automobiles"
+      )
+    })) %>%
+  ungroup() %>%
+   select(call_category, tab) %>%
+   as.list() 
+   
+   
+   walk2(tab_out$call_category, tab_out$tab, function(name, tab) gt::gtsave(tab, glue::glue("materials/resp_{name}_out.html")))
+
+
+
+gtsummary::tbl_merge(list(tbl1, tbl2),
+                     tab_spanner = c("**Median response (min)**", "**90% quantile response (min)**")) |>
+  gtsummary::as_gt() %>%
+  gt::tab_header(
+    title = gt::md("**Category 1 ambulance response**")#,
+    # subtitle = "These are some fine automobiles"
+  )
+
+
+
+# %>%
+#   gtsummary::as_gt() %>%
+#   gt::gtsave("materials/gt_out.html")
+
+
+  # gtsummary::as_hux_table() %>%
+  # huxtable::quick_xlsx(file = "materials/resp_reg.xlsx")
 
 dta_mod$data[[1]] %>%
   group_by(n_dta, n_ed, wkend, hour) %>%
