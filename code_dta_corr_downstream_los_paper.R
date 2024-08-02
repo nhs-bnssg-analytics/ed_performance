@@ -401,6 +401,7 @@ ggsave("materials/los_downstream_paper.png",
 
 
 
+
 dat_adm_los %>%
   # filter(site == "SOUTHMEAD HOSPITAL") %>%
   distinct() %>%
@@ -418,6 +419,94 @@ dat_adm_los %>%
   mutate(stats = map(mod, broom::tidy)) %>%
   unnest(cols = c(stats))
 
+
+t_max <- 24*60
+
+dat_adm_los %>%
+  # filter(site == "SOUTHMEAD HOSPITAL") %>%
+  filter(!between(dta_dt, ymd("2022-04-01"), ymd("2022-07-10"))) %>% # filter bad DQ period for NBT
+  filter(dta_time <= t_max) %>%
+  filter(dta_time > 0) %>%
+  filter(sex %in% 1:2) %>%
+  # mutate(age = cut(age, breaks = seq(0, 120, 10), include.lowest = TRUE)) %>%
+  # mutate(dta_time = dta_time > 4*60) %>%
+  # mutate(dta_time = cut(dta_time, breaks = 60*seq(0, 24, 4), include.lowest = TRUE)) %>%
+  mutate(sex = factor(sex, labels = c("Male", "Female"))) %>%
+  # mutate(sex = ifelse(sex == 1, "Male", "Female")) %>%
+  mutate(age_sq = age^2) %>%
+  mutate(perf_sq = perf^2) %>%
+  mutate(n_ed_sq = n_ed^2) %>%
+  mutate(n_adm_sq = n_adm^2) %>%
+  mutate(vw_score_sq = vw_score^2) %>%
+  mutate(dta_time = dta_time/60) %>%
+  mutate(imd = factor(imd)) %>%
+  mutate(imd = fct_recode(imd, "1 (least deprived)" = "1", "10 (most deprived)" = "10")) %>%
+  mutate(arrival_time = factor(hms::as_hms(floor_date(arrival_dt, "6 hour")))) %>%
+  mutate(arrival_time = fct_recode(arrival_time,
+                                   "00:00-06:00" = "00:00:00",
+                                   "06:00-12:00" = "06:00:00",
+                                   "12:00-18:00" = "12:00:00",
+                                   "18:00-24:00" = "18:00:00")) %>%
+  mutate(arrival_month = factor(month(arrival_dt), labels = month.name)) %>%
+  mutate(arrival_year = factor(year(arrival_dt))) %>%
+  select(
+    arrival_time,
+    arrival_month,
+    arrival_year,
+    perf,
+    perf_sq,
+    age,
+    age_sq,
+    n_ed,
+    n_ed_sq,
+    sex,
+    imd,
+    vw_score,
+    vw_score_sq,
+    los,
+    dta_time#,
+    #ed_time
+  ) %>%
+  nest() %>%
+  expand_grid(q = c(0.5, 0.9)) %>%
+  mutate(data = map2(data, q,
+                     ~.x %>% group_by(across(c(-los))) %>% summarise(los = quantile(los, .y))
+  )) %>%
+  unnest(cols = c(data)) %>%
+  group_by(q) %>%
+  nest() %>%
+  mutate(mod = map(data, ~lm(los ~ ., data = .x))) %>%
+  mutate(q = percent(q)) %>%
+  mutate(q = recode(q, "50%" = "Median")) %>%
+  select(q, mod) %>%
+  mutate(tab = map(mod, ~{
+    gtsummary::tbl_regression(.x,
+                              label = list(
+                                dta_time = "Hours waiting for admission",
+                                arrival_time = "Time of arrival",
+                                arrival_month = "Month of arrival",
+                                arrival_year = "Year of arrival",
+                                perf = "4-hour ED performance",
+                                perf_sq = "4-hour ED performance (squared)",
+                                age = "Age",
+                                age_sq = "Age (squared)",
+                                n_ed = "Number in ED",
+                                n_ed_sq = "Number in ED (squared)",
+                                sex = "Sex",
+                                imd = "IMD",
+                                vw_score = "Van Walraven score",
+                                vw_score_sq = "Van Walraven score (squared)")) %>%
+      gtsummary::add_glance_table(include = c(nobs, r.squared)) %>%
+      gtsummary::modify_table_body(~.x %>% arrange(desc(variable == "dta_time")))
+  })) %>%
+  pull(tab) %>%
+  gtsummary::tbl_merge(tab_spanner = c("**Median LOS (day)**", "**90th percentile LOS (day)**")) |>
+  gtsummary::as_gt() %>%
+  gt::tab_header(
+    title = gt::md("**In-Hospital Length of Stay**")#,
+    # subtitle = "These are some fine automobiles"
+  ) %>%
+  gt::gtsave("materials/los_reg_out.html")
 
 
 # standardised model

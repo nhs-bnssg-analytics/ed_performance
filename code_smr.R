@@ -403,7 +403,8 @@ mod_df <- dat_adm %>%
   # mutate(age = cut(age, breaks = seq(0, 120, 10), include.lowest = TRUE)) %>%
   # mutate(dta_time = dta_time > 4*60) %>%
   # mutate(dta_time = cut(dta_time, breaks = 60*seq(0, 24, 4), include.lowest = TRUE)) %>%
-  mutate(sex = ifelse(sex == 1, "Male", "Female")) %>%
+  mutate(sex = factor(sex, labels = c("Male", "Female"))) %>%
+  # mutate(sex = ifelse(sex == 1, "Male", "Female")) %>%
   mutate(age_sq = age^2) %>%
   mutate(perf_sq = perf^2) %>%
   mutate(n_ed_sq = n_ed^2) %>%
@@ -450,6 +451,8 @@ mod_df <- dat_adm %>%
 
 saveRDS(mod_df, "data/smr_mod_df_new.RDS")
 mod_df <- readRDS("data/smr_mod_df_new.RDS")
+
+set.seed(123)
 
 split <- initial_split(mod_df, strata = mort_30) 
 glm_spec <- logistic_reg()
@@ -498,7 +501,7 @@ full_fit %>%
   gtsummary::as_gt() %>%
   gt::tab_header(
     title = gt::md("**30-day Mortality**"),
-    subtitle = "ROC curve statistic = 0.769"
+    subtitle = "ROC curve statistic = 0.772"
   ) %>%
   gt::gtsave("materials/mortality_tab_out.html")
 
