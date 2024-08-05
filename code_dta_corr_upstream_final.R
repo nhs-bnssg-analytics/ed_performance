@@ -480,13 +480,10 @@ Conveyed_To_Ward_Type = 'A&E' AND
   response_time
 })
 
-# saveRDS(dta_df, "data/upstream_dta_df.RDS")
-# saveRDS(ed_df, "data/upstream_ed_df.RDS")
-# saveRDS(handover_df, "data/upstream_handover_df.RDS")
-
-# dta_df <- readRDS("data/upstream_dta_df.RDS")
-# ed_df <- readRDS("data/upstream_ed_df.RDS")
-# handover_df <- readRDS("data/upstream_handover_df.RDS")
+saveRDS(dta_df, "data/upstream_dta_df.RDS")
+saveRDS(ed_df, "data/upstream_ed_df.RDS")
+saveRDS(handover_df, "data/upstream_handover_df.RDS")
+saveRDS(resp_time_df, "data/upstream_resp_time_df.RDS")
 
 
 # Handover time quantile analysis
@@ -512,7 +509,7 @@ plot_df <- map_dfr(c(0.5, 0.9), ~
 dta_handover_mod <- nls(formula = handover_time ~ f(n_dta, a, c), data = plot_df, start = list(a = 1, c = 0))
 
 plot_df <- bind_cols(plot_df, investr::predFit(dta_handover_mod, plot_df, interval = "confidence", level= 0.9))
-plot_df$q <- factor(.x, labels = scales::percent(.x)) %>% str_replace("%", "th percentile") %>% forcats::fct_recode("Median" = "50th percentile")
+plot_df$q <- factor(.x, labels = scales::percent(.x)) %>% paste0(" quantile") %>% forcats::fct_recode("Median" = "50% quantile")
 
 plot_df$r <- round(log(30 - min(29, coef(dta_handover_mod)[2]))/coef(dta_handover_mod)[1])
 plot_df$c <- coef(dta_handover_mod)[2]
@@ -1003,7 +1000,7 @@ resp_1_plot_df <- dta_df %>%
     unnest(cols = c(data)) %>%
     mutate(q = factor(q, labels = c("Median", "90% quantile"))) %>%
     ggplot(aes(x = n_dta, y = response/60, shape = q)) +
-    geom_point(data = resp_1_plot_df, aes(shape = "All data"), alpha = 0.01) +
+    geom_point(data = resp_plot_df, aes(shape = "All data"), alpha = 0.01) +
     geom_point(size = 2.5, fill = "white") +
     # geom_smooth(method = "lm", se = FALSE, show.legend = FALSE, col = "black")  +
     scale_y_continuous(limits = c(0, 24), breaks = seq(0, 24, 4)) +
@@ -1122,8 +1119,52 @@ dta_df %>%
   mutate(stats = map(mod, broom::tidy)) %>%
   unnest(stats)
 
+
 # q = 0.5, coeff = 6.01
 # q = 0.9, coeff = 14.4
+
+time_std <- tibble(call_category = c("cat1", "cat2", "cat3"),
+                   std = c(15, 40, 120))
+
+
+labels <- c(cat1 = "Category 1",
+            cat2 = "Category 2",
+            cat3 = "Category 3")
+
+dta_df %>%
+  left_join(filter(resp_time_df)) %>%
+  # filter(site == "SOUTHMEAD HOSPITAL") %>%
+  filter(!between(dt, ymd("2022-04-01"), ymd("2022-07-10"))) %>%
+  na.omit() %>%
+  filter(n_dta < 35) %>% 
+  distinct() %>%
+  # mutate(n_dta = factor(n_dta)) %>%
+  ggplot(aes(x = n_dta, y = response)) +
+  # geom_boxplot(outliers = FALSE) +
+  geom_boxplot(mapping = aes(group = cut_width(n_dta, width = 1)), outliers = FALSE) +
+  geom_hline(data = time_std, aes(yintercept = std), linetype = 2) + 
+  facet_wrap(vars(call_category), ncol = 1,
+             scales = "free",
+             labeller = as_labeller(labels)) +
+  # scale_x_continuous(limits = c(0, 35)) +
+  theme_minimal() +
+  guides(alpha = "none") +
+  labs(y = "Ambulance Response Time\n(min)",
+       x = "Queue size for admission",
+       shape = "") +
+  theme(legend.position = "bottom",
+        legend.justification = "center",
+        legend.title = element_text())
+
+
+
+ggsave("materials/dta_amb_resp_paper.png",
+       last_plot(),
+       bg = "white",
+       height = 7.5,
+       width = 7.5, 
+       scale = 0.9)
+
 
 
 
