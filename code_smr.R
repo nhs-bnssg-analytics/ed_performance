@@ -458,7 +458,8 @@ split <- initial_split(mod_df, strata = mort_30)
 glm_spec <- logistic_reg()
 
 rec <- recipe(mort_30 ~ ., data = training(split)) %>%
-  update_role(dta_time, ed_time, new_role = "not for prediction") %>%
+  # update_role(dta_time, ed_time, new_role = "not for prediction") %>%
+  update_role(ed_time, new_role = "not for prediction") %>%
   # step_other(all_nominal_predictors(), -dta_time, other = "other") %>%
   # step_novel(all_nominal_predictors(), new_level = "novel") %>%
   # step_dummy(all_nominal_predictors()) %>%
@@ -479,7 +480,8 @@ augment(fit) %>%
 # fit on all data
 
 rec <- recipe(mort_30 ~ ., data = mod_df) %>%
-  update_role(dta_time, ed_time, new_role = "not for prediction") %>%
+  update_role(ed_time, new_role = "not for prediction") %>%
+  # update_role(dta_time, ed_time, new_role = "not for prediction") %>%
   # step_other(all_nominal_predictors(), -dta_time, other = "other") %>%
   # step_novel(all_nominal_predictors(), new_level = "novel") %>%
   # step_dummy(all_nominal_predictors()) %>%

@@ -486,6 +486,15 @@ saveRDS(handover_df, "data/upstream_handover_df.RDS")
 saveRDS(resp_time_df, "data/upstream_resp_time_df.RDS")
 
 
+dta_df <-  readRDS("data/upstream_dta_df.RDS")
+ed_df <-  readRDS("data/upstream_ed_df.RDS")
+handover_df <-  readRDS("data/upstream_handover_df.RDS")
+resp_time_df <-  readRDS("data/upstream_resp_time_df.RDS")
+
+
+
+
+
 # Handover time quantile analysis
 # fitting model
 # exponential model fits well for n_dta < 30
@@ -590,6 +599,50 @@ ggsave("materials/dta_handover_scatter_quant_all_site.png",
 
 ggsave("materials/dta_handover_scatter_quant_paper_all_site.png",
        scatter_1,
+       bg = "white",
+       height = 5,
+       width = 7.5, 
+       scale = 0.7)
+
+
+
+dta_df %>%
+  left_join(handover_df) %>%
+  # filter(site == "SOUTHMEAD HOSPITAL") %>%
+  filter(!between(dt, ymd("2022-04-01"), ymd("2022-07-10"))) %>%
+  na.omit() %>%
+  filter(n_dta < 35) %>% 
+  distinct() %>%
+  # mutate(n_dta = factor(n_dta)) %>%
+  ggplot(aes(x = n_dta, y = handover_time/60)) +
+  # geom_boxplot(outliers = FALSE) +
+  geom_boxplot(mapping = aes(group = cut_width(n_dta, width = 1)), outliers = FALSE) +
+  geom_hline(yintercept = 30, linetype = 2) +
+  scale_y_continuous(limits = c(0, 300), breaks = seq(0, 300, 30)) +
+  # geom_ribbon(aes(ymin = lwr, ymax = upr, fill = q), col = NA, alpha = 0.25) +
+  # geom_line(aes(y = fit, group = q)) +
+  geom_hline(yintercept = 30, linetype = 2) +
+  # bnssgtheme() +
+  theme_minimal() +
+  scale_shape_manual(values = c(21, 24, 19), guide = guide_legend(override.aes = list(size = 3,
+                                                                                      alpha = 1))) +
+  # scale_colour_manual(values = c("black", "black", "black"),
+  #                     guide = guide_legend(override.aes = list(size = 3,
+  #                                                              alpha = 1))) +
+  # scale_colour_manual(values = c(viridis::viridis(n = 2, end = 0.6, begin = 0.2, direction = -1), "black"),
+  #                     guide = guide_legend(override.aes = list(size = 3,
+  #                                                              alpha = 1))) +
+  labs(y = "Ambulance handover time\n(min)",
+       x = "Queue size for admission",
+       shape = "") +
+  theme(legend.position = "bottom",
+        legend.justification = "center",
+        legend.title = element_text())
+
+
+
+ggsave("materials/dta_handover_box_paper.png",
+       last_plot(),
        bg = "white",
        height = 5,
        width = 7.5, 
@@ -1161,9 +1214,9 @@ dta_df %>%
 ggsave("materials/dta_amb_resp_paper.png",
        last_plot(),
        bg = "white",
-       height = 7.5,
+       height = 10,
        width = 7.5, 
-       scale = 0.9)
+       scale = 0.7)
 
 
 

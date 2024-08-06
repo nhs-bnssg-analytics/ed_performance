@@ -447,7 +447,8 @@ glm_spec <- logistic_reg()
 
 rec <- recipe(reatt ~ ., data = training(split)) %>%
   update_role(readm, new_role = "extra outcome") %>%
-  update_role(dta_time, ed_time, new_role = "not for prediction") %>%
+  update_role(ed_time, new_role = "not for prediction") %>%
+  # update_role(dta_time, ed_time, new_role = "not for prediction") %>%
   # step_other(all_nominal_predictors(), -dta_time, other = "other") %>%
   # step_novel(all_nominal_predictors(), new_level = "novel") %>%
   # step_dummy(all_nominal_predictors()) %>%
@@ -609,8 +610,11 @@ lab_fn <- function(x) {
 saveRDS(smr_reatt, "data/smr_reatt.RDS")
 
 
+# readm model
+
 rec <- recipe(readm ~ ., data = mod_df) %>%
   update_role(reatt, new_role = "extra outcome") %>%
+  # update_role(ed_time, new_role = "not for prediction") %>%
   update_role(dta_time, ed_time, new_role = "not for prediction") %>%
   # step_other(all_nominal_predictors(), -dta_time, other = "other") %>%
   # step_novel(all_nominal_predictors(), new_level = "novel") %>%

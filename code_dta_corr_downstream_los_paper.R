@@ -400,6 +400,42 @@ ggsave("materials/los_downstream_paper.png",
        scale = 0.7)
 
 
+(los_plot <- local({
+  
+  plot_df <- dat_adm_los %>%
+    # filter(site == "SOUTHMEAD HOSPITAL") %>%
+    distinct() %>%
+    filter(between(dta_time, 0, 60 * 25)) %>%
+    filter(los < 75) 
+  
+  plot_df %>%
+    mutate(dta_time = 60*dta_time%/%60) %>%
+    ggplot(aes(x = factor(dta_time/60), y = los)) +
+    geom_boxplot(aes(group = cut_width(dta_time/60, width = 1)), outliers = FALSE, hjust = -1) +
+    theme_minimal() +
+    scale_y_continuous(limits = c(0, 25), breaks = seq(0, 45, 10)) +
+    guides(alpha = "none") +
+    theme(legend.position = "bottom",
+          legend.justification = "center",
+          legend.title = element_text()) +
+    labs(shape = "",
+         x = "Time waiting for admission (hour)",
+         y = "In-hospital length of stay (day)",
+         colour = "Total length of stay")
+})
+)
+
+
+
+
+ggsave("materials/los_downstream_paper_boxplot.png",
+       los_plot,
+       bg = "white",
+       height = 5,
+       width = 7.5, 
+       scale = 0.7)
+
+
 
 
 dat_adm_los %>%
