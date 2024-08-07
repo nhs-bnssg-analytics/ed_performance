@@ -445,26 +445,26 @@ set.seed(123)
 split <- initial_split(mod_df, strata = reatt) 
 glm_spec <- logistic_reg()
 
-rec <- recipe(reatt ~ ., data = training(split)) %>%
-  update_role(readm, new_role = "extra outcome") %>%
-  update_role(ed_time, new_role = "not for prediction") %>%
-  # update_role(dta_time, ed_time, new_role = "not for prediction") %>%
-  # step_other(all_nominal_predictors(), -dta_time, other = "other") %>%
-  # step_novel(all_nominal_predictors(), new_level = "novel") %>%
-  # step_dummy(all_nominal_predictors()) %>%
-  step_nzv()
-
-wf <- workflow() %>%
-  add_recipe(rec) %>%
-  add_model(glm_spec)
-
-fit <- last_fit(wf, split)
-
-augment(fit) %>%
-  roc_curve(reatt,
-            .pred_yes,
-            event_level = "second") %>%
-  autoplot()
+# rec <- recipe(reatt ~ ., data = training(split)) %>%
+#   update_role(readm, new_role = "extra outcome") %>%
+#   update_role(ed_time, new_role = "not for prediction") %>%
+#   # update_role(dta_time, ed_time, new_role = "not for prediction") %>%
+#   # step_other(all_nominal_predictors(), -dta_time, other = "other") %>%
+#   # step_novel(all_nominal_predictors(), new_level = "novel") %>%
+#   # step_dummy(all_nominal_predictors()) %>%
+#   step_nzv()
+# 
+# wf <- workflow() %>%
+#   add_recipe(rec) %>%
+#   add_model(glm_spec)
+# 
+# fit <- last_fit(wf, split)
+# 
+# augment(fit) %>%
+#   roc_curve(reatt,
+#             .pred_yes,
+#             event_level = "second") %>%
+#   autoplot()
 
 # fit on all data
 
@@ -511,14 +511,14 @@ plot_df <-
   mod_df %>%
   filter(dta_time <= time_max) %>%
   mutate(dta_time := cut(dta_time, breaks = unique(quantile(dta_time, p)), include.lowest = TRUE)) %>%
-  mutate(readm = readm == "yes") %>%
-  select(dta_time, readm) %>%
+  mutate(reatt = reatt == "yes") %>%
+  select(dta_time, reatt) %>%
   mutate(pred = full_pred) %>%
   group_by(dta_time) %>%
   summarise(
     n = n(),
     expected = sum(pred),
-    actual = sum(readm),
+    actual = sum(reatt),
     smr = actual / expected
   ) %>%
   mutate(

@@ -621,7 +621,8 @@ dta_df %>%
   scale_y_continuous(limits = c(0, 300), breaks = seq(0, 300, 30)) +
   # geom_ribbon(aes(ymin = lwr, ymax = upr, fill = q), col = NA, alpha = 0.25) +
   # geom_line(aes(y = fit, group = q)) +
-  geom_hline(yintercept = 30, linetype = 2) +
+  geom_hline(yintercept = 30, linetype = 2, col = "red") +
+  stat_summary(fun = ~quantile(.x, 0.95), geom = "point", col = "red") +
   # bnssgtheme() +
   theme_minimal() +
   scale_shape_manual(values = c(21, 24, 19), guide = guide_legend(override.aes = list(size = 3,
@@ -1195,7 +1196,8 @@ dta_df %>%
   ggplot(aes(x = n_dta, y = response)) +
   # geom_boxplot(outliers = FALSE) +
   geom_boxplot(mapping = aes(group = cut_width(n_dta, width = 1)), outliers = FALSE) +
-  geom_hline(data = time_std, aes(yintercept = std), linetype = 2) + 
+  geom_hline(data = time_std, aes(yintercept = std), linetype = 2, col = "red") + 
+  stat_summary(fun = ~quantile(.x, 0.9), geom = "point", col = "red") +
   facet_wrap(vars(call_category), ncol = 1,
              scales = "free",
              labeller = as_labeller(labels)) +

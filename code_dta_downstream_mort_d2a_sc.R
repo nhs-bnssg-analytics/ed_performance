@@ -530,6 +530,7 @@ smr_df <- local({
 t_max <- 24*60
 days_mort <- 30
 
+
 mod_df <- dat_adm %>%
   # filter(site == "SOUTHMEAD HOSPITAL") %>%
   filter(!between(dta_dt, ymd("2022-04-01"), ymd("2022-07-10"))) %>% # filter bad DQ period for NBT
@@ -629,6 +630,7 @@ glm_spec <- logistic_reg()
 
 rec_pathway <- recipe(pathway ~ ., data = training(split_pathway)) %>%
   update_role(mort_30, sc, new_role = "outcomes") %>%
+  update_role(dta_time, new_role = "not for prediction") %>%
   # step_other(all_nominal_predictors(), -dta_time, other = "other") %>%
   # step_novel(all_nominal_predictors(), new_level = "novel") %>%
   # step_dummy(all_nominal_predictors()) %>%
@@ -638,18 +640,116 @@ wf_pathway <- workflow() %>%
   add_recipe(rec_pathway) %>%
   add_model(glm_spec)
 
-fit_pathway <- last_fit(wf_pathway, split_pathway)
-
-augment(fit_pathway) %>%
-  roc_curve(mort_30,
-            .pred_TRUE,
-            event_level = "second") %>%
-  autoplot()
+# fit_pathway <- last_fit(wf_pathway, split_pathway)
+# 
+# augment(fit_pathway) %>%
+#   roc_curve(mort_30,
+#             .pred_TRUE,
+#             event_level = "second") %>%
+#   autoplot()
 
 # fit on all data
 
 full_fit_pathway <- fit(wf_pathway, mod_df_pathway)
-full_fit_pathway %>% broom::tidy() %>% filter(str_detect(term, "dta"))
+# full_fit_pathway %>%
+#   extract_fit_engine() %>%
+#   broom::tidy() %>%
+#   filter(term == "dta_time")
+# 
+# term      estimate std.error statistic p.value
+# <chr>        <dbl>     <dbl>     <dbl>   <dbl>
+#   1 dta_time 0.0000469 0.0000945     0.496   0.620
+
+full_pred_pathway <- mod_df_pathway %>%
+  filter(dta_time <= time_max) %>%
+  bake(prep(rec_pathway), new_data = .) %>%
+  predict(extract_fit_engine(full_fit_pathway),
+          newdata = .,
+          type = "response")
+
+yardstick::roc_auc_vec(mod_df_pathway$pathway, estimate = full_pred_pathway, event_level = "second")
+# 0.7713718
+
+
+bin <- 7
+time_max <- 24*60
+p = seq(0, 1, length = bin + 1)
+
+t_var_raw_pathway <- mod_df_pathway %>%
+  filter(dta_time <= time_max) %>%
+  pull(dta_time)
+
+plot_df <- 
+  mod_df_pathway %>%
+  filter(dta_time <= time_max) %>%
+  mutate(dta_time := cut(dta_time, breaks = unique(quantile(dta_time, p)), include.lowest = TRUE)) %>%
+  mutate(pathway = pathway == "TRUE") %>%
+  select(dta_time, pathway) %>%
+  mutate(pred = full_pred_pathway) %>%
+  group_by(dta_time) %>%
+  summarise(
+    n = n(),
+    expected = sum(pred),
+    actual = sum(pathway),
+    smr = actual / expected
+  ) %>%
+  mutate(
+    left = head(unique(quantile(t_var_raw_pathway, p)), -1),
+    right = tail(unique(quantile(t_var_raw_pathway, p)), -1),
+    mid = (left + right) / 2,
+    width = right - left,
+    weight = 1/width
+  ) %>%
+  mutate(
+    z = qnorm(0.95 + (1 - 0.95) / 2),
+    u_ci = smr + z*sqrt(smr/n),
+    l_ci = smr - z*sqrt(smr/n)
+  )
+
+plot_df <- bind_rows(plot_df, 
+                     {tail(plot_df, 1) %>% mutate(left = right)})
+
+
+shade_df <- unique(plot_df$left) %>%
+  sort() %>%
+  head(n = 2*length(.) %/% 2) %>% # slice the nearest multiple of 2 values 
+  matrix(ncol = 2, byrow = TRUE) %>%
+  as_tibble() %>%
+  mutate(min = min(pred_df$l_se, plot_df$smr, plot_df$l_ci))
+
+x_breaks <- unique(plot_df$left, plot_df$right) %>%
+  tail(-1) %>%
+  head(-1) %>%
+  c(0, time_max) %>%
+  sort()
+
+
+
+(smr_pathway <- ggplot(plot_df, aes(x = mid/60, y = smr)) +
+    # geom_step(aes(x = left/60)) +
+    geom_rect(shade_df, mapping = aes(x = NULL, y = NULL, xmin = V1/60, xmax = V2/60, ymin = -Inf, ymax = Inf), alpha = 0.15) + 
+    # geom_ribbon(data = pred_df, aes(x = mid/60, y = pred, ymin = l_se, ymax = u_se), alpha = 0.25) +
+    # geom_line(data = pred_df, aes(x = mid/60, y = pred), col = bnssgcols[4]) +
+    # geom_linerange(aes(xmin = left/60, xmax = right/60), linetype = 2) +
+    geom_errorbar(aes(ymin = l_ci, ymax = u_ci, width = width/(2*60))) +
+    # geom_vline(aes(xintercept = right/60), linetype = 2) +
+    # geom_vline(aes(xintercept = left/60), linetype = 2) +
+    # geom_col(aes(width = (right-left)/60),col = bnssgcols[4]) +
+    # geom_line(linetype = 2) +
+    geom_point() +
+    # scale_x_continuous(breaks = x_breaks/60, labels = scales::number_format(accuracy = 0.1)) +
+    scale_x_continuous(#limits = c(NA, (time_max/60)-1),
+      breaks = x_breaks/60,
+      labels = lab_fn(x_breaks),
+      guide = guide_axis(n.dodge = 2)
+    ) +
+    # bnssgtheme() +
+    theme_minimal() +
+    # coord_cartesian(ylim = c(0.75, 1.2), xlim = c(0, time_max/60)) +
+    labs(y = "Standardised D2A Utilisation\nRatio",
+         x = "Time Waiting for Admission"))
+
+saveRDS(smr_pathway, "data/smr_pathway.RDS")
 
 
 # sc outcome
@@ -662,6 +762,7 @@ glm_spec <- logistic_reg()
 
 rec_sc <- recipe(sc ~ ., data = training(split_sc)) %>%
   update_role(mort_30, pathway, new_role = "outcomes") %>%
+  update_role(dta_time, new_role = "not for prediction") %>%
   # step_other(all_nominal_predictors(), -dta_time, other = "other") %>%
   # step_novel(all_nominal_predictors(), new_level = "novel") %>%
   # step_dummy(all_nominal_predictors()) %>%
@@ -671,20 +772,135 @@ wf_sc <- workflow() %>%
   add_recipe(rec_sc) %>%
   add_model(glm_spec)
 
-fit_sc <- last_fit(wf_sc, split_sc)
+# fit_sc <- last_fit(wf_sc, split_sc)
+# fit_sc$.metrics
 
-augment(fit_sc) %>%
-  roc_curve(mort_30,
-            .pred_yes,
-            event_level = "second") %>%
-  autoplot()
+
+# augment(fit_sc) %>%
+#   roc_curve(mort_30,
+#             .pred_yes,
+#             event_level = "second") %>%
+#   autoplot()
 
 # fit on all data
 
 full_fit_sc <- fit(wf_sc, mod_df_sc)
-full_fit_sc %>% broom::tidy() %>% filter(str_detect(term, "dta"))
+# full_fit_sc %>%
+#   extract_fit_engine() %>%
+#   broom::tidy() %>%
+#   filter(term == "dta_time")
+# # A tibble: 1 × 5
+# term      estimate std.error statistic p.value
+# <chr>        <dbl>     <dbl>     <dbl>   <dbl>
+#   1 dta_time 0.0000924  0.000143     0.647   0.518
+
+full_pred_sc <- mod_df_sc %>%
+  filter(dta_time <= time_max) %>%
+  bake(prep(rec_sc), new_data = .) %>%
+  predict(extract_fit_engine(full_fit_sc),
+          newdata = .,
+          type = "response")
+
+
+yardstick::roc_auc_vec(factor(mod_df_sc$sc), estimate = full_pred_sc, event_level = "second")
+# 0.9031044
+
+bin <- 7
+time_max <- 24*60
+p = seq(0, 1, length = bin + 1)
+
+t_var_raw_sc <- mod_df_sc %>%
+  filter(dta_time <= time_max) %>%
+  pull(dta_time)
 
 
 
+plot_df <- 
+  mod_df_sc %>%
+  filter(dta_time <= time_max) %>%
+  mutate(dta_time := cut(dta_time, breaks = unique(quantile(dta_time, p)), include.lowest = TRUE)) %>%
+  mutate(sc = sc == "yes") %>%
+  select(dta_time, sc) %>%
+  mutate(pred = full_pred_sc) %>%
+  group_by(dta_time) %>%
+  summarise(
+    n = n(),
+    expected = sum(pred),
+    actual = sum(sc),
+    smr = actual / expected
+  ) %>%
+  mutate(
+    left = head(unique(quantile(t_var_raw_sc, p)), -1),
+    right = tail(unique(quantile(t_var_raw_sc, p)), -1),
+    mid = (left + right) / 2,
+    width = right - left,
+    weight = 1/width
+  ) %>%
+  mutate(
+    z = qnorm(0.95 + (1 - 0.95) / 2),
+    u_ci = smr + z*sqrt(smr/n),
+    l_ci = smr - z*sqrt(smr/n)
+  )
+
+plot_df <- bind_rows(plot_df, 
+                     {tail(plot_df, 1) %>% mutate(left = right)})
 
 
+shade_df <- unique(plot_df$left) %>%
+  sort() %>%
+  head(n = 2*length(.) %/% 2) %>% # slice the nearest multiple of 2 values 
+  matrix(ncol = 2, byrow = TRUE) %>%
+  as_tibble() %>%
+  mutate(min = min(pred_df$l_se, plot_df$smr, plot_df$l_ci))
+
+x_breaks <- unique(plot_df$left, plot_df$right) %>%
+  tail(-1) %>%
+  head(-1) %>%
+  c(0, time_max) %>%
+  sort()
+
+
+
+(smr_sc <- ggplot(plot_df, aes(x = mid/60, y = smr)) +
+    # geom_step(aes(x = left/60)) +
+    geom_rect(shade_df, mapping = aes(x = NULL, y = NULL, xmin = V1/60, xmax = V2/60, ymin = -Inf, ymax = Inf), alpha = 0.15) + 
+    # geom_ribbon(data = pred_df, aes(x = mid/60, y = pred, ymin = l_se, ymax = u_se), alpha = 0.25) +
+    # geom_line(data = pred_df, aes(x = mid/60, y = pred), col = bnssgcols[4]) +
+    # geom_linerange(aes(xmin = left/60, xmax = right/60), linetype = 2) +
+    geom_errorbar(aes(ymin = l_ci, ymax = u_ci, width = width/(2*60))) +
+    # geom_vline(aes(xintercept = right/60), linetype = 2) +
+    # geom_vline(aes(xintercept = left/60), linetype = 2) +
+    # geom_col(aes(width = (right-left)/60),col = bnssgcols[4]) +
+    # geom_line(linetype = 2) +
+    geom_point() +
+    # scale_x_continuous(breaks = x_breaks/60, labels = scales::number_format(accuracy = 0.1)) +
+    scale_x_continuous(#limits = c(NA, (time_max/60)-1),
+      breaks = x_breaks/60,
+      labels = lab_fn(x_breaks),
+      guide = guide_axis(n.dodge = 2)
+    ) +
+    # bnssgtheme() +
+    theme_minimal() +
+    # coord_cartesian(ylim = c(0.75, 1.2), xlim = c(0, time_max/60)) +
+    labs(y = "Standardised Social Care\nUtilisation Ratio",
+         x = "Time Waiting for Admission"))
+
+saveRDS(smr_sc, "data/smr_sc.RDS")
+
+smr_mort <- readRDS("data/smr_mort.RDS")
+smr_readm <- readRDS("data/smr_readm.RDS")
+smr_reatt <- readRDS("data/smr_reatt.RDS")
+
+patchwork::wrap_plots(smr_mort,
+                      smr_reatt,
+                      smr_readm,
+                      smr_pathway,
+                      smr_sc,
+                      byrow = FALSE,
+                      ncol = 2, axes = "collect")
+
+ggsave("materials/scratch_smr_multiplot.png",
+       last_plot(),
+       height = 15,
+       width = 15, 
+       scale = 0.7)
