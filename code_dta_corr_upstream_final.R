@@ -409,7 +409,6 @@ resp_time_df <- local({
     ,[Response_Target_2_Clock Stop]
     ,[Outcome]
     ,[Conveyed_To_Ward_Type]
-   ,b.[OrganisationName] as [Site_Name]
     ,[First_Hospital_Attended]
     ,[First_Ward_Attended]
     ,[Time_of_Handover_at_First_Hospital_Attended]
@@ -438,25 +437,10 @@ resp_time_df <- local({
     ,[Provisional_Diagnosis]
     ,[High_Intensity_User_Call_Indicator]
     ,[SourceFileID]
-    --,c.[Time_Resource_Arrived_at_GeoFence_at_Receiving_Location]
-    ,c.[Time_Resource_Arrived_at_Receiving_Location]
-    ,c.[Time_of_Patient_Handover]
-    ,c.[Time_Clear]
 FROM [ABI].[dbo].[vw_UrgentCare_Ambulance_SWASFT] a
-LEFT JOIN [ABI].[Lard].[vw_Organisation_Lookup] b on a.[First_Hospital_Attended]=b.[OrganisationCode]
-LEFT JOIN [Analyst_SQL_Area].[dbo].[tbl_BNSSG_Datasets_SWAST_AR119] c on a.Incident_Number=c.Call_Number
-where Outcome = 'See & Convey' AND
-OrganisationName in ('BRISTOL ROYAL INFIRMARY', 'SOUTHMEAD HOSPITAL', 'WESTON GENERAL HOSPITAL') AND
-Conveyed_To_Ward_Type = 'A&E' AND
-  CONVERT(DATE, [Time_Of_Incident]) > '{report_start}' OR
-  CONVERT(DATE, [T0_Time_of_Call]) > '{report_start}' OR
-  CONVERT(DATE, [T1_Time_Call_answered]) > '{report_start}' OR
-  CONVERT(DATE, [Time_First_Core_Resource_Allocated]) > '{report_start}' OR
-  CONVERT(DATE, [Time_Last_Core_Resource_Cleared]) > '{report_start}' OR
-  CONVERT(DATE, [Response_Target_1_Clock Start]) > '{report_start}' OR
-  CONVERT(DATE, [Response_Target_2_Clock Start]) > '{report_start}' OR
-  CONVERT(DATE, [Response_Target_1_Clock Stop]) > '{report_start}' OR
-  CONVERT(DATE, [Response_Target_2_Clock Stop]) > '{report_start}'"
+where Outcome in ('See & Convey', 'See & Treat') AND
+CCG = '15C' AND
+  CONVERT(DATE, [T0_Time_of_Call]) > '{report_start}'"
   )
   
   actv_swafst <- RODBC::sqlQuery(con, string_actv_swafst)
@@ -475,7 +459,7 @@ Conveyed_To_Ward_Type = 'A&E' AND
                                   "Category 3"= "cat3",
                                   "Category 2"= "cat2",
                                   "Category 1"= "cat1")) %>%
-    select(dt, call_category, response) 
+    select(dt, outcome = Outcome, call_category, response) 
   
   response_time
 })
@@ -1332,10 +1316,10 @@ resp_mods %>%
       "(Intercept)",
       "DTA Queue" = "n_dta",
       "Patients in ED (non-DTA)" = "n_ed",
-      "Weekend" = "wkendyes",
-      "00:00-06:00" = "hour[0,6]",
-      "06:00-12:00" = "hour(6,12]",
-      "18:00-24:00" = "hour(18,24]",
+      "Weekend" = "wkendYes",
+      "00:00-06:00" = "hour00:00-06:00",
+      "06:00-12:00" = "hour06:00-12:00",
+      "18:00-24:00" = "hour18:00-24:00",
       "Interaction: DTA queue-Patients in ED" = "n_dta:n_ed",
             "10-19 Years Old" ="age10-19 Years Old",
             "10-19 Years Old" ="age10-19 Years Old",
