@@ -23,6 +23,7 @@ n_fun <- function(x){
   return(data.frame(y = x/2, label = paste0(scales::number(x, big.mark = ","))))
 }
 
+mod_df <- readRDS("data/smr_mod_df_new.RDS")
 
 
 p_demog_downstr_1 <- mod_df %>%
@@ -31,7 +32,7 @@ p_demog_downstr_1 <- mod_df %>%
 #                         "10\n(least deprived)" = "10 (most deprived)"
 #                         )) %>%
 select(Sex = sex,
-       IMD = imd,
+       "Index of Multiple Deprivation\n(IMD) Decile" = imd,
        `Arrival Time` = arrival_time,
        `Arrival Month` = arrival_month, 
        `Arrival Year` = arrival_year) %>%
@@ -91,10 +92,10 @@ bind_rows(p_demog_downstr_1, p_demog_downstr_2) %>%
   mutate(name = factor(
     name,
     levels = c(
-      "Age",
       "Sex",
+      "Age",
       "Elixhauser Comorbidity Index (vWs)",
-      "IMD",
+      "Index of Multiple Deprivation\n(IMD) Decile",
       "Previous ED attendances",
       "4-Hour ED Performance",
       "Arrival Month",
@@ -104,9 +105,11 @@ bind_rows(p_demog_downstr_1, p_demog_downstr_2) %>%
   )) %>% 
 arrange(name) %>%
 pull(plot) %>%
-patchwork::wrap_plots()  
+patchwork::wrap_plots() & patchwork::plot_annotation(title = "Demographics for Downstream Impact Analysis",
+                                                    subtitle = "Patients included in Standardised Mortality Analysis") 
 
-ggsave("materials/demog_downstream.png",
+
+ggsave("materials/demog_downstream_smr.png",
        last_plot(),
        bg = "white",
        height = 10,
@@ -176,16 +179,20 @@ dat_attr <- sqlQuery(con,string_attr) %>%
   mutate(nhs_number = as.character(nhs_number)) %>%
   mutate(attribute_period = ymd(attribute_period))
 
+saveRDS(dat_attr, "data/dat_attr_demog.RDS")
+dat_attr <- readRDS("data/dat_attr_demog.RDS")
 
 string_imd <- "select distinct * from Analyst_SQL_Area.dbo.IMD2019"
 
 dat_imd <- sqlQuery(con,string_imd) 
 
-saveRDS(dat_attr, "data/dat_attr_demog.RDS")
-dat_attr <- readRDS("data/dat_attr_demog.RDS")
 
 handover_attr <- handover_ids %>%
   left_join(dat_attr, by = join_by(nhs_number == nhs_number, handover_time == attribute_period)) %>%
+  distinct() %>%
+  na.omit() %>%
+  left_join(dat_imd, by = join_by(lsoa_2011 == "LSOA code (2011)")) %>%
+  select(nhs_number, Age = age, Sex = sex, "Index of Multiple Deprivation\n(IMD) Decile" = `Index of Multiple Deprivation (IMD) Decile`) %>%
   distinct()
 
 response_ids <- glue::glue(
@@ -267,6 +274,292 @@ Conveyed_To_Ward_Type = 'A&E' AND
 
 response_attr <- response_ids %>%
   left_join(dat_attr, by = join_by(nhs_number == nhs_number, dt == attribute_period)) %>%
+  distinct() %>%
+  na.omit() %>%
+  left_join(dat_imd, by = join_by(lsoa_2011 == "LSOA code (2011)")) %>%
+  select(nhs_number, Age = age, Sex = sex, "Index of Multiple Deprivation\n(IMD) Decile" = `Index of Multiple Deprivation (IMD) Decile`) %>%
   distinct()
   
 
+
+p_demog_upstr_resp_1 <- response_attr %>%
+  filter(Sex %in% c("Male", "Female")) %>%
+  mutate(Sex = factor(Sex)) %>%
+  mutate(
+    `Index of Multiple Deprivation\n(IMD) Decile` = factor(
+      `Index of Multiple Deprivation\n(IMD) Decile`,
+      levels = 1:10,
+      labels = 1:10
+    )
+  ) %>%
+  mutate(
+    `Index of Multiple Deprivation\n(IMD) Decile` = fct_recode(
+      `Index of Multiple Deprivation\n(IMD) Decile`,
+      "1 (least deprived)" = "1",
+      "10 (least deprived)" = "10"
+    )
+  ) %>%
+  mutate(
+    `Index of Multiple Deprivation\n(IMD) Decile` = fct_relevel(
+      `Index of Multiple Deprivation\n(IMD) Decile`,
+      "10 (least deprived)",
+      after = Inf
+    )
+  ) %>%
+  select(Sex, `Index of Multiple Deprivation\n(IMD) Decile`) %>%
+  pivot_longer(everything()) %>%
+  group_by(name, value) %>%
+  count() %>%
+  group_by(name) %>%
+  nest() %>%
+  mutate(
+    plot = map2(
+      data,
+      name,
+      ~ ggplot(.x, aes(y = value, x = n)) +
+        geom_col() +
+        stat_summary(
+          fun.data = n_fun,
+          geom = "text",
+          size = 3,
+          col = "white"
+        ) +
+        theme_minimal() +
+        scale_x_continuous(labels = scales::number_format(big.mark = ",")) +
+        guides(alpha = "none") +
+        theme(
+          legend.position = "bottom",
+          axis.text.x = element_blank(),
+          legend.justification = "center",
+          legend.title = element_text()
+        ) +
+        labs(
+          y = str_wrap(.y, 25),
+          x = ""#,
+          #y = ""
+        )
+    )
+  )
+
+p_demog_upstr_resp_2 <- response_attr %>%
+  select(Age) %>%
+  pivot_longer(everything()) %>%
+  group_by(name) %>%
+  nest() %>%
+  mutate(plot = map2(
+    data,
+    name,
+    ~
+      ggplot(.x, aes(x = value, y = "")) +
+      geom_boxplot() +
+      theme_minimal() +
+      guides(alpha = "none") +
+      theme(
+        legend.position = "bottom",
+        legend.justification = "center",
+        plot.margin = margin(0, 0, 0, 0, "pt"),
+        axis.text.y = element_blank(),
+        axis.ticks.y = element_blank(),
+        axis.line.y = element_blank(),
+        # axis.title.y = element_blank(),
+        axis.ticks.length.y = unit(0, "pt"),
+        legend.title = element_text()
+      ) +
+      labs(
+        y = str_wrap(.y, 20),
+         x = ""#,
+         #y = ""
+      )
+  ))
+
+
+p_resp_ptc <- bind_rows(p_demog_upstr_resp_1, p_demog_upstr_resp_2) %>%
+  mutate(name = factor(
+    name,
+    levels = c(
+      "Sex",
+      "Age",
+      "Index of Multiple Deprivation\n(IMD) Decile"
+      )
+  )) %>% 
+  arrange(name) %>%
+  pull(plot) %>%
+  patchwork::wrap_plots(ncol = 1)  
+
+
+
+# ggsave("materials/demog_upstream_resp.png",
+#        last_plot(),
+#        bg = "white",
+#        height = 10,
+#        width = 10, 
+#        scale = 0.6)
+
+
+p_demog_upstr_handover_1 <- handover_attr %>%
+  filter(Sex %in% c("Male", "Female")) %>%
+  mutate(Sex = factor(Sex)) %>%
+  mutate(
+    `Index of Multiple Deprivation\n(IMD) Decile` = factor(
+      `Index of Multiple Deprivation\n(IMD) Decile`,
+      levels = 1:10,
+      labels = 1:10
+    )
+  ) %>%
+  mutate(
+    `Index of Multiple Deprivation\n(IMD) Decile` = fct_recode(
+      `Index of Multiple Deprivation\n(IMD) Decile`,
+      "1 (least deprived)" = "1",
+      "10 (least deprived)" = "10"
+    )
+  ) %>%
+  mutate(
+    `Index of Multiple Deprivation\n(IMD) Decile` = fct_relevel(
+      `Index of Multiple Deprivation\n(IMD) Decile`,
+      "10 (least deprived)",
+      after = Inf
+    )
+  ) %>%
+  select(Sex, `Index of Multiple Deprivation\n(IMD) Decile`) %>%
+  pivot_longer(everything()) %>%
+  group_by(name, value) %>%
+  count() %>%
+  group_by(name) %>%
+  nest() %>%
+  mutate(
+    plot = map2(
+      data,
+      name,
+      ~ ggplot(.x, aes(y = value, x = n)) +
+        geom_col() +
+        stat_summary(
+          fun.data = n_fun,
+          geom = "text",
+          size = 3,
+          col = "white"
+        ) +
+        theme_minimal() +
+        scale_x_continuous(labels = scales::number_format(big.mark = ",")) +
+        guides(alpha = "none") +
+        theme(
+          legend.position = "bottom",
+          axis.text.x = element_blank(),
+          legend.justification = "center",
+          legend.title = element_text()
+        ) +
+        labs(
+          y = str_wrap(.y, 25),
+          x = ""#,
+          #y = ""
+        )
+    )
+  )
+
+p_demog_upstr_handover_2 <- handover_attr %>%
+  select(Age) %>%
+  pivot_longer(everything()) %>%
+  group_by(name) %>%
+  nest() %>%
+  mutate(plot = map2(
+    data,
+    name,
+    ~
+      ggplot(.x, aes(x = value, y = "")) +
+      geom_boxplot() +
+      theme_minimal() +
+      guides(alpha = "none") +
+      theme(
+        legend.position = "bottom",
+        legend.justification = "center",
+        plot.margin = margin(0, 0, 0, 0, "pt"),
+        axis.text.y = element_blank(),
+        axis.ticks.y = element_blank(),
+        axis.line.y = element_blank(),
+        #axis.title.y = element_blank(),
+        axis.ticks.length.y = unit(0, "pt"),
+        legend.title = element_text()
+      ) +
+      labs(
+        y = str_wrap(.y, 20),
+        x = ""#,
+        # y = ""
+      )
+  ))
+
+
+p_handover_plots <- bind_rows(p_demog_upstr_handover_1, p_demog_upstr_handover_2) %>%
+  mutate(name = factor(
+    name,
+    levels = c(
+      "Sex",
+      "Age",
+      "Index of Multiple Deprivation\n(IMD) Decile"
+    )
+  )) %>% 
+  arrange(name) %>%
+  pull(plot) 
+
+p_resp_plots <- bind_rows(p_demog_upstr_resp_1, p_demog_upstr_resp_2) %>%
+  mutate(name = factor(
+    name,
+    levels = c(
+      "Sex",
+      "Age",
+      "Index of Multiple Deprivation\n(IMD) Decile"
+    )
+  )) %>% 
+  arrange(name) %>%
+  pull(plot) 
+
+
+  p_upstream_ptch <-  c(p_handover_plots, p_resp_plots) %>%
+  patchwork::wrap_plots(ncol = 2, byrow = FALSE) &
+    patchwork::plot_annotation(title = "Demographics for Upstream Impact Analysis",
+                               subtitle = "Patients included in ambulance handover time (left) & call response time (right)") 
+
+p_upstream_ptch[[4]] <- p_upstream_ptch[[4]] +
+  theme(
+    legend.position = "bottom",
+    legend.justification = "center",
+    plot.margin = margin(0, 0, 0, 0, "pt"),
+    axis.text.y = element_blank(),
+    axis.ticks.y = element_blank(),
+    axis.line.y = element_blank(),
+    axis.title.y = element_blank(),
+    axis.ticks.length.y = unit(0, "pt"),
+    legend.title = element_text()
+  ) 
+
+p_upstream_ptch[[5]] <- p_upstream_ptch[[5]] +
+  theme(
+    legend.position = "bottom",
+    legend.justification = "center",
+    plot.margin = margin(0, 0, 0, 0, "pt"),
+    axis.text.y = element_blank(),
+    axis.ticks.y = element_blank(),
+    axis.line.y = element_blank(),
+    axis.title.y = element_blank(),
+    axis.ticks.length.y = unit(0, "pt"),
+    legend.title = element_text()
+  ) 
+p_upstream_ptch[[6]] <- p_upstream_ptch[[6]] +
+  theme(
+    legend.position = "bottom",
+    legend.justification = "center",
+    plot.margin = margin(0, 0, 0, 0, "pt"),
+    axis.text.y = element_blank(),
+    axis.ticks.y = element_blank(),
+    axis.line.y = element_blank(),
+    axis.title.y = element_blank(),
+    axis.ticks.length.y = unit(0, "pt"),
+    legend.title = element_text()
+  ) 
+
+p_upstream_ptch
+
+ggsave("materials/demog_upstream.png",
+       last_plot(),
+       bg = "white",
+       height = 15,
+       width = 20, 
+       scale = 0.35)  

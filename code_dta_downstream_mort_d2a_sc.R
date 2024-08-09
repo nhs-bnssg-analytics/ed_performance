@@ -394,7 +394,7 @@ dat_socare <- local({
                               ")
   
   dat_sc <- sqlQuery(con, string_sc) %>%
-    filter(Event_Start_Date > ymd("2023-04-01")) %>%
+    filter(Event_Start_Date > ymd("2023-06-01")) %>%
     select(nhs_number = NHS_Number,
            event_start = Event_Start_Date,
            event_end = Event_End_Date) %>%
@@ -469,7 +469,7 @@ dat_adm <- dat_ecds %>%
   select(-MainSpecialtyCode) %>%
   na.omit()
 
-# saveRDS(dat_adm, "data/dat_adm_new.RDS")
+# saveRDS(dat_adm, "data/dat_adm_d2a_sc_new.RDS")
 
 
 mortality_df <- local({
@@ -528,6 +528,7 @@ smr_df <- local({
 
 
 t_max <- 24*60
+
 days_mort <- 30
 
 
@@ -625,6 +626,8 @@ mod_df_pathway <- mod_df %>%
   filter(pathway != "missing") %>%
   mutate(pathway = factor(pathway != "Other"))
 
+saveRDS(mod_df_pathway, "data/mod_df_pathway.RDS")
+
 split_pathway <- initial_split(mod_df_pathway, strata = pathway) 
 glm_spec <- logistic_reg()
 
@@ -655,33 +658,60 @@ full_fit_pathway <- fit(wf_pathway, mod_df_pathway)
 #   extract_fit_engine() %>%
 #   broom::tidy() %>%
 #   filter(term == "dta_time")
-# 
-# term      estimate std.error statistic p.value
-# <chr>        <dbl>     <dbl>     <dbl>   <dbl>
-#   1 dta_time 0.0000469 0.0000945     0.496   0.620
+# A tibble: 1 × 5
+# term     estimate std.error statistic p.value
+# <chr>       <dbl>     <dbl>     <dbl>   <dbl>
+#   1 dta_time 0.000135 0.0000854      1.58   0.115
+
+
+
 
 full_pred_pathway <- mod_df_pathway %>%
-  filter(dta_time <= time_max) %>%
+  filter(dta_time <= t_max) %>%
   bake(prep(rec_pathway), new_data = .) %>%
   predict(extract_fit_engine(full_fit_pathway),
           newdata = .,
           type = "response")
 
 yardstick::roc_auc_vec(mod_df_pathway$pathway, estimate = full_pred_pathway, event_level = "second")
-# 0.7713718
+# 0.7575942
 
+full_fit_pathway %>%
+  extract_fit_engine() %>%
+  gtsummary::tbl_regression(label = list(
+    arrival_time = "Time of arrival",
+    arrival_month = "Month of arrival",
+    arrival_year = "Year of arrival",
+    perf = "4-hour ED performance",
+    perf_sq = "4-hour ED performance (squared)",
+    age = "Age",
+    age_sq = "Age (squared)",
+    n_ed = "Number in ED",
+    n_ed_sq = "Number in ED (squared)",
+    sex = "Sex",
+    imd = "IMD",
+    vw_score = "Van Walraven score",
+    vw_score_sq = "Van Walraven score (squared)"
+  )) %>%
+  gtsummary::add_glance_table(include = c(nobs)) %>%
+  gtsummary::as_gt() %>%
+  gt::tab_header(
+    title = gt::md("**D2A pathway utilisation**"),
+    subtitle = "ROC curve statistic = 0.758"
+  ) %>%
+  gt::gtsave("materials/pathway_tab_out.html")
 
 bin <- 7
-time_max <- 24*60
+t_max <- 24*60
 p = seq(0, 1, length = bin + 1)
 
 t_var_raw_pathway <- mod_df_pathway %>%
-  filter(dta_time <= time_max) %>%
+  filter(dta_time <= t_max) %>%
   pull(dta_time)
 
 plot_df <- 
   mod_df_pathway %>%
-  filter(dta_time <= time_max) %>%
+  filter(dta_time <= t_max) %>%
   mutate(dta_time := cut(dta_time, breaks = unique(quantile(dta_time, p)), include.lowest = TRUE)) %>%
   mutate(pathway = pathway == "TRUE") %>%
   select(dta_time, pathway) %>%
@@ -715,15 +745,21 @@ shade_df <- unique(plot_df$left) %>%
   head(n = 2*length(.) %/% 2) %>% # slice the nearest multiple of 2 values 
   matrix(ncol = 2, byrow = TRUE) %>%
   as_tibble() %>%
-  mutate(min = min(pred_df$l_se, plot_df$smr, plot_df$l_ci))
+  mutate(min = min(plot_df$smr, plot_df$l_ci))
 
 x_breaks <- unique(plot_df$left, plot_df$right) %>%
   tail(-1) %>%
   head(-1) %>%
-  c(0, time_max) %>%
+  c(0, t_max) %>%
   sort()
 
-
+lab_fn <- function(x) {
+  
+  x <- round(x)
+  glue::glue("{x%/%60}h {x - (60*x%/%60)}m") |>
+    str_replace_all(" 0m", "") |>
+    str_replace_all("^0h ", "")
+}
 
 (smr_pathway <- ggplot(plot_df, aes(x = mid/60, y = smr)) +
     # geom_step(aes(x = left/60)) +
@@ -738,14 +774,14 @@ x_breaks <- unique(plot_df$left, plot_df$right) %>%
     # geom_line(linetype = 2) +
     geom_point() +
     # scale_x_continuous(breaks = x_breaks/60, labels = scales::number_format(accuracy = 0.1)) +
-    scale_x_continuous(#limits = c(NA, (time_max/60)-1),
+    scale_x_continuous(#limits = c(NA, (t_max/60)-1),
       breaks = x_breaks/60,
       labels = lab_fn(x_breaks),
       guide = guide_axis(n.dodge = 2)
     ) +
     # bnssgtheme() +
     theme_minimal() +
-    # coord_cartesian(ylim = c(0.75, 1.2), xlim = c(0, time_max/60)) +
+    # coord_cartesian(ylim = c(0.75, 1.2), xlim = c(0, t_max/60)) +
     labs(y = "Standardised D2A Utilisation\nRatio",
          x = "Time Waiting for Admission"))
 
@@ -756,6 +792,8 @@ saveRDS(smr_pathway, "data/smr_pathway.RDS")
 
 mod_df_sc <- mod_df %>%
   filter(sc != "missing")
+
+saveRDS(mod_df_sc, "data/mod_df_sc.RDS")
 
 split_sc <- initial_split(mod_df_sc, strata = sc) 
 glm_spec <- logistic_reg()
@@ -790,12 +828,12 @@ full_fit_sc <- fit(wf_sc, mod_df_sc)
 #   broom::tidy() %>%
 #   filter(term == "dta_time")
 # # A tibble: 1 × 5
-# term      estimate std.error statistic p.value
-# <chr>        <dbl>     <dbl>     <dbl>   <dbl>
-#   1 dta_time 0.0000924  0.000143     0.647   0.518
+# term       estimate std.error statistic p.value
+# <chr>         <dbl>     <dbl>     <dbl>   <dbl>
+#   1 dta_time -0.0000457  0.000142    -0.322   0.747
 
 full_pred_sc <- mod_df_sc %>%
-  filter(dta_time <= time_max) %>%
+  filter(dta_time <= t_max) %>%
   bake(prep(rec_sc), new_data = .) %>%
   predict(extract_fit_engine(full_fit_sc),
           newdata = .,
@@ -803,21 +841,46 @@ full_pred_sc <- mod_df_sc %>%
 
 
 yardstick::roc_auc_vec(factor(mod_df_sc$sc), estimate = full_pred_sc, event_level = "second")
-# 0.9031044
+# 0.8746234
+
+full_fit_sc %>%
+  extract_fit_engine() %>%
+  gtsummary::tbl_regression(label = list(
+    arrival_time = "Time of arrival",
+    arrival_month = "Month of arrival",
+    arrival_year = "Year of arrival",
+    perf = "4-hour ED performance",
+    perf_sq = "4-hour ED performance (squared)",
+    age = "Age",
+    age_sq = "Age (squared)",
+    n_ed = "Number in ED",
+    n_ed_sq = "Number in ED (squared)",
+    sex = "Sex",
+    imd = "IMD",
+    vw_score = "Van Walraven score",
+    vw_score_sq = "Van Walraven score (squared)"
+  )) %>%
+  gtsummary::add_glance_table(include = c(nobs)) %>%
+  gtsummary::as_gt() %>%
+  gt::tab_header(
+    title = gt::md("**Social care utilisation**"),
+    subtitle = "ROC curve statistic = 0.874"
+  ) %>%
+  gt::gtsave("materials/sc_tab_out.html")
 
 bin <- 7
-time_max <- 24*60
+t_max <- 24*60
 p = seq(0, 1, length = bin + 1)
 
 t_var_raw_sc <- mod_df_sc %>%
-  filter(dta_time <= time_max) %>%
+  filter(dta_time <= t_max) %>%
   pull(dta_time)
 
 
 
 plot_df <- 
   mod_df_sc %>%
-  filter(dta_time <= time_max) %>%
+  filter(dta_time <= t_max) %>%
   mutate(dta_time := cut(dta_time, breaks = unique(quantile(dta_time, p)), include.lowest = TRUE)) %>%
   mutate(sc = sc == "yes") %>%
   select(dta_time, sc) %>%
@@ -851,15 +914,23 @@ shade_df <- unique(plot_df$left) %>%
   head(n = 2*length(.) %/% 2) %>% # slice the nearest multiple of 2 values 
   matrix(ncol = 2, byrow = TRUE) %>%
   as_tibble() %>%
-  mutate(min = min(pred_df$l_se, plot_df$smr, plot_df$l_ci))
+  mutate(min = min(plot_df$smr, plot_df$l_ci))
 
 x_breaks <- unique(plot_df$left, plot_df$right) %>%
   tail(-1) %>%
   head(-1) %>%
-  c(0, time_max) %>%
+  c(0, t_max) %>%
   sort()
 
 
+
+lab_fn <- function(x) {
+  
+  x <- round(x)
+  glue::glue("{x%/%60}h {x - (60*x%/%60)}m") |>
+    str_replace_all(" 0m", "") |>
+    str_replace_all("^0h ", "")
+}
 
 (smr_sc <- ggplot(plot_df, aes(x = mid/60, y = smr)) +
     # geom_step(aes(x = left/60)) +
@@ -902,5 +973,5 @@ patchwork::wrap_plots(smr_mort,
 ggsave("materials/scratch_smr_multiplot.png",
        last_plot(),
        height = 15,
-       width = 15, 
-       scale = 0.7)
+       width = 20, 
+       scale = 0.5)

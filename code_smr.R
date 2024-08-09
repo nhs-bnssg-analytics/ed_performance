@@ -497,6 +497,12 @@ full_fit <- fit(wf, mod_df)
 full_pred <- predict(extract_fit_engine(full_fit), bake(prep(rec), new_data = mod_df), type = "response")
 yardstick::roc_auc_vec(mod_df$mort_30, estimate = full_pred, event_level = "second")
 
+full_fit %>%
+  extract_fit_engine() %>%
+  broom::tidy() %>%
+  filter(term == "dta_time")
+
+
 
 full_fit %>%
   extract_fit_engine() %>%

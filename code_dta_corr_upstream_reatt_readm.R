@@ -380,7 +380,7 @@ dat_adm <- dat_ecds %>%
   select(-MainSpecialtyCode) %>%
   na.omit()
 
-# saveRDS(dat_adm, "data/dat_adm_new.RDS")
+saveRDS(dat_adm, "data/dat_adm_reatt_readm.RDS")
 # dat_adm <- readRDS("data/dat_adm_new.RDS")
 
 
@@ -470,7 +470,8 @@ glm_spec <- logistic_reg()
 
 rec <- recipe(reatt ~ ., data = mod_df) %>%
   update_role(readm, new_role = "extra outcome") %>%
-  update_role(dta_time, ed_time, new_role = "not for prediction") %>%
+  # update_role(dta_time, ed_time, new_role = "not for prediction") %>%
+  update_role(ed_time, new_role = "not for prediction") %>%
   # step_other(all_nominal_predictors(), -dta_time, other = "other") %>%
   # step_novel(all_nominal_predictors(), new_level = "novel") %>%
   # step_dummy(all_nominal_predictors()) %>%
@@ -486,7 +487,14 @@ full_fit <- fit(wf, mod_df)
 # predictions 
 full_pred <- predict(extract_fit_engine(full_fit), bake(prep(rec), new_data = mod_df), type = "response")
 yardstick::roc_auc_vec(mod_df$reatt, estimate = full_pred, event_level = "second")
-
+# 0.6521107
+# full_fit %>%
+#   extract_fit_engine() %>%
+#   broom::tidy() %>%
+#   filter(term == "dta_time")
+# term      estimate std.error statistic p.value
+# <chr>        <dbl>     <dbl>     <dbl>   <dbl>
+#   1 dta_time 0.0000130 0.0000553     0.235   0.814
 
 # smr
 
@@ -614,8 +622,8 @@ saveRDS(smr_reatt, "data/smr_reatt.RDS")
 
 rec <- recipe(readm ~ ., data = mod_df) %>%
   update_role(reatt, new_role = "extra outcome") %>%
-  # update_role(ed_time, new_role = "not for prediction") %>%
-  update_role(dta_time, ed_time, new_role = "not for prediction") %>%
+  update_role(ed_time, new_role = "not for prediction") %>%
+  # update_role(dta_time, ed_time, new_role = "not for prediction") %>%
   # step_other(all_nominal_predictors(), -dta_time, other = "other") %>%
   # step_novel(all_nominal_predictors(), new_level = "novel") %>%
   # step_dummy(all_nominal_predictors()) %>%
@@ -630,6 +638,16 @@ wf <- workflow() %>%
 full_fit <- fit(wf, mod_df)
 full_pred <- predict(extract_fit_engine(full_fit), bake(prep(rec), new_data = mod_df), type = "response")
 yardstick::roc_auc_vec(mod_df$readm, estimate = full_pred, event_level = "second")
+# 0.6730926
+full_fit %>%
+  extract_fit_engine() %>%
+  broom::tidy() %>%
+  filter(term == "dta_time")
+# # A tibble: 1 × 5
+# term       estimate std.error statistic p.value
+# <chr>         <dbl>     <dbl>     <dbl>   <dbl>
+#   1 dta_time 0.00000189 0.0000619    0.0305   0.976
+
 
 # predictions 
 
