@@ -433,11 +433,11 @@ mod_df <- dat_adm %>%
     age_sq,
     n_ed,
     n_ed_sq,
-    # Acuity_Desc,
-    # arrival_mode,
-    # arrival_cat,
-    # diagnoses,
-    # investigation,
+    Acuity_Desc,
+    arrival_mode,
+    arrival_cat,
+    diagnoses,
+    investigation,
     # n_adm,    # bring these back in when they aren't all
     # n_adm_sq,
     sex,
@@ -480,8 +480,9 @@ augment(fit) %>%
 # fit on all data
 
 rec <- recipe(mort_30 ~ ., data = mod_df) %>%
-  update_role(ed_time, new_role = "not for prediction") %>%
-  # update_role(dta_time, ed_time, new_role = "not for prediction") %>%
+  # update_role(ed_time, new_role = "not for prediction") %>%
+  embed::step_lencode_glm(investigation, diagnoses, outcome = vars(mort_30)) %>%
+  update_role(dta_time, ed_time, new_role = "not for prediction") %>%
   # step_other(all_nominal_predictors(), -dta_time, other = "other") %>%
   # step_novel(all_nominal_predictors(), new_level = "novel") %>%
   # step_dummy(all_nominal_predictors()) %>%
@@ -490,7 +491,6 @@ rec <- recipe(mort_30 ~ ., data = mod_df) %>%
 wf <- workflow() %>%
   add_recipe(rec) %>%
   add_model(glm_spec)
-
 
 
 full_fit <- fit(wf, mod_df)
@@ -502,14 +502,14 @@ full_fit %>%
   broom::tidy() %>%
   filter(term == "dta_time")
 
-
-
 full_fit %>%
   extract_fit_engine() %>%
   gtsummary::tbl_regression(label = list(
     arrival_time = "Time of arrival",
     arrival_month = "Month of arrival",
     arrival_year = "Year of arrival",
+    arrival_cat = "Arrival category",
+    arrival_mode = "Arrival mode",
     perf = "4-hour ED performance",
     perf_sq = "4-hour ED performance (squared)",
     age = "Age",
@@ -519,13 +519,16 @@ full_fit %>%
     sex = "Sex",
     imd = "IMD",
     vw_score = "Van Walraven score",
-    vw_score_sq = "Van Walraven score (squared)"
+    vw_score_sq = "Van Walraven score (squared)",
+    Acuity_Desc = "Acuity description",
+    investigation = "Investigation description (encoded)",
+    diagnoses = "Diagnoses description (encoded)"
     )) %>%
   gtsummary::add_glance_table(include = c(nobs)) %>%
   gtsummary::as_gt() %>%
   gt::tab_header(
     title = gt::md("**30-day Mortality**"),
-    subtitle = "ROC curve statistic = 0.7652"
+    subtitle = "ROC curve statistic = 0.8327"
   ) %>%
   gt::gtsave("materials/mortality_tab_out.html")
 
@@ -535,101 +538,100 @@ days_mort  <- 30
 bin <- 7
 time_max <- 24*60
 
-
-
-mod_df <- dat_adm %>%
-  # filter(site == "SOUTHMEAD HOSPITAL") %>%
-  filter(!between(dta_dt, ymd("2022-04-01"), ymd("2022-07-10"))) %>% # filter bad DQ period for NBT
-  filter(dta_time <= t_max) %>%
-  filter(dta_time > 0) %>%
-  filter(sex %in% 1:2) %>%
-  left_join(mortality_df) %>%
-  # mutate(age = cut(age, breaks = seq(0, 120, 10), include.lowest = TRUE)) %>%
-  # mutate(dta_time = dta_time > 4*60) %>%
-  # mutate(dta_time = cut(dta_time, breaks = 60*seq(0, 24, 4), include.lowest = TRUE)) %>%
-  mutate(sex = factor(sex, labels = c("Male", "Female"))) %>%
-  # mutate(sex = ifelse(sex == 1, "Male", "Female")) %>%
-  mutate(age_sq = age^2) %>%
-  mutate(perf_sq = perf^2) %>%
-  mutate(n_ed_sq = n_ed^2) %>%
-  mutate(n_adm_sq = n_adm^2) %>%
-  mutate(vw_score_sq = vw_score^2) %>%
-  mutate(imd = factor(imd)) %>%
-  mutate(imd = fct_recode(imd, "1 (least deprived)" = "1", "10 (most deprived)" = "10")) %>%
-  mutate(mort_30 = ifelse((interval(arrival_dt, date_death)/ddays(1)) < days_mort, TRUE, FALSE)) %>%
-  mutate(mort_30 = coalesce(mort_30, FALSE)) %>%
-  mutate(mort_30 = factor(ifelse(mort_30, "yes", "no"), levels = c("no", "yes"))) %>%
-  mutate(arrival_time = factor(hms::as_hms(floor_date(arrival_dt, "6 hour")))) %>%
-  mutate(arrival_time = fct_recode(arrival_time,
-                                   "00:00-06:00" = "00:00:00",
-                                   "06:00-12:00" = "06:00:00",
-                                   "12:00-18:00" = "12:00:00",
-                                   "18:00-24:00" = "18:00:00")) %>%
-  mutate(arrival_month = factor(month(arrival_dt), labels = month.name)) %>%
-  mutate(arrival_year = factor(year(arrival_dt))) %>%
-  select(
-    arrival_time,
-    arrival_month,
-    arrival_year,
-    perf,
-    perf_sq,
-    age,
-    age_sq,
-    n_ed,
-    n_ed_sq,
-    # Acuity_Desc,
-    # arrival_mode,
-    # arrival_cat,
-    # diagnoses,
-    # investigation,
-    # n_adm,    # bring these back in when they aren't all
-    # n_adm_sq,
-    sex,
-    imd,
-    vw_score,
-    vw_score_sq,
-    mort_30,
-    dta_time,
-    ed_time
-  )
+# mod_df <- dat_adm %>%
+#   # filter(site == "SOUTHMEAD HOSPITAL") %>%
+#   filter(!between(dta_dt, ymd("2022-04-01"), ymd("2022-07-10"))) %>% # filter bad DQ period for NBT
+#   filter(dta_time <= t_max) %>%
+#   filter(dta_time > 0) %>%
+#   filter(sex %in% 1:2) %>%
+#   left_join(mortality_df) %>%
+#   # mutate(age = cut(age, breaks = seq(0, 120, 10), include.lowest = TRUE)) %>%
+#   # mutate(dta_time = dta_time > 4*60) %>%
+#   # mutate(dta_time = cut(dta_time, breaks = 60*seq(0, 24, 4), include.lowest = TRUE)) %>%
+#   mutate(sex = factor(sex, labels = c("Male", "Female"))) %>%
+#   # mutate(sex = ifelse(sex == 1, "Male", "Female")) %>%
+#   mutate(age_sq = age^2) %>%
+#   mutate(perf_sq = perf^2) %>%
+#   mutate(n_ed_sq = n_ed^2) %>%
+#   mutate(n_adm_sq = n_adm^2) %>%
+#   mutate(vw_score_sq = vw_score^2) %>%
+#   mutate(imd = factor(imd)) %>%
+#   mutate(imd = fct_recode(imd, "1 (least deprived)" = "1", "10 (most deprived)" = "10")) %>%
+#   mutate(mort_30 = ifelse((interval(arrival_dt, date_death)/ddays(1)) < days_mort, TRUE, FALSE)) %>%
+#   mutate(mort_30 = coalesce(mort_30, FALSE)) %>%
+#   mutate(mort_30 = factor(ifelse(mort_30, "yes", "no"), levels = c("no", "yes"))) %>%
+#   mutate(arrival_time = factor(hms::as_hms(floor_date(arrival_dt, "6 hour")))) %>%
+#   mutate(arrival_time = fct_recode(arrival_time,
+#                                    "00:00-06:00" = "00:00:00",
+#                                    "06:00-12:00" = "06:00:00",
+#                                    "12:00-18:00" = "12:00:00",
+#                                    "18:00-24:00" = "18:00:00")) %>%
+#   mutate(arrival_month = factor(month(arrival_dt), labels = month.name)) %>%
+#   mutate(arrival_year = factor(year(arrival_dt))) %>%
+#   select(
+#     arrival_time,
+#     arrival_month,
+#     arrival_year,
+#     perf,
+#     perf_sq,
+#     age,
+#     age_sq,
+#     n_ed,
+#     n_ed_sq,
+#     # Acuity_Desc,
+#     # arrival_mode,
+#     # arrival_cat,
+#     # diagnoses,
+#     # investigation,
+#     # n_adm,    # bring these back in when they aren't all
+#     # n_adm_sq,
+#     sex,
+#     imd,
+#     vw_score,
+#     vw_score_sq,
+#     mort_30,
+#     dta_time,
+#     ed_time
+#   )
 
 
 saveRDS(mod_df, "data/mod_df_smr_figure_final.RDS")
-mod_df <- readRDS("data/mod_df_smr_figure_final.RDS")
+# mod_df <- readRDS("data/mod_df_smr_figure_final.RDS")
 
 
-split <- initial_split(mod_df, strata = mort_30)
-glm_spec <- logistic_reg()
+# split <- initial_split(mod_df, strata = mort_30)
+# glm_spec <- logistic_reg()
+# # 
+# rec <- recipe(mort_30 ~ ., data = training(split)) %>%
+#   update_role(dta_time, ed_time, new_role = "not for prediction") %>%
+#   # # step_other(all_nominal_predictors(), -dta_time, other = "other") %>%
+#   # step_novel(all_nominal_predictors(), new_level = "novel") %>%
+#   # step_dummy(all_nominal_predictors()) %>%
+#   step_nzv()
 # 
-rec <- recipe(mort_30 ~ ., data = training(split)) %>%
-  update_role(dta_time, ed_time, new_role = "not for prediction") %>%
-  # # step_other(all_nominal_predictors(), -dta_time, other = "other") %>%
-  # step_novel(all_nominal_predictors(), new_level = "novel") %>%
-  # step_dummy(all_nominal_predictors()) %>%
-  step_nzv()
-
-wf <- workflow() %>%
-  add_recipe(rec) %>%
-  add_model(glm_spec)
+# wf <- workflow() %>%
+#   add_recipe(rec) %>%
+#   add_model(glm_spec)
+# # 
+# # fit <- last_fit(wf, split)
 # 
-# fit <- last_fit(wf, split)
+# 
+# # fit on all data
+# rec <- recipe(mort_30 ~ ., data = mod_df) %>%
+#   update_role(dta_time, ed_time, new_role = "not for prediction") %>%
+#   # step_other(all_nominal_predictors(), -dta_time, other = "other") %>%
+#   # step_novel(all_nominal_predictors(), new_level = "novel") %>%
+#   # step_dummy(all_nominal_predictors()) %>%
+#   step_nzv()
+# 
+# wf <- workflow() %>%
+#   add_recipe(rec) %>%
+#   add_model(glm_spec)
+# full_fit <- fit(wf, mod_df)
 
-
-# fit on all data
-rec <- recipe(mort_30 ~ ., data = mod_df) %>%
-  update_role(dta_time, ed_time, new_role = "not for prediction") %>%
-  # step_other(all_nominal_predictors(), -dta_time, other = "other") %>%
-  # step_novel(all_nominal_predictors(), new_level = "novel") %>%
-  # step_dummy(all_nominal_predictors()) %>%
-  step_nzv()
-
-wf <- workflow() %>%
-  add_recipe(rec) %>%
-  add_model(glm_spec)
-
-full_fit <- fit(wf, mod_df)
 full_pred <- predict(extract_fit_engine(full_fit), bake(prep(rec), new_data = mod_df), type = "response")
 yardstick::roc_auc_vec(mod_df$mort_30, estimate = full_pred, event_level = "second")
+# 0.8326642
 # smr
 
 p = seq(0, 1, length = bin + 1)

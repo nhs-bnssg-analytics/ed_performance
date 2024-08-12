@@ -18,6 +18,11 @@ report_start <- '2021-06-01'
 report_end <- '2024-06-01'
 pre_window_days <- 60
 
+# smr params
+bin <- 7
+t_max <- 24*60
+p = seq(0, 1, length = bin + 1)
+
 
 string_ecds<-glue::glue("select 
                         NHS_Number,
@@ -94,6 +99,7 @@ dat_ecds<-dat_ecds_raw %>%
   group_by(nhs_number, arrival_dt) %>%
   mutate(arr_id = cur_group_id()) %>%
   ungroup()
+
 
 dat_ecds_perf <- dat_ecds %>%
   group_by(site, arrival_hour = floor_date(arrival_dt, unit = "hour")) %>%
@@ -325,9 +331,14 @@ admissions_full <- dat_ecds %>%
 dat_reatt <- arrivals %>%
   left_join(dat_disch, , by = join_by(nhs_number == nhs_number, arr_id == arr_id)) %>%
   left_join(arrivals_full, by = join_by(nhs_number == nhs_number)) %>%
-  filter(!is.na(discharge_date)) %>%
+  mutate(discharge_date = as.Date(discharge_date)) %>%
+  mutate(discharge_date = if_else(is.na(discharge_date), departure_dt, discharge_date)) %>%
   mutate(reatt = interval(discharge_date, arrival_dt)/ddays(1) <= days_reatt_adm & # reatt within limit
-           as.Date(arrival_dt) > discharge_date) %>% # 'new' admission is new (not prior) 
+           as.Date(arrival_dt) > discharge_date # 'new' admission is new (not prior)
+         # |
+         #   interval(departure_dt, arrival_dt)/ddays(1) <= days_reatt_adm &
+         #   as.Date(arrival_dt) > discharge_date
+           ) %>%  
   group_by(arr_id) %>%
   slice_max(reatt, n = 1, with_ties = FALSE) %>%
   select(nhs_number, arr_id, reatt)
@@ -335,8 +346,14 @@ dat_reatt <- arrivals %>%
 dat_readm <- arrivals %>%
   left_join(dat_disch, , by = join_by(nhs_number == nhs_number, arr_id == arr_id)) %>%
   left_join(admissions_full, by = join_by(nhs_number == nhs_number)) %>%
-  mutate(readm = interval(discharge_date, arrival_dt)/ddays(1) <= days_reatt_adm & # reatt within limit
-           as.Date(arrival_dt) > discharge_date) %>% # 'new' admission is new (not prior) 
+  mutate(discharge_date = as.Date(discharge_date)) %>%
+  mutate(discharge_date = if_else(is.na(discharge_date), departure_dt, discharge_date)) %>%
+  mutate(readm = interval(discharge_date, arrival_dt)/ddays(1) <= days_reatt_adm & # reaadm within limit
+           as.Date(arrival_dt) > discharge_date 
+         # |
+         #   interval(departure_dt, arrival_dt)/ddays(1) <= days_reatt_adm &
+         #   as.Date(arrival_dt) > discharge_date
+         ) %>% # 'new' admission is new (not prior) 
   group_by(arr_id) %>%
   slice_max(readm, n = 1, with_ties = FALSE) %>%
   select(nhs_number, arr_id, readm)
@@ -381,7 +398,7 @@ dat_adm <- dat_ecds %>%
   na.omit()
 
 saveRDS(dat_adm, "data/dat_adm_reatt_readm.RDS")
-# dat_adm <- readRDS("data/dat_adm_new.RDS")
+dat_adm <- readRDS("data/dat_adm_reatt_readm.RDS")
 
 
 t_max <- 24*60
@@ -438,7 +455,7 @@ mod_df <- dat_adm %>%
   na.omit()
 
 saveRDS(mod_df, "data/smr_mod_df_reatt_readm.RDS")
-# mod_df <- readRDS("data/smr_mod_df_new.RDS")
+mod_df <- readRDS("data/smr_mod_df_reatt_readm.RDS")
 
 # reatt model
 set.seed(123)
@@ -470,8 +487,9 @@ glm_spec <- logistic_reg()
 
 rec <- recipe(reatt ~ ., data = mod_df) %>%
   update_role(readm, new_role = "extra outcome") %>%
-  # update_role(dta_time, ed_time, new_role = "not for prediction") %>%
-  update_role(ed_time, new_role = "not for prediction") %>%
+  embed::step_lencode_glm(investigation, diagnoses, outcome = vars(reatt)) %>%
+  update_role(dta_time, ed_time, new_role = "not for prediction") %>%
+  # update_role(ed_time, new_role = "not for prediction") %>%
   # step_other(all_nominal_predictors(), -dta_time, other = "other") %>%
   # step_novel(all_nominal_predictors(), new_level = "novel") %>%
   # step_dummy(all_nominal_predictors()) %>%
@@ -487,29 +505,26 @@ full_fit <- fit(wf, mod_df)
 # predictions 
 full_pred <- predict(extract_fit_engine(full_fit), bake(prep(rec), new_data = mod_df), type = "response")
 yardstick::roc_auc_vec(mod_df$reatt, estimate = full_pred, event_level = "second")
-# 0.6521107
-# full_fit %>%
-#   extract_fit_engine() %>%
-#   broom::tidy() %>%
-#   filter(term == "dta_time")
-# term      estimate std.error statistic p.value
-# <chr>        <dbl>     <dbl>     <dbl>   <dbl>
-#   1 dta_time 0.0000130 0.0000553     0.235   0.814
+# 0.6514179
+full_fit %>%
+  extract_fit_engine() %>%
+  broom::tidy() %>%
+  filter(term == "dta_time")
+# # A tibble: 1 × 5
+# term       estimate std.error statistic p.value
+# <chr>         <dbl>     <dbl>     <dbl>   <dbl>
+#   1 dta_time -0.0000834 0.0000454     -1.84  0.0660
 
 # smr
 
-bin <- 7
-time_max <- 24*60
 
-
-p = seq(0, 1, length = bin + 1)
 
 t_var_raw <- mod_df %>%
-  filter(dta_time <= time_max) %>%
+  filter(dta_time <= t_max) %>%
   pull(dta_time)
 
 full_pred <- mod_df %>%
-  filter(dta_time <= time_max) %>%
+  filter(dta_time <= t_max) %>%
   bake(prep(rec), new_data = .) %>%
   predict(extract_fit_engine(full_fit),
           newdata = .,
@@ -517,7 +532,7 @@ full_pred <- mod_df %>%
 
 plot_df <- 
   mod_df %>%
-  filter(dta_time <= time_max) %>%
+  filter(dta_time <= t_max) %>%
   mutate(dta_time := cut(dta_time, breaks = unique(quantile(dta_time, p)), include.lowest = TRUE)) %>%
   mutate(reatt = reatt == "yes") %>%
   select(dta_time, reatt) %>%
@@ -578,7 +593,7 @@ shade_df <- unique(plot_df$left) %>%
 x_breaks <- unique(plot_df$left, plot_df$right) %>%
   tail(-1) %>%
   head(-1) %>%
-  c(0, time_max) %>%
+  c(0, t_max) %>%
   sort()
 
 lab_fn <- function(x) {
@@ -604,14 +619,14 @@ lab_fn <- function(x) {
   geom_point() +
   
   # scale_x_continuous(breaks = x_breaks/60, labels = scales::number_format(accuracy = 0.1)) +
-  scale_x_continuous(#limits = c(NA, (time_max/60)-1),
+  scale_x_continuous(#limits = c(NA, (t_max/60)-1),
     breaks = x_breaks/60,
     labels = lab_fn(x_breaks),
     guide = guide_axis(n.dodge = 2)
   ) +
   # bnssgtheme() +
   theme_minimal() +
-  # coord_cartesian(ylim = c(0.75, 1.2), xlim = c(0, time_max/60)) +
+  # coord_cartesian(ylim = c(0.75, 1.2), xlim = c(0, t_max/60)) +
   labs(y = "Standardised Re-Attendance\nRatio",
        x = "Time Waiting for Admission"))
 
@@ -622,6 +637,7 @@ saveRDS(smr_reatt, "data/smr_reatt.RDS")
 
 rec <- recipe(readm ~ ., data = mod_df) %>%
   update_role(reatt, new_role = "extra outcome") %>%
+  embed::step_lencode_glm(investigation, diagnoses, outcome = vars(readm)) %>%
   update_role(ed_time, new_role = "not for prediction") %>%
   # update_role(dta_time, ed_time, new_role = "not for prediction") %>%
   # step_other(all_nominal_predictors(), -dta_time, other = "other") %>%
@@ -638,25 +654,25 @@ wf <- workflow() %>%
 full_fit <- fit(wf, mod_df)
 full_pred <- predict(extract_fit_engine(full_fit), bake(prep(rec), new_data = mod_df), type = "response")
 yardstick::roc_auc_vec(mod_df$readm, estimate = full_pred, event_level = "second")
-# 0.6730926
-full_fit %>%
-  extract_fit_engine() %>%
-  broom::tidy() %>%
-  filter(term == "dta_time")
+# 0.663465
+# full_fit %>%
+#   extract_fit_engine() %>%
+#   broom::tidy() %>%
+#   filter(term == "dta_time")
 # # A tibble: 1 × 5
-# term       estimate std.error statistic p.value
-# <chr>         <dbl>     <dbl>     <dbl>   <dbl>
-#   1 dta_time 0.00000189 0.0000619    0.0305   0.976
+# term      estimate std.error statistic p.value
+# <chr>        <dbl>     <dbl>     <dbl>   <dbl>
+#   1 dta_time -0.000102 0.0000512     -1.99  0.0470
 
 
 # predictions 
 
 t_var_raw <- mod_df %>%
-  filter(dta_time <= time_max) %>%
+  filter(dta_time <= t_max) %>%
   pull(dta_time)
 
 full_pred <- mod_df %>%
-  filter(dta_time <= time_max) %>%
+  filter(dta_time <= t_max) %>%
   bake(prep(rec), new_data = .) %>%
   predict(extract_fit_engine(full_fit),
           newdata = .,
@@ -664,7 +680,7 @@ full_pred <- mod_df %>%
 
 plot_df <- 
   mod_df %>%
-  filter(dta_time <= time_max) %>%
+  filter(dta_time <= t_max) %>%
   mutate(dta_time := cut(dta_time, breaks = unique(quantile(dta_time, p)), include.lowest = TRUE)) %>%
   mutate(readm = readm == "yes") %>%
   select(dta_time, readm) %>%
@@ -692,8 +708,6 @@ plot_df <-
 plot_df <- bind_rows(plot_df, 
                      {tail(plot_df, 1) %>% mutate(left = right)})
 
-
-
 pred_df <- lm(smr ~ mid, weights = weight, data = plot_df) %>%
   predict(newdata = plot_df, se.fit = TRUE) %>%
   as_tibble() %>%
@@ -701,7 +715,6 @@ pred_df <- lm(smr ~ mid, weights = weight, data = plot_df) %>%
             u_se = fit + se.fit,
             l_se = fit - se.fit) %>%
   bind_cols(select(plot_df, mid)) 
-
 
 pred_df <- bind_rows(pred_df, {
   #predict at limits
@@ -725,8 +738,16 @@ shade_df <- unique(plot_df$left) %>%
 x_breaks <- unique(plot_df$left, plot_df$right) %>%
   tail(-1) %>%
   head(-1) %>%
-  c(0, time_max) %>%
+  c(0, t_max) %>%
   sort()
+
+lab_fn <- function(x) {
+  
+  x <- round(x)
+  glue::glue("{x%/%60}h {x - (60*x%/%60)}m") |>
+    str_replace_all(" 0m", "") |>
+    str_replace_all("^0h ", "")
+}
 
 
 
@@ -744,14 +765,14 @@ x_breaks <- unique(plot_df$left, plot_df$right) %>%
   geom_point() +
   
   # scale_x_continuous(breaks = x_breaks/60, labels = scales::number_format(accuracy = 0.1)) +
-  scale_x_continuous(#limits = c(NA, (time_max/60)-1),
+  scale_x_continuous(#limits = c(NA, (t_max/60)-1),
     breaks = x_breaks/60,
     labels = lab_fn(x_breaks),
     guide = guide_axis(n.dodge = 2)
   ) +
   # bnssgtheme() +
   theme_minimal() +
-  # coord_cartesian(ylim = c(0.75, 1.2), xlim = c(0, time_max/60)) +
+  # coord_cartesian(ylim = c(0.75, 1.2), xlim = c(0, t_max/60)) +
   labs(y = "Standardised Re-Admission\nRatio",
        x = "Time Waiting for Admission"))
 
