@@ -18,6 +18,8 @@ report_start <- '2021-06-01'
 report_end <- '2024-06-01'
 pre_window_days <- 60
 
+days_mort <- 30
+
 # smr params
 bin <- 7
 t_max <- 24*60
@@ -310,7 +312,7 @@ dat_disch <- arrivals %>%
     by = join_by(nhs_number == AIMTC_Pseudo_NHS)) %>% 
   mutate(diff = abs(interval(departure_dt, StartDate_HospitalProviderSpell)/ddays(1))) %>%
   group_by(arr_id) %>%
-  filter(diff == min(diff), diff <= 1) %>%
+  filter(diff >= 0, diff <= 2) %>%
   select(nhs_number, arr_id, discharge_date = DischargeDate_FromHospitalProviderSpell) %>%
   distinct()
 
@@ -338,7 +340,7 @@ dat_reatt <- arrivals %>%
          # |
          #   interval(departure_dt, arrival_dt)/ddays(1) <= days_reatt_adm &
          #   as.Date(arrival_dt) > discharge_date
-           ) %>%  
+           ) %>% 
   group_by(arr_id) %>%
   slice_max(reatt, n = 1, with_ties = FALSE) %>%
   select(nhs_number, arr_id, reatt)
@@ -357,6 +359,35 @@ dat_readm <- arrivals %>%
   group_by(arr_id) %>%
   slice_max(readm, n = 1, with_ties = FALSE) %>%
   select(nhs_number, arr_id, readm)
+
+
+# mortality_df <- local({
+#   string_mortality <- glue::glue("SELECT
+#       [Derived_Pseudo_NHS]
+#       ,[Dec_Age_At_Death]
+#       ,[DEC_SEX]
+#       ,[DEC_SEX_DESC]
+#       ,[DEC_MARITAL_STATUS]
+#       ,[DEC_MARITAL_STATUS_DESC]
+#       ,[DEC_AGEC]
+#       ,[DEC_AGECUNIT]
+#       ,[DEC_AGECUNIT_DESC]
+#       ,[REG_DATE_OF_DEATH]
+#       ,[REG_DATE]
+#   FROM [ABI].[Civil_Registration].[Mortality]
+#   WHERE REG_DATE_OF_DEATH between '{lubridate::ymd(report_start)}' AND '{lubridate::ymd(report_end) + lubridate::ddays(30)}'
+#   ")
+#   con<-odbcDriverConnect("driver={SQL Server};\n  server=Xsw-00-ash01;\n  trusted_connection=true")
+#   
+#   sqlQuery(con, string_mortality) %>%
+#     na.omit() %>%
+#     mutate(Derived_Pseudo_NHS = as.character(Derived_Pseudo_NHS),
+#            REG_DATE_OF_DEATH = lubridate::ymd(REG_DATE_OF_DEATH)) %>%
+#     mutate(Derived_Pseudo_NHS = as.character(Derived_Pseudo_NHS)) %>%
+#     select(nhs_number = Derived_Pseudo_NHS, date_death = REG_DATE_OF_DEATH)
+# })
+
+
 
 
 dat_adm <- dat_ecds %>%
@@ -404,6 +435,7 @@ dat_adm <- readRDS("data/dat_adm_reatt_readm.RDS")
 t_max <- 24*60
 
 mod_df <- dat_adm %>%
+  # left_join(mortality_df) %>%
   # filter(site == "SOUTHMEAD HOSPITAL") %>%
   filter(!between(dta_dt, ymd("2022-04-01"), ymd("2022-07-10"))) %>% # filter bad DQ period for NBT
   filter(dta_time <= t_max) %>%
@@ -416,6 +448,10 @@ mod_df <- dat_adm %>%
   mutate(n_adm_sq = n_adm^2) %>%
   mutate(vw_score_sq = vw_score^2) %>%
   mutate(imd = factor(imd)) %>%
+  # mutate(mort_30 = ifelse((interval(arrival_dt, date_death)/ddays(1)) < days_mort, TRUE, FALSE)) %>%
+  # mutate(mort_30 = coalesce(mort_30, FALSE)) %>%
+  # # mutate(mort_30 = factor(ifelse(mort_30, "yes", "no"), levels = c("no", "yes"))) %>%
+  # filter(!mort_30) %>%
   mutate(reatt = factor(ifelse(reatt, "yes", "no"), levels = c("no", "yes"))) %>%
   mutate(readm = factor(ifelse(readm, "yes", "no"), levels = c("no", "yes"))) %>%
   mutate(arrival_time = factor(hms::as_hms(floor_date(arrival_dt, "6 hour")))) %>%
@@ -516,7 +552,6 @@ full_fit %>%
 #   1 dta_time -0.0000834 0.0000454     -1.84  0.0660
 
 # smr
-
 
 
 t_var_raw <- mod_df %>%
@@ -638,8 +673,8 @@ saveRDS(smr_reatt, "data/smr_reatt.RDS")
 rec <- recipe(readm ~ ., data = mod_df) %>%
   update_role(reatt, new_role = "extra outcome") %>%
   embed::step_lencode_glm(investigation, diagnoses, outcome = vars(readm)) %>%
-  update_role(ed_time, new_role = "not for prediction") %>%
-  # update_role(dta_time, ed_time, new_role = "not for prediction") %>%
+  # update_role(ed_time, new_role = "not for prediction") %>%
+  update_role(dta_time, ed_time, new_role = "not for prediction") %>%
   # step_other(all_nominal_predictors(), -dta_time, other = "other") %>%
   # step_novel(all_nominal_predictors(), new_level = "novel") %>%
   # step_dummy(all_nominal_predictors()) %>%
@@ -655,14 +690,14 @@ full_fit <- fit(wf, mod_df)
 full_pred <- predict(extract_fit_engine(full_fit), bake(prep(rec), new_data = mod_df), type = "response")
 yardstick::roc_auc_vec(mod_df$readm, estimate = full_pred, event_level = "second")
 # 0.663465
-# full_fit %>%
-#   extract_fit_engine() %>%
-#   broom::tidy() %>%
-#   filter(term == "dta_time")
-# # A tibble: 1 × 5
+full_fit %>%
+  extract_fit_engine() %>%
+  broom::tidy() %>%
+  filter(term == "dta_time")
+# A tibble: 1 × 5
 # term      estimate std.error statistic p.value
 # <chr>        <dbl>     <dbl>     <dbl>   <dbl>
-#   1 dta_time -0.000102 0.0000512     -1.99  0.0470
+#   1 dta_time -0.000135 0.0000503     -2.68 0.00728
 
 
 # predictions 

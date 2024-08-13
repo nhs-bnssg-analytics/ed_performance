@@ -105,8 +105,8 @@ bind_rows(p_demog_downstr_1, p_demog_downstr_2) %>%
   )) %>% 
 arrange(name) %>%
 pull(plot) %>%
-patchwork::wrap_plots() & patchwork::plot_annotation(title = "Demographics for Downstream Impact Analysis",
-                                                    subtitle = "Patients included in Standardised Mortality Analysis") 
+patchwork::wrap_plots() & patchwork::plot_annotation(title = "Demographics for Downstream Patients",
+                                                    subtitle = "Patients included in mortality, re-attendance, & re-admission analysis") 
 
 
 ggsave("materials/demog_downstream_smr.png",
@@ -514,8 +514,8 @@ p_resp_plots <- bind_rows(p_demog_upstr_resp_1, p_demog_upstr_resp_2) %>%
 
   p_upstream_ptch <-  c(p_handover_plots, p_resp_plots) %>%
   patchwork::wrap_plots(ncol = 2, byrow = FALSE) &
-    patchwork::plot_annotation(title = "Demographics for Upstream Impact Analysis",
-                               subtitle = "Patients included in ambulance handover time (left) & call response time (right)") 
+    patchwork::plot_annotation(title = "Demographics for Upstream Patients",
+                               subtitle = "Patients included in ambulance handover time (left) & call response time (right) analysis") 
 
 p_upstream_ptch[[4]] <- p_upstream_ptch[[4]] +
   theme(

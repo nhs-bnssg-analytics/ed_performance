@@ -1158,3 +1158,46 @@ dat_adm %>%
   mutate(dta_time = dta_time/60) %>%
   lm(los ~ dta_time, data = .) %>%
   summary()
+
+
+(los_plot <- local({
+  plot_df <- dat_adm %>%
+    # filter(site == "SOUTHMEAD HOSPITAL") %>%
+    distinct() %>%
+    filter(between(dta_time, 0, 60 * 24)) %>%
+    filter(los < 75)
+  plot_df %>%
+    # mutate(dta_time = 30*dta_time%/%30) %>%
+    ggplot(aes(
+      x = dta_time / 60,
+      y = los
+    )) +
+    geom_boxplot(aes(group = cut_width(dta_time / 60, width = 1)),
+                 outliers = FALSE,
+                 hjust = -1) +
+    geom_point(data = {plot_df %>% group_by(dta_time = 60*(dta_time %/% 60)) %>% summarise(los = quantile(los, 0.95))},
+                # aes(x = dta_time, y = los), 
+                 col = "red") +
+    theme_minimal() +
+    # scale_y_continuous(limits = c(0, 25), breaks = seq(0, 45, 10)) +
+    guides(alpha = "none") +
+    theme(
+      legend.position = "bottom",
+      legend.justification = "center",
+      legend.title = element_text()
+    ) +
+    labs(
+      shape = "",
+      x = "Time waiting for admission (hour)",
+      y = "In-hospital length of stay (day)",
+      colour = "Total length of stay"
+    )
+}))
+
+ggsave("materials/dta_los_plot_paper.png",
+       last_plot(),
+       bg = "white",
+       height = 5,
+       width = 7.5, 
+       scale = 0.8) 
+
