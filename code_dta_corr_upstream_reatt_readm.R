@@ -18,7 +18,7 @@ report_start <- '2021-06-01'
 report_end <- '2024-06-01'
 pre_window_days <- 60
 
-days_mort <- 30
+days_outcome_window <- 30
 
 # smr params
 bin <- 7
@@ -48,6 +48,7 @@ string_ecds<-glue::glue("select
                         Arrival_Mode_Desc,
                         Arrival_Category_Desc,
                         Attendance_Source_Desc,
+                        destination_desc,
                         Chief_Complaint_Desc,
                         Acuity_Desc,
                         Diagnoses_Code_1_Desc,
@@ -55,6 +56,10 @@ string_ecds<-glue::glue("select
       FROM Analyst_SQL_Area.dbo.tbl_BNSSG_ECDS
       where Site_Name in ('BRISTOL ROYAL INFIRMARY', 'SOUTHMEAD HOSPITAL', 'WESTON GENERAL HOSPITAL')
       and Arrival_Date >= '{ymd(report_start) - ddays(pre_window_days)}'
+      and destination_desc not in ('Emergency department discharge to emergency department short stay ward',
+      'Emergency department discharge to same day emergency care service',
+      'Emergency department discharge to ambulatory emergency care service',
+      'Admission to the mortuary')
       ")
 
 dat_ecds_raw<-sqlQuery(con,string_ecds)
@@ -275,7 +280,8 @@ dat_scores <- arrivals %>%
     by = join_by(nhs_number == AIMTC_Pseudo_NHS)) %>% 
   mutate(diff = abs(interval(departure_dt, StartDate_HospitalProviderSpell)/ddays(1))) %>%
   group_by(arr_id) %>%
-  filter(diff == min(diff), diff <= 1)  %>%
+  # filter(diff == min(diff), diff <= 1)  %>%
+  filter(between(diff, 0 , 2))  %>%
   select(-DiagnosisSchemeInUse_ICD) %>%
   select(nhs_number, arr_id, matches("ICD")) %>%
   pivot_longer(-c(nhs_number, arr_id)) %>%
@@ -299,7 +305,8 @@ dat_spec <- arrivals %>%
     by = join_by(nhs_number == AIMTC_Pseudo_NHS)) %>% 
   mutate(diff = abs(interval(departure_dt, StartDate_HospitalProviderSpell)/ddays(1))) %>%
   group_by(arr_id) %>%
-  filter(diff == min(diff), diff <= 1) %>%
+  filter(between(diff, 0, 2)) %>%
+  # filter(diff == min(diff), diff <= 1) %>%
   select(nhs_number, arr_id, MainSpecialtyCode)
 
 
@@ -312,14 +319,14 @@ dat_disch <- arrivals %>%
     by = join_by(nhs_number == AIMTC_Pseudo_NHS)) %>% 
   mutate(diff = abs(interval(departure_dt, StartDate_HospitalProviderSpell)/ddays(1))) %>%
   group_by(arr_id) %>%
-  filter(diff >= 0, diff <= 2) %>%
+  filter(between(diff, 0, 2)) %>%
+  # filter(diff <= 2) %>%
   select(nhs_number, arr_id, discharge_date = DischargeDate_FromHospitalProviderSpell) %>%
   distinct()
 
 
 # reattendance/readmissions outcomes
 
-days_reatt_adm <- 30
 
 arrivals_full <- dat_ecds %>%
   select(nhs_number, arrival_dt) %>%
@@ -331,14 +338,14 @@ admissions_full <- dat_ecds %>%
   distinct()
 
 dat_reatt <- arrivals %>%
-  left_join(dat_disch, , by = join_by(nhs_number == nhs_number, arr_id == arr_id)) %>%
+  left_join(dat_disch, by = join_by(nhs_number == nhs_number, arr_id == arr_id)) %>%
   left_join(arrivals_full, by = join_by(nhs_number == nhs_number)) %>%
-  mutate(discharge_date = as.Date(discharge_date)) %>%
+  mutate(discharge_date = discharge_date %>% ymd()) %>%
   mutate(discharge_date = if_else(is.na(discharge_date), departure_dt, discharge_date)) %>%
-  mutate(reatt = interval(discharge_date, arrival_dt)/ddays(1) <= days_reatt_adm & # reatt within limit
+  mutate(reatt = interval(discharge_date, arrival_dt)/ddays(1) <= days_outcome_window & # reatt within limit
            as.Date(arrival_dt) > discharge_date # 'new' admission is new (not prior)
          # |
-         #   interval(departure_dt, arrival_dt)/ddays(1) <= days_reatt_adm &
+         #   interval(departure_dt, arrival_dt)/ddays(1) <= days_outcome_window &
          #   as.Date(arrival_dt) > discharge_date
            ) %>% 
   group_by(arr_id) %>%
@@ -348,12 +355,12 @@ dat_reatt <- arrivals %>%
 dat_readm <- arrivals %>%
   left_join(dat_disch, , by = join_by(nhs_number == nhs_number, arr_id == arr_id)) %>%
   left_join(admissions_full, by = join_by(nhs_number == nhs_number)) %>%
-  mutate(discharge_date = as.Date(discharge_date)) %>%
+  mutate(discharge_date = discharge_date %>% ymd()) %>%
   mutate(discharge_date = if_else(is.na(discharge_date), departure_dt, discharge_date)) %>%
-  mutate(readm = interval(discharge_date, arrival_dt)/ddays(1) <= days_reatt_adm & # reaadm within limit
+  mutate(readm = interval(discharge_date, arrival_dt)/ddays(1) <= days_outcome_window & # reaadm within limit
            as.Date(arrival_dt) > discharge_date 
          # |
-         #   interval(departure_dt, arrival_dt)/ddays(1) <= days_reatt_adm &
+         #   interval(departure_dt, arrival_dt)/ddays(1) <= days_outcome_window &
          #   as.Date(arrival_dt) > discharge_date
          ) %>% # 'new' admission is new (not prior) 
   group_by(arr_id) %>%
@@ -361,41 +368,43 @@ dat_readm <- arrivals %>%
   select(nhs_number, arr_id, readm)
 
 
-# mortality_df <- local({
-#   string_mortality <- glue::glue("SELECT
-#       [Derived_Pseudo_NHS]
-#       ,[Dec_Age_At_Death]
-#       ,[DEC_SEX]
-#       ,[DEC_SEX_DESC]
-#       ,[DEC_MARITAL_STATUS]
-#       ,[DEC_MARITAL_STATUS_DESC]
-#       ,[DEC_AGEC]
-#       ,[DEC_AGECUNIT]
-#       ,[DEC_AGECUNIT_DESC]
-#       ,[REG_DATE_OF_DEATH]
-#       ,[REG_DATE]
-#   FROM [ABI].[Civil_Registration].[Mortality]
-#   WHERE REG_DATE_OF_DEATH between '{lubridate::ymd(report_start)}' AND '{lubridate::ymd(report_end) + lubridate::ddays(30)}'
-#   ")
-#   con<-odbcDriverConnect("driver={SQL Server};\n  server=Xsw-00-ash01;\n  trusted_connection=true")
-#   
-#   sqlQuery(con, string_mortality) %>%
-#     na.omit() %>%
-#     mutate(Derived_Pseudo_NHS = as.character(Derived_Pseudo_NHS),
-#            REG_DATE_OF_DEATH = lubridate::ymd(REG_DATE_OF_DEATH)) %>%
-#     mutate(Derived_Pseudo_NHS = as.character(Derived_Pseudo_NHS)) %>%
-#     select(nhs_number = Derived_Pseudo_NHS, date_death = REG_DATE_OF_DEATH)
-# })
+mortality_df <- local({
+  string_mortality <- glue::glue("SELECT
+      [Derived_Pseudo_NHS]
+      ,[Dec_Age_At_Death]
+      ,[DEC_SEX]
+      ,[DEC_SEX_DESC]
+      ,[DEC_MARITAL_STATUS]
+      ,[DEC_MARITAL_STATUS_DESC]
+      ,[DEC_AGEC]
+      ,[DEC_AGECUNIT]
+      ,[DEC_AGECUNIT_DESC]
+      ,[REG_DATE_OF_DEATH]
+      ,[REG_DATE]
+  FROM [ABI].[Civil_Registration].[Mortality]
+  WHERE REG_DATE_OF_DEATH between '{lubridate::ymd(report_start)}' AND '{lubridate::ymd(report_end) + lubridate::ddays(30)}'
+  ")
+  con<-odbcDriverConnect("driver={SQL Server};\n  server=Xsw-00-ash01;\n  trusted_connection=true")
+
+  sqlQuery(con, string_mortality) %>%
+    na.omit() %>%
+    mutate(Derived_Pseudo_NHS = as.character(Derived_Pseudo_NHS),
+           REG_DATE_OF_DEATH = lubridate::ymd(REG_DATE_OF_DEATH)) %>%
+    mutate(Derived_Pseudo_NHS = as.character(Derived_Pseudo_NHS)) %>%
+    select(nhs_number = Derived_Pseudo_NHS, date_death = REG_DATE_OF_DEATH)
+})
 
 
 
 
 dat_adm <- dat_ecds %>%
+  # remove arrivals that dont have full outcome window
+  filter(arrival_dt < ymd(report_end) - ddays(days_outcome_window)) %>%
   mutate(nhs_number = as.character(nhs_number)) %>%
   group_by(nhs_number) %>%
   slice_min(dta_dt, na_rm = TRUE) %>%
   filter(dta_time >= 0) %>% # some records are negative 0 exactly, seems to be DQ
-  filter(age < 120, !is.na(age)) %>%
+  filter(age < 120, !is.na(age))   %>%
   # filter(dta_dt == min(dta_dt, na.rm = TRUE)) %>%
   ungroup() %>%
   select(
@@ -412,9 +421,9 @@ dat_adm <- dat_ecds %>%
     ed_time,
     Acuity_Desc,
     arrival_mode,
-    arrival_cat,
-    diagnoses,
-    investigation
+    arrival_cat#,
+    # diagnoses,
+    # investigation
   ) %>%
   mutate(arrival_hour = floor_date(arrival_dt, "hour")) %>%
   left_join(dat_ecds_perf) %>%
@@ -435,7 +444,7 @@ dat_adm <- readRDS("data/dat_adm_reatt_readm.RDS")
 t_max <- 24*60
 
 mod_df <- dat_adm %>%
-  # left_join(mortality_df) %>%
+  left_join(mortality_df) %>%
   # filter(site == "SOUTHMEAD HOSPITAL") %>%
   filter(!between(dta_dt, ymd("2022-04-01"), ymd("2022-07-10"))) %>% # filter bad DQ period for NBT
   filter(dta_time <= t_max) %>%
@@ -448,9 +457,9 @@ mod_df <- dat_adm %>%
   mutate(n_adm_sq = n_adm^2) %>%
   mutate(vw_score_sq = vw_score^2) %>%
   mutate(imd = factor(imd)) %>%
-  # mutate(mort_30 = ifelse((interval(arrival_dt, date_death)/ddays(1)) < days_mort, TRUE, FALSE)) %>%
-  # mutate(mort_30 = coalesce(mort_30, FALSE)) %>%
-  # # mutate(mort_30 = factor(ifelse(mort_30, "yes", "no"), levels = c("no", "yes"))) %>%
+  mutate(mort_30 = ifelse((interval(arrival_dt, date_death)/ddays(1)) < days_outcome_window, TRUE, FALSE)) %>%
+  mutate(mort_30 = coalesce(mort_30, FALSE)) %>%
+  mutate(mort_30 = factor(ifelse(mort_30, "yes", "no"), levels = c("no", "yes"))) %>%
   # filter(!mort_30) %>%
   mutate(reatt = factor(ifelse(reatt, "yes", "no"), levels = c("no", "yes"))) %>%
   mutate(readm = factor(ifelse(readm, "yes", "no"), levels = c("no", "yes"))) %>%
@@ -475,14 +484,15 @@ mod_df <- dat_adm %>%
     Acuity_Desc,
     arrival_mode,
     arrival_cat,
-    diagnoses,
-    investigation,
+    # diagnoses,
+    # investigation,
     # n_adm,    # bring these back in when they aren't all
     # n_adm_sq,
     sex,
     imd,
     vw_score,
     vw_score_sq,
+    mort_30,
     reatt,
     readm,
     dta_time,
@@ -493,37 +503,236 @@ mod_df <- dat_adm %>%
 saveRDS(mod_df, "data/smr_mod_df_reatt_readm.RDS")
 mod_df <- readRDS("data/smr_mod_df_reatt_readm.RDS")
 
+# smr
+
+downstream_outputs <- function(dat, workflow, outcome_var) {
+  
+  outcome_raw <- dat %>% pull({{outcome_var}})
+  
+  full_fit <- fit(workflow, dat)
+  full_pred <- predict(extract_fit_engine(full_fit), bake(prep(rec), new_data = dat), type = "response")
+  auc <- yardstick::roc_auc_vec(outcome_raw, estimate = full_pred, event_level = "second")
+  
+  reg_tab <- full_fit %>%
+    extract_fit_engine() %>%
+    gtsummary::tbl_regression(label = list(
+      arrival_time = "Time of arrival",
+      arrival_month = "Month of arrival",
+      arrival_year = "Year of arrival",
+      arrival_cat = "Arrival category",
+      arrival_mode = "Arrival mode",
+      perf = "4-hour ED performance",
+      perf_sq = "4-hour ED performance (squared)",
+      age = "Age",
+      age_sq = "Age (squared)",
+      n_ed = "Number in ED",
+      n_ed_sq = "Number in ED (squared)",
+      sex = "Sex",
+      imd = "IMD",
+      vw_score = "Van Walraven score",
+      vw_score_sq = "Van Walraven score (squared)",
+      Acuity_Desc = "Acuity description"#,
+      # investigation = "Investigation description (encoded)",
+      # diagnoses = "Diagnoses description (encoded)"
+    )) %>%
+    gtsummary::add_glance_table(include = c(nobs)) %>%
+    gtsummary::as_gt() %>%
+    gt::tab_header(
+      title = gt::md("**30-day Mortality**"),
+      subtitle = glue::glue("ROC curve statistic = {round(auc, 4)}")
+    )
+  
+  
+  # predictions 
+  
+  t_var_raw <- dat %>%
+    filter(dta_time <= t_max) %>%
+    pull(dta_time)
+  
+  full_pred <- dat %>%
+    filter(dta_time <= t_max) %>%
+    bake(prep(rec), new_data = .) %>%
+    predict(extract_fit_engine(full_fit),
+            newdata = .,
+            type = "response")
+  
+  plot_df <- 
+    dat %>%
+    filter(dta_time <= t_max) %>%
+    mutate(dta_time := cut(dta_time, breaks = unique(quantile(dta_time, p)), include.lowest = TRUE)) %>%
+    mutate({{outcome_var}} := outcome_raw == "yes") %>%
+    select(dta_time, {{outcome_var}}) %>%
+    mutate(pred = full_pred) %>%
+    group_by(dta_time) %>%
+    summarise(
+      n = n(),
+      expected = sum(pred),
+      actual = sum({{outcome_var}}),
+      proportion = mean({{outcome_var}}),
+      smr = actual / expected
+    ) %>%
+    mutate(
+      left = head(unique(quantile(t_var_raw, p)), -1),
+      right = tail(unique(quantile(t_var_raw, p)), -1),
+      mid = (left + right) / 2,
+      width = right - left,
+      weight = 1/width
+    ) %>%
+    mutate(
+      z = qnorm(0.95 + (1 - 0.95) / 2),
+      u_ci = smr + z*sqrt(smr/n),
+      l_ci = smr - z*sqrt(smr/n)
+    )
+  
+  plot_df <- bind_rows(plot_df, 
+                       {tail(plot_df, 1) %>% mutate(left = right)})
+  
+  pred_df <- lm(smr ~ mid, weights = weight, data = plot_df) %>%
+    predict(newdata = plot_df, se.fit = TRUE) %>%
+    as_tibble() %>%
+    transmute(pred = fit,
+              u_se = fit + se.fit,
+              l_se = fit - se.fit) %>%
+    bind_cols(select(plot_df, mid)) 
+  
+  pred_df <- bind_rows(pred_df, {
+    #predict at limits
+    lm(smr ~ mid, weights = weight, data = plot_df) %>%
+      predict(newdata = data.frame(mid = range(plot_df$left, plot_df$right)), se.fit = TRUE) %>%
+      as_tibble() %>%
+      transmute(pred = fit,
+                u_se = fit + se.fit,
+                l_se = fit - se.fit) %>%
+      mutate(mid = range(plot_df$left, plot_df$right))
+  })
+  
+  
+  shade_df <- unique(plot_df$left) %>%
+    sort() %>%
+    head(n = 2*length(.) %/% 2) %>% # slice the nearest multiple of 2 values 
+    matrix(ncol = 2, byrow = TRUE) %>%
+    as_tibble() %>%
+    mutate(min = min(pred_df$l_se, plot_df$smr, plot_df$l_ci))
+  
+  x_breaks <- unique(plot_df$left, plot_df$right) %>%
+    tail(-1) %>%
+    head(-1) %>%
+    c(0, t_max) %>%
+    sort()
+  
+  lab_fn <- function(x) {
+    
+    x <- round(x)
+    glue::glue("{x%/%60}h {x - (60*x%/%60)}m") |>
+      str_replace_all(" 0m", "") |>
+      str_replace_all("^0h ", "")
+  }
+  
+  
+  
+  (p_standard <- ggplot(plot_df, aes(x = mid/60, y = smr)) +
+      geom_rect(shade_df, mapping = aes(x = NULL,
+                                        y = NULL,
+                                        xmin = V1/60,
+                                        xmax = V2/60,
+                                        ymin = -Inf,
+                                        ymax = Inf),
+                alpha = 0.15) + 
+      geom_errorbar(aes(ymin = l_ci, ymax = u_ci, width = width/(2*60))) +
+      
+      geom_point() +
+      
+      # scale_x_continuous(breaks = x_breaks/60, labels = scales::number_format(accuracy = 0.1)) +
+      scale_x_continuous(#limits = c(NA, (t_max/60)-1),
+        breaks = x_breaks/60,
+        labels = lab_fn(x_breaks),
+        guide = guide_axis(n.dodge = 2)
+      ) +
+      # bnssgtheme() +
+      theme_minimal() +
+      # coord_cartesian(ylim = c(0.75, 1.2), xlim = c(0, t_max/60)) +
+      labs(y = "Standardised output",
+           x = "Time Waiting for Admission"))
+  
+  
+  
+  (p_raw <- ggplot(plot_df, aes(x = mid/60, y = proportion)) +
+      geom_rect(shade_df, mapping = aes(x = NULL,
+                                        y = NULL,
+                                        xmin = V1/60,
+                                        xmax = V2/60,
+                                        ymin = -Inf,
+                                        ymax = Inf),
+                alpha = 0.15) + 
+      
+      geom_point() +
+      
+      # scale_x_continuous(breaks = x_breaks/60, labels = scales::number_format(accuracy = 0.1)) +
+      scale_x_continuous(#limits = c(NA, (t_max/60)-1),
+        breaks = x_breaks/60,
+        labels = lab_fn(x_breaks),
+        guide = guide_axis(n.dodge = 2)
+      ) +
+      # bnssgtheme() +
+      theme_minimal() +
+      # coord_cartesian(ylim = c(0.75, 1.2), xlim = c(0, t_max/60)) +
+      labs(y = "Output proportion",
+           x = "Time Waiting for Admission"))
+  
+  
+  list(auc = auc,
+       reg_tab = reg_tab,
+       p_standard = p_standard,
+       p_raw = p_raw)
+  
+}
+
+
+set.seed(123)
+
+split <- initial_split(mod_df, strata = mort_30) 
+glm_spec <- logistic_reg()
+
+rec <- recipe(mort_30 ~ ., data = training(split)) %>%
+  update_role(readm, reatt, new_role = "extra outcome") %>%
+  # update_role(ed_time, new_role = "not for prediction") %>%
+  update_role(dta_time, ed_time, new_role = "not for prediction") %>%
+  # step_other(all_nominal_predictors(), -dta_time, other = "other") %>%
+  # step_novel(all_nominal_predictors(), new_level = "novel") %>%
+  # step_dummy(all_nominal_predictors()) %>%
+  step_nzv()
+
+wf <- workflow() %>%
+  add_recipe(rec) %>%
+  add_model(glm_spec)
+
+
+mort_outputs <- downstream_outputs(mod_df, wf, mort_30)
+saveRDS(mort_outputs, "data/downstream_mort_outputs.RDS")
+ 
+# %>%
+ #  gt::gtsave("materials/mortality_tab_out.html")
+
+
+# # smr
+# 
+# saveRDS(mod_df, "data/mod_df_smr_figure_final.RDS")
+# # mod_df <- readRDS("data/mod_df_smr_figure_final.RDS")
+
+
+
+
 # reatt model
 set.seed(123)
 split <- initial_split(mod_df, strata = reatt) 
 glm_spec <- logistic_reg()
 
-# rec <- recipe(reatt ~ ., data = training(split)) %>%
-#   update_role(readm, new_role = "extra outcome") %>%
-#   update_role(ed_time, new_role = "not for prediction") %>%
-#   # update_role(dta_time, ed_time, new_role = "not for prediction") %>%
-#   # step_other(all_nominal_predictors(), -dta_time, other = "other") %>%
-#   # step_novel(all_nominal_predictors(), new_level = "novel") %>%
-#   # step_dummy(all_nominal_predictors()) %>%
-#   step_nzv()
-# 
-# wf <- workflow() %>%
-#   add_recipe(rec) %>%
-#   add_model(glm_spec)
-# 
-# fit <- last_fit(wf, split)
-# 
-# augment(fit) %>%
-#   roc_curve(reatt,
-#             .pred_yes,
-#             event_level = "second") %>%
-#   autoplot()
 
 # fit on all data
 
 rec <- recipe(reatt ~ ., data = mod_df) %>%
-  update_role(readm, new_role = "extra outcome") %>%
-  embed::step_lencode_glm(investigation, diagnoses, outcome = vars(reatt)) %>%
+  update_role(readm, mort_30, new_role = "extra outcome") %>%
+  # embed::step_lencode_glm(investigation, diagnoses, outcome = vars(reatt)) %>%
   update_role(dta_time, ed_time, new_role = "not for prediction") %>%
   # update_role(ed_time, new_role = "not for prediction") %>%
   # step_other(all_nominal_predictors(), -dta_time, other = "other") %>%
@@ -537,142 +746,18 @@ wf <- workflow() %>%
 
 
 
-full_fit <- fit(wf, mod_df)
-# predictions 
-full_pred <- predict(extract_fit_engine(full_fit), bake(prep(rec), new_data = mod_df), type = "response")
-yardstick::roc_auc_vec(mod_df$reatt, estimate = full_pred, event_level = "second")
-# 0.6514179
-full_fit %>%
-  extract_fit_engine() %>%
-  broom::tidy() %>%
-  filter(term == "dta_time")
-# # A tibble: 1 × 5
-# term       estimate std.error statistic p.value
-# <chr>         <dbl>     <dbl>     <dbl>   <dbl>
-#   1 dta_time -0.0000834 0.0000454     -1.84  0.0660
 
-# smr
+reatt_outputs <- downstream_outputs(mod_df, wf, reatt)
+saveRDS(reatt_outputs, "data/downstream_reatt_outputs.RDS")
 
-
-t_var_raw <- mod_df %>%
-  filter(dta_time <= t_max) %>%
-  pull(dta_time)
-
-full_pred <- mod_df %>%
-  filter(dta_time <= t_max) %>%
-  bake(prep(rec), new_data = .) %>%
-  predict(extract_fit_engine(full_fit),
-          newdata = .,
-          type = "response")
-
-plot_df <- 
-  mod_df %>%
-  filter(dta_time <= t_max) %>%
-  mutate(dta_time := cut(dta_time, breaks = unique(quantile(dta_time, p)), include.lowest = TRUE)) %>%
-  mutate(reatt = reatt == "yes") %>%
-  select(dta_time, reatt) %>%
-  mutate(pred = full_pred) %>%
-  group_by(dta_time) %>%
-  summarise(
-    n = n(),
-    expected = sum(pred),
-    actual = sum(reatt),
-    smr = actual / expected
-  ) %>%
-  mutate(
-    left = head(unique(quantile(t_var_raw, p)), -1),
-    right = tail(unique(quantile(t_var_raw, p)), -1),
-    mid = (left + right) / 2,
-    width = right - left,
-    weight = 1/width
-  ) %>%
-  mutate(
-    z = qnorm(0.95 + (1 - 0.95) / 2),
-    u_ci = smr + z*sqrt(smr/n),
-    l_ci = smr - z*sqrt(smr/n)
-  )
-
-plot_df <- bind_rows(plot_df, 
-                     {tail(plot_df, 1) %>% mutate(left = right)})
-
-
-
-pred_df <- lm(smr ~ mid, weights = weight, data = plot_df) %>%
-  predict(newdata = plot_df, se.fit = TRUE) %>%
-  as_tibble() %>%
-  transmute(pred = fit,
-            u_se = fit + se.fit,
-            l_se = fit - se.fit) %>%
-  bind_cols(select(plot_df, mid)) 
-
-
-pred_df <- bind_rows(pred_df, {
-  #predict at limits
-  lm(smr ~ mid, weights = weight, data = plot_df) %>%
-    predict(newdata = data.frame(mid = range(plot_df$left, plot_df$right)), se.fit = TRUE) %>%
-    as_tibble() %>%
-    transmute(pred = fit,
-              u_se = fit + se.fit,
-              l_se = fit - se.fit) %>%
-    mutate(mid = range(plot_df$left, plot_df$right))
-})
-
-
-shade_df <- unique(plot_df$left) %>%
-  sort() %>%
-  head(n = 2*length(.) %/% 2) %>% # slice the nearest multiple of 2 values 
-  matrix(ncol = 2, byrow = TRUE) %>%
-  as_tibble() %>%
-  mutate(min = min(pred_df$l_se, plot_df$smr, plot_df$l_ci))
-
-x_breaks <- unique(plot_df$left, plot_df$right) %>%
-  tail(-1) %>%
-  head(-1) %>%
-  c(0, t_max) %>%
-  sort()
-
-lab_fn <- function(x) {
-  
-  x <- round(x)
-  glue::glue("{x%/%60}h {x - (60*x%/%60)}m") |>
-    str_replace_all(" 0m", "") |>
-    str_replace_all("^0h ", "")
-}
-
-
-(smr_reatt <- ggplot(plot_df, aes(x = mid/60, y = smr)) +
-  # geom_step(aes(x = left/60)) +
-  geom_rect(shade_df, mapping = aes(x = NULL, y = NULL, xmin = V1/60, xmax = V2/60, ymin = -Inf, ymax = Inf), alpha = 0.15) + 
-  # geom_ribbon(data = pred_df, aes(x = mid/60, y = pred, ymin = l_se, ymax = u_se), alpha = 0.25) +
-  # geom_line(data = pred_df, aes(x = mid/60, y = pred), col = bnssgcols[4]) +
-  # geom_linerange(aes(xmin = left/60, xmax = right/60), linetype = 2) +
-  geom_errorbar(aes(ymin = l_ci, ymax = u_ci, width = width/(2*60))) +
-  # geom_vline(aes(xintercept = right/60), linetype = 2) +
-  # geom_vline(aes(xintercept = left/60), linetype = 2) +
-  # geom_col(aes(width = (right-left)/60),col = bnssgcols[4]) +
-  # geom_line(linetype = 2) +
-  geom_point() +
-  
-  # scale_x_continuous(breaks = x_breaks/60, labels = scales::number_format(accuracy = 0.1)) +
-  scale_x_continuous(#limits = c(NA, (t_max/60)-1),
-    breaks = x_breaks/60,
-    labels = lab_fn(x_breaks),
-    guide = guide_axis(n.dodge = 2)
-  ) +
-  # bnssgtheme() +
-  theme_minimal() +
-  # coord_cartesian(ylim = c(0.75, 1.2), xlim = c(0, t_max/60)) +
-  labs(y = "Standardised Re-Attendance\nRatio",
-       x = "Time Waiting for Admission"))
-
-saveRDS(smr_reatt, "data/smr_reatt.RDS")
+# saveRDS(smr_reatt, "data/smr_reatt.RDS")
 
 
 # readm model
 
 rec <- recipe(readm ~ ., data = mod_df) %>%
-  update_role(reatt, new_role = "extra outcome") %>%
-  embed::step_lencode_glm(investigation, diagnoses, outcome = vars(readm)) %>%
+  update_role(reatt, mort_30, new_role = "extra outcome") %>%
+  # embed::step_lencode_glm(investigation, diagnoses, outcome = vars(readm)) %>%
   # update_role(ed_time, new_role = "not for prediction") %>%
   update_role(dta_time, ed_time, new_role = "not for prediction") %>%
   # step_other(all_nominal_predictors(), -dta_time, other = "other") %>%
@@ -684,131 +769,7 @@ wf <- workflow() %>%
   add_recipe(rec) %>%
   add_model(glm_spec)
 
-
-
-full_fit <- fit(wf, mod_df)
-full_pred <- predict(extract_fit_engine(full_fit), bake(prep(rec), new_data = mod_df), type = "response")
-yardstick::roc_auc_vec(mod_df$readm, estimate = full_pred, event_level = "second")
-# 0.663465
-full_fit %>%
-  extract_fit_engine() %>%
-  broom::tidy() %>%
-  filter(term == "dta_time")
-# A tibble: 1 × 5
-# term      estimate std.error statistic p.value
-# <chr>        <dbl>     <dbl>     <dbl>   <dbl>
-#   1 dta_time -0.000135 0.0000503     -2.68 0.00728
-
-
-# predictions 
-
-t_var_raw <- mod_df %>%
-  filter(dta_time <= t_max) %>%
-  pull(dta_time)
-
-full_pred <- mod_df %>%
-  filter(dta_time <= t_max) %>%
-  bake(prep(rec), new_data = .) %>%
-  predict(extract_fit_engine(full_fit),
-          newdata = .,
-          type = "response")
-
-plot_df <- 
-  mod_df %>%
-  filter(dta_time <= t_max) %>%
-  mutate(dta_time := cut(dta_time, breaks = unique(quantile(dta_time, p)), include.lowest = TRUE)) %>%
-  mutate(readm = readm == "yes") %>%
-  select(dta_time, readm) %>%
-  mutate(pred = full_pred) %>%
-  group_by(dta_time) %>%
-  summarise(
-    n = n(),
-    expected = sum(pred),
-    actual = sum(readm),
-    smr = actual / expected
-  ) %>%
-  mutate(
-    left = head(unique(quantile(t_var_raw, p)), -1),
-    right = tail(unique(quantile(t_var_raw, p)), -1),
-    mid = (left + right) / 2,
-    width = right - left,
-    weight = 1/width
-  ) %>%
-  mutate(
-    z = qnorm(0.95 + (1 - 0.95) / 2),
-    u_ci = smr + z*sqrt(smr/n),
-    l_ci = smr - z*sqrt(smr/n)
-  )
-
-plot_df <- bind_rows(plot_df, 
-                     {tail(plot_df, 1) %>% mutate(left = right)})
-
-pred_df <- lm(smr ~ mid, weights = weight, data = plot_df) %>%
-  predict(newdata = plot_df, se.fit = TRUE) %>%
-  as_tibble() %>%
-  transmute(pred = fit,
-            u_se = fit + se.fit,
-            l_se = fit - se.fit) %>%
-  bind_cols(select(plot_df, mid)) 
-
-pred_df <- bind_rows(pred_df, {
-  #predict at limits
-  lm(smr ~ mid, weights = weight, data = plot_df) %>%
-    predict(newdata = data.frame(mid = range(plot_df$left, plot_df$right)), se.fit = TRUE) %>%
-    as_tibble() %>%
-    transmute(pred = fit,
-              u_se = fit + se.fit,
-              l_se = fit - se.fit) %>%
-    mutate(mid = range(plot_df$left, plot_df$right))
-})
-
-
-shade_df <- unique(plot_df$left) %>%
-  sort() %>%
-  head(n = 2*length(.) %/% 2) %>% # slice the nearest multiple of 2 values 
-  matrix(ncol = 2, byrow = TRUE) %>%
-  as_tibble() %>%
-  mutate(min = min(pred_df$l_se, plot_df$smr, plot_df$l_ci))
-
-x_breaks <- unique(plot_df$left, plot_df$right) %>%
-  tail(-1) %>%
-  head(-1) %>%
-  c(0, t_max) %>%
-  sort()
-
-lab_fn <- function(x) {
-  
-  x <- round(x)
-  glue::glue("{x%/%60}h {x - (60*x%/%60)}m") |>
-    str_replace_all(" 0m", "") |>
-    str_replace_all("^0h ", "")
-}
-
-
-
-(smr_readm <- ggplot(plot_df, aes(x = mid/60, y = smr)) +
-  # geom_step(aes(x = left/60)) +
-  geom_rect(shade_df, mapping = aes(x = NULL, y = NULL, xmin = V1/60, xmax = V2/60, ymin = -Inf, ymax = Inf), alpha = 0.15) + 
-  # geom_ribbon(data = pred_df, aes(x = mid/60, y = pred, ymin = l_se, ymax = u_se), alpha = 0.25) +
-  # geom_line(data = pred_df, aes(x = mid/60, y = pred), col = bnssgcols[4]) +
-  # geom_linerange(aes(xmin = left/60, xmax = right/60), linetype = 2) +
-  geom_errorbar(aes(ymin = l_ci, ymax = u_ci, width = width/(2*60))) +
-  # geom_vline(aes(xintercept = right/60), linetype = 2) +
-  # geom_vline(aes(xintercept = left/60), linetype = 2) +
-  # geom_col(aes(width = (right-left)/60),col = bnssgcols[4]) +
-  # geom_line(linetype = 2) +
-  geom_point() +
-  
-  # scale_x_continuous(breaks = x_breaks/60, labels = scales::number_format(accuracy = 0.1)) +
-  scale_x_continuous(#limits = c(NA, (t_max/60)-1),
-    breaks = x_breaks/60,
-    labels = lab_fn(x_breaks),
-    guide = guide_axis(n.dodge = 2)
-  ) +
-  # bnssgtheme() +
-  theme_minimal() +
-  # coord_cartesian(ylim = c(0.75, 1.2), xlim = c(0, t_max/60)) +
-  labs(y = "Standardised Re-Admission\nRatio",
-       x = "Time Waiting for Admission"))
+readm_outputs <- downstream_outputs(mod_df, wf, readm)
+saveRDS(readm_outputs, "data/downstream_readm_outputs.RDS")
 
 saveRDS(smr_readm, "data/smr_readm.RDS")

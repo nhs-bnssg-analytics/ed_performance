@@ -17,6 +17,7 @@ con<-odbcDriverConnect(con_string)
 report_start <- '2022-06-01'
 report_end <- '2024-06-01'
 pre_window_days <- 60
+days_outcome_window <- 30
 
 
 string_ecds<-glue::glue("select 
@@ -41,6 +42,7 @@ string_ecds<-glue::glue("select
                         Arrival_Mode_Desc,
                         Arrival_Category_Desc,
                         Attendance_Source_Desc,
+                        destination_desc,
                         Chief_Complaint_Desc,
                         Acuity_Desc,
                         Diagnoses_Code_1_Desc,
@@ -48,6 +50,10 @@ string_ecds<-glue::glue("select
       FROM Analyst_SQL_Area.dbo.tbl_BNSSG_ECDS
       where Site_Name in ('BRISTOL ROYAL INFIRMARY', 'SOUTHMEAD HOSPITAL', 'WESTON GENERAL HOSPITAL')
       and Arrival_Date >= '{ymd(report_start) - ddays(pre_window_days)}'
+      and destination_desc not in ('Emergency department discharge to emergency department short stay ward',
+      'Emergency department discharge to same day emergency care service',
+      'Emergency department discharge to ambulatory emergency care service',
+      'Admission to the mortuary')
       ")
 
 dat_ecds_raw<-sqlQuery(con,string_ecds)
@@ -267,7 +273,8 @@ dat_scores <- arrivals %>%
     by = join_by(nhs_number == AIMTC_Pseudo_NHS)) %>% 
   mutate(diff = abs(interval(departure_dt, StartDate_HospitalProviderSpell)/ddays(1))) %>%
   group_by(arr_id) %>%
-  filter(diff == min(diff), diff <= 1)  %>%
+  filter(between(diff, 0, 2)) %>%
+  # filter(diff == min(diff), diff <= 1)  %>%
   select(-DiagnosisSchemeInUse_ICD) %>%
   select(nhs_number, arr_id, matches("ICD")) %>%
   pivot_longer(-c(nhs_number, arr_id)) %>%
@@ -291,7 +298,8 @@ dat_spec <- arrivals %>%
     by = join_by(nhs_number == AIMTC_Pseudo_NHS)) %>% 
   mutate(diff = abs(interval(departure_dt, StartDate_HospitalProviderSpell)/ddays(1))) %>%
   group_by(arr_id) %>%
-  filter(diff == min(diff), diff <= 1) %>%
+  filter(between(diff, 0, 2)) %>%
+  # filter(diff == min(diff), diff <= 1) %>%
   select(nhs_number, arr_id, MainSpecialtyCode)
 
 # d2a pathway
@@ -378,58 +386,59 @@ pathway_df <- local({
 pathway_arr <- arrivals %>%
   left_join(pathway_df) %>%
   mutate(diff = interval(departure_dt, as.Date(adm_date))/ddays(1)) %>%
-  filter(between(diff, 0, 1)) %>%
+  filter(between(diff, 0, 2)) %>%
   select(nhs_number, arr_id, pathway)
 
-# social care:
-
-# social care data (this outcome has to be joined earlier as it related to
-# arr_id
-
-dat_socare <- local({
-  string_sc <- glue::glue("
-                              select * 
-                              FROM [Analyst_SQL_Area].[dbo].[tbl_Adult_Social_Care_CLD]
-                              where Event_Start_Date between '{report_start}' and '{report_end}'
-                              ")
-  
-  dat_sc <- sqlQuery(con, string_sc) %>%
-    filter(Event_Start_Date > ymd("2023-06-01")) %>%
-    select(nhs_number = NHS_Number,
-           event_start = Event_Start_Date,
-           event_end = Event_End_Date) %>%
-    filter(!is.na(nhs_number)) %>%
-    group_by(nhs_number) %>%
-    mutate(nhs_number = as.character(nhs_number),
-           pre_event_end = if_else(is.na(event_end), lag(event_end), event_end)) %>%
-    ungroup() %>%
-    distinct()
-  dat_sc
-})
-
-
-
-dat_sc_outcome <- arrivals %>%
-  select(nhs_number,
-         arr_id,
-         departure_dt) %>%
-  inner_join(dat_socare) %>%
-  group_by(nhs_number, arr_id) %>%
-  # course filter any patients who have had SC before
-  filter(all(event_start > departure_dt), all(event_end > departure_dt)) %>%
-  mutate(sc = interval(departure_dt, event_start)/ddays(1) < 60) %>%
-  select(nhs_number, arr_id, sc) %>%
-  distinct() %>%
-  mutate(sc = ifelse(sc, yes = "yes", no = "no"))
-
-dat_sc_outcome <- arrivals %>%
-  left_join(dat_sc_outcome) %>%
-  mutate(sc = coalesce(sc, "missing")) %>%
-  select(-departure_dt) %>% 
-  distinct()
+# # social care:
+# 
+# # social care data (this outcome has to be joined earlier as it related to
+# # arr_id
+# 
+# dat_socare <- local({
+#   string_sc <- glue::glue("
+#                               select * 
+#                               FROM [Analyst_SQL_Area].[dbo].[tbl_Adult_Social_Care_CLD]
+#                               where Event_Start_Date between '{report_start}' and '{report_end}'
+#                               ")
+#   
+#   dat_sc <- sqlQuery(con, string_sc) %>%
+#     filter(Event_Start_Date > ymd("2023-06-01")) %>%
+#     select(nhs_number = NHS_Number,
+#            event_start = Event_Start_Date,
+#            event_end = Event_End_Date) %>%
+#     filter(!is.na(nhs_number)) %>%
+#     group_by(nhs_number) %>%
+#     mutate(nhs_number = as.character(nhs_number),
+#            pre_event_end = if_else(is.na(event_end), lag(event_end), event_end)) %>%
+#     ungroup() %>%
+#     distinct()
+#   dat_sc
+# })
+# 
+# 
+# 
+# dat_sc_outcome <- arrivals %>%
+#   select(nhs_number,
+#          arr_id,
+#          departure_dt) %>%
+#   inner_join(dat_socare) %>%
+#   group_by(nhs_number, arr_id) %>%
+#   # course filter any patients who have had SC before
+#   filter(all(event_start > departure_dt), all(event_end > departure_dt)) %>%
+#   mutate(sc = interval(departure_dt, event_start)/ddays(1) < 60) %>%
+#   select(nhs_number, arr_id, sc) %>%
+#   distinct() %>%
+#   mutate(sc = ifelse(sc, yes = "yes", no = "no"))
+# 
+# dat_sc_outcome <- arrivals %>%
+#   left_join(dat_sc_outcome) %>%
+#   mutate(sc = coalesce(sc, "missing")) %>%
+#   select(-departure_dt) %>% 
+#   distinct()
 
 
 dat_adm <- dat_ecds %>%
+  filter(arrival_dt < ymd(report_end) - ddays(days_outcome_window)) %>%
   mutate(nhs_number = as.character(nhs_number)) %>%
   group_by(nhs_number) %>%
   slice_min(dta_dt, na_rm = TRUE) %>%
@@ -452,9 +461,9 @@ dat_adm <- dat_ecds %>%
     ed_time,
     Acuity_Desc,
     arrival_mode,
-    arrival_cat,
-    diagnoses,
-    investigation
+    arrival_cat#,
+    # diagnoses,
+    # investigation
   ) %>%
   mutate(arrival_hour = floor_date(arrival_dt, "hour")) %>%
   left_join(dat_ecds_perf) %>%
@@ -463,13 +472,13 @@ dat_adm <- dat_ecds %>%
   left_join(dat_spec) %>%
   left_join(pathway_arr) %>%
   mutate(pathway = coalesce(pathway, "missing")) %>%
-  left_join(dat_sc_outcome) %>%
+  # left_join(dat_sc_outcome) %>%
   select(-arr_id) %>%
   filter(MainSpecialtyCode %in% c(300, 326, 430)) %>% # filter General Internal Medicine
   select(-MainSpecialtyCode) %>%
   na.omit()
 
-# saveRDS(dat_adm, "data/dat_adm_d2a_sc_new.RDS")
+saveRDS(dat_adm, "data/dat_adm_d2a_sc_new.RDS")
 
 
 mortality_df <- local({
@@ -572,9 +581,9 @@ mod_df <- dat_adm %>%
     age_sq,
     n_ed,
     n_ed_sq,
-    # Acuity_Desc,
-    # arrival_mode,
-    # arrival_cat,
+    Acuity_Desc,
+    arrival_mode,
+    arrival_cat,
     # diagnoses,
     # investigation,
     # n_adm,    # bring these back in when they aren't all
@@ -586,8 +595,12 @@ mod_df <- dat_adm %>%
     mort_30,
     pathway,
     sc,
-    dta_time
+    dta_time,
+    ed_time,
   )
+
+saveRDS(mod_df, "data/mod_df_d2a.RDS")
+
 
 # mort outcome
 
@@ -633,7 +646,8 @@ glm_spec <- logistic_reg()
 
 rec_pathway <- recipe(pathway ~ ., data = training(split_pathway)) %>%
   update_role(mort_30, sc, new_role = "outcomes") %>%
-  update_role(dta_time, new_role = "not for prediction") %>%
+  # update_role(ed_time, new_role = "not for prediction") %>%
+  update_role(dta_time, ed_time, new_role = "not for prediction") %>%
   # step_other(all_nominal_predictors(), -dta_time, other = "other") %>%
   # step_novel(all_nominal_predictors(), new_level = "novel") %>%
   # step_dummy(all_nominal_predictors()) %>%
@@ -654,17 +668,14 @@ wf_pathway <- workflow() %>%
 # fit on all data
 
 full_fit_pathway <- fit(wf_pathway, mod_df_pathway)
-# full_fit_pathway %>%
-#   extract_fit_engine() %>%
-#   broom::tidy() %>%
-#   filter(term == "dta_time")
+full_fit_pathway %>%
+  extract_fit_engine() %>%
+  broom::tidy() %>%
+  filter(term == "dta_time")
 # A tibble: 1 × 5
 # term     estimate std.error statistic p.value
 # <chr>       <dbl>     <dbl>     <dbl>   <dbl>
 #   1 dta_time 0.000135 0.0000854      1.58   0.115
-
-
-
 
 full_pred_pathway <- mod_df_pathway %>%
   filter(dta_time <= t_max) %>%
@@ -672,6 +683,7 @@ full_pred_pathway <- mod_df_pathway %>%
   predict(extract_fit_engine(full_fit_pathway),
           newdata = .,
           type = "response")
+
 
 yardstick::roc_auc_vec(mod_df_pathway$pathway, estimate = full_pred_pathway, event_level = "second")
 # 0.7575942
@@ -800,7 +812,8 @@ glm_spec <- logistic_reg()
 
 rec_sc <- recipe(sc ~ ., data = training(split_sc)) %>%
   update_role(mort_30, pathway, new_role = "outcomes") %>%
-  update_role(dta_time, new_role = "not for prediction") %>%
+  update_role(dta_time, ed_time, new_role = "not for prediction") %>%
+  # update_role(ed_time, new_role = "not for prediction") %>%
   # step_other(all_nominal_predictors(), -dta_time, other = "other") %>%
   # step_novel(all_nominal_predictors(), new_level = "novel") %>%
   # step_dummy(all_nominal_predictors()) %>%
@@ -875,7 +888,6 @@ p = seq(0, 1, length = bin + 1)
 t_var_raw_sc <- mod_df_sc %>%
   filter(dta_time <= t_max) %>%
   pull(dta_time)
-
 
 
 plot_df <- 

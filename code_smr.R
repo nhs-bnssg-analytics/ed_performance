@@ -41,6 +41,7 @@ string_ecds<-glue::glue("select
                         Arrival_Mode_Desc,
                         Arrival_Category_Desc,
                         Attendance_Source_Desc,
+                        destination_desc,
                         Chief_Complaint_Desc,
                         Acuity_Desc,
                         Diagnoses_Code_1_Desc,
@@ -48,6 +49,10 @@ string_ecds<-glue::glue("select
       FROM Analyst_SQL_Area.dbo.tbl_BNSSG_ECDS
       where Site_Name in ('BRISTOL ROYAL INFIRMARY', 'SOUTHMEAD HOSPITAL', 'WESTON GENERAL HOSPITAL')
       and Arrival_Date >= '{ymd(report_start) - ddays(pre_window_days)}'
+      and destination_desc not in ('Emergency department discharge to emergency department short stay ward',
+      'Emergency department discharge to same day emergency care service',
+      'Emergency department discharge to ambulatory emergency care service',
+      'Admission to the mortuary')
       ")
 
 dat_ecds_raw<-sqlQuery(con,string_ecds)
@@ -458,30 +463,7 @@ split <- initial_split(mod_df, strata = mort_30)
 glm_spec <- logistic_reg()
 
 rec <- recipe(mort_30 ~ ., data = training(split)) %>%
-  # update_role(dta_time, ed_time, new_role = "not for prediction") %>%
-  update_role(ed_time, new_role = "not for prediction") %>%
-  # step_other(all_nominal_predictors(), -dta_time, other = "other") %>%
-  # step_novel(all_nominal_predictors(), new_level = "novel") %>%
-  # step_dummy(all_nominal_predictors()) %>%
-  step_nzv()
-
-wf <- workflow() %>%
-  add_recipe(rec) %>%
-  add_model(glm_spec)
-
-fit <- last_fit(wf, split)
-
-augment(fit) %>%
-  roc_curve(mort_30,
-            .pred_yes,
-            event_level = "second") %>%
-  autoplot()
-
-# fit on all data
-
-rec <- recipe(mort_30 ~ ., data = mod_df) %>%
   # update_role(ed_time, new_role = "not for prediction") %>%
-  embed::step_lencode_glm(investigation, diagnoses, outcome = vars(mort_30)) %>%
   update_role(dta_time, ed_time, new_role = "not for prediction") %>%
   # step_other(all_nominal_predictors(), -dta_time, other = "other") %>%
   # step_novel(all_nominal_predictors(), new_level = "novel") %>%
@@ -496,6 +478,8 @@ wf <- workflow() %>%
 full_fit <- fit(wf, mod_df)
 full_pred <- predict(extract_fit_engine(full_fit), bake(prep(rec), new_data = mod_df), type = "response")
 yardstick::roc_auc_vec(mod_df$mort_30, estimate = full_pred, event_level = "second")
+# 0.8274193
+
 
 full_fit %>%
   extract_fit_engine() %>%
@@ -528,7 +512,7 @@ full_fit %>%
   gtsummary::as_gt() %>%
   gt::tab_header(
     title = gt::md("**30-day Mortality**"),
-    subtitle = "ROC curve statistic = 0.8327"
+    subtitle = "ROC curve statistic = 0.8274"
   ) %>%
   gt::gtsave("materials/mortality_tab_out.html")
 
@@ -538,100 +522,10 @@ days_mort  <- 30
 bin <- 7
 time_max <- 24*60
 
-# mod_df <- dat_adm %>%
-#   # filter(site == "SOUTHMEAD HOSPITAL") %>%
-#   filter(!between(dta_dt, ymd("2022-04-01"), ymd("2022-07-10"))) %>% # filter bad DQ period for NBT
-#   filter(dta_time <= t_max) %>%
-#   filter(dta_time > 0) %>%
-#   filter(sex %in% 1:2) %>%
-#   left_join(mortality_df) %>%
-#   # mutate(age = cut(age, breaks = seq(0, 120, 10), include.lowest = TRUE)) %>%
-#   # mutate(dta_time = dta_time > 4*60) %>%
-#   # mutate(dta_time = cut(dta_time, breaks = 60*seq(0, 24, 4), include.lowest = TRUE)) %>%
-#   mutate(sex = factor(sex, labels = c("Male", "Female"))) %>%
-#   # mutate(sex = ifelse(sex == 1, "Male", "Female")) %>%
-#   mutate(age_sq = age^2) %>%
-#   mutate(perf_sq = perf^2) %>%
-#   mutate(n_ed_sq = n_ed^2) %>%
-#   mutate(n_adm_sq = n_adm^2) %>%
-#   mutate(vw_score_sq = vw_score^2) %>%
-#   mutate(imd = factor(imd)) %>%
-#   mutate(imd = fct_recode(imd, "1 (least deprived)" = "1", "10 (most deprived)" = "10")) %>%
-#   mutate(mort_30 = ifelse((interval(arrival_dt, date_death)/ddays(1)) < days_mort, TRUE, FALSE)) %>%
-#   mutate(mort_30 = coalesce(mort_30, FALSE)) %>%
-#   mutate(mort_30 = factor(ifelse(mort_30, "yes", "no"), levels = c("no", "yes"))) %>%
-#   mutate(arrival_time = factor(hms::as_hms(floor_date(arrival_dt, "6 hour")))) %>%
-#   mutate(arrival_time = fct_recode(arrival_time,
-#                                    "00:00-06:00" = "00:00:00",
-#                                    "06:00-12:00" = "06:00:00",
-#                                    "12:00-18:00" = "12:00:00",
-#                                    "18:00-24:00" = "18:00:00")) %>%
-#   mutate(arrival_month = factor(month(arrival_dt), labels = month.name)) %>%
-#   mutate(arrival_year = factor(year(arrival_dt))) %>%
-#   select(
-#     arrival_time,
-#     arrival_month,
-#     arrival_year,
-#     perf,
-#     perf_sq,
-#     age,
-#     age_sq,
-#     n_ed,
-#     n_ed_sq,
-#     # Acuity_Desc,
-#     # arrival_mode,
-#     # arrival_cat,
-#     # diagnoses,
-#     # investigation,
-#     # n_adm,    # bring these back in when they aren't all
-#     # n_adm_sq,
-#     sex,
-#     imd,
-#     vw_score,
-#     vw_score_sq,
-#     mort_30,
-#     dta_time,
-#     ed_time
-#   )
-
 
 saveRDS(mod_df, "data/mod_df_smr_figure_final.RDS")
 # mod_df <- readRDS("data/mod_df_smr_figure_final.RDS")
 
-
-# split <- initial_split(mod_df, strata = mort_30)
-# glm_spec <- logistic_reg()
-# # 
-# rec <- recipe(mort_30 ~ ., data = training(split)) %>%
-#   update_role(dta_time, ed_time, new_role = "not for prediction") %>%
-#   # # step_other(all_nominal_predictors(), -dta_time, other = "other") %>%
-#   # step_novel(all_nominal_predictors(), new_level = "novel") %>%
-#   # step_dummy(all_nominal_predictors()) %>%
-#   step_nzv()
-# 
-# wf <- workflow() %>%
-#   add_recipe(rec) %>%
-#   add_model(glm_spec)
-# # 
-# # fit <- last_fit(wf, split)
-# 
-# 
-# # fit on all data
-# rec <- recipe(mort_30 ~ ., data = mod_df) %>%
-#   update_role(dta_time, ed_time, new_role = "not for prediction") %>%
-#   # step_other(all_nominal_predictors(), -dta_time, other = "other") %>%
-#   # step_novel(all_nominal_predictors(), new_level = "novel") %>%
-#   # step_dummy(all_nominal_predictors()) %>%
-#   step_nzv()
-# 
-# wf <- workflow() %>%
-#   add_recipe(rec) %>%
-#   add_model(glm_spec)
-# full_fit <- fit(wf, mod_df)
-
-full_pred <- predict(extract_fit_engine(full_fit), bake(prep(rec), new_data = mod_df), type = "response")
-yardstick::roc_auc_vec(mod_df$mort_30, estimate = full_pred, event_level = "second")
-# 0.8326642
 # smr
 
 p = seq(0, 1, length = bin + 1)
@@ -654,6 +548,7 @@ plot_df <-
   mutate(mort_30 = mort_30 == "yes") %>%
   select(dta_time, mort_30) %>%
   mutate(pred_mort = full_pred) %>%
+  na.omit() %>%
   group_by(dta_time) %>%
   summarise(
     n = n(),
@@ -679,25 +574,25 @@ plot_df <- bind_rows(plot_df,
 
 
 
-pred_df <- lm(smr ~ mid, weights = weight, data = plot_df) %>%
-  predict(newdata = plot_df, se.fit = TRUE) %>%
-  as_tibble() %>%
-  transmute(pred = fit,
-            u_se = fit + se.fit,
-            l_se = fit - se.fit) %>%
-  bind_cols(select(plot_df, mid)) 
-
-
-pred_df <- bind_rows(pred_df, {
-  #predict at limits
-  lm(smr ~ mid, weights = weight, data = plot_df) %>%
-    predict(newdata = data.frame(mid = range(plot_df$left, plot_df$right)), se.fit = TRUE) %>%
-    as_tibble() %>%
-    transmute(pred = fit,
-              u_se = fit + se.fit,
-              l_se = fit - se.fit) %>%
-    mutate(mid = range(plot_df$left, plot_df$right))
-})
+# pred_df <- lm(smr ~ mid, weights = weight, data = plot_df) %>%
+#   predict(newdata = plot_df, se.fit = TRUE) %>%
+#   as_tibble() %>%
+#   transmute(pred = fit,
+#             u_se = fit + se.fit,
+#             l_se = fit - se.fit) %>%
+#   bind_cols(select(plot_df, mid)) 
+# 
+# 
+# pred_df <- bind_rows(pred_df, {
+#   #predict at limits
+#   lm(smr ~ mid, weights = weight, data = plot_df) %>%
+#     predict(newdata = data.frame(mid = range(plot_df$left, plot_df$right)), se.fit = TRUE) %>%
+#     as_tibble() %>%
+#     transmute(pred = fit,
+#               u_se = fit + se.fit,
+#               l_se = fit - se.fit) %>%
+#     mutate(mid = range(plot_df$left, plot_df$right))
+# })
 
 
 shade_df <- unique(plot_df$left) %>%
@@ -705,7 +600,7 @@ shade_df <- unique(plot_df$left) %>%
   head(n = 2*length(.) %/% 2) %>% # slice the nearest multiple of 2 values 
   matrix(ncol = 2, byrow = TRUE) %>%
   as_tibble() %>%
-  mutate(min = min(pred_df$l_se, plot_df$smr, plot_df$l_ci))
+  mutate(min = min(plot_df$smr, plot_df$l_ci))
 
 x_breaks <- unique(plot_df$left, plot_df$right) %>%
   tail(-1) %>%
@@ -748,7 +643,7 @@ lab_fn <- function(x) {
        x = "Time waiting for admission"))
 
 
-saveRDS(p_smr, "data/p_smr.RDS")      
+saveRDS(p_smr, "data/smr_mort.RDS")      
 
 
 p1 <- p_smr
