@@ -187,6 +187,7 @@ downstream_outputs <- function(dat, workflow, outcome_var) {
 # pathway outcome
 
 mod_df_pathway_1 <- mod_df %>%
+  filter(pathway != "missing") %>%
   mutate(pathway = factor(ifelse(pathway == "P1", "yes", "no")))
 
 saveRDS(mod_df_pathway_1, "data/mod_df_pathway_1.RDS")
@@ -211,6 +212,7 @@ wf_pathway_1 <- workflow() %>%
 p1_outputs <- downstream_outputs(mod_df_pathway_1, wf_pathway_1, pathway)
 
 mod_df_pathway_2 <- mod_df %>%
+  filter(pathway != "missing") %>%
   mutate(pathway = factor(ifelse(pathway %in% c("P2", "P3"), "yes", "no")))
 
 saveRDS(mod_df_pathway_2, "data/mod_df_pathway_2.RDS")
