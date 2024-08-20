@@ -459,7 +459,7 @@ CCG = '15C' AND
                                   "Category 3"= "cat3",
                                   "Category 2"= "cat2",
                                   "Category 1"= "cat1")) %>%
-    select(dt, outcome = Outcome, call_category, response) 
+    select(dt, age = Age_Bracket, outcome = Outcome, call_category, response) 
   
   response_time
 })
@@ -593,8 +593,7 @@ site_resus_maj <- tibble(site = c("BRI", "WESTON", "SOUTHMEAD HOSPITAL"), maj = 
   mutate(total = maj + resus)
 
 
-
-handover_boxplot <- ({
+handover_outputs <- ({
   
   x_lab <- "DTA Queue as a Percentage of Majors & Resus Cubicles"
   y_lab <- "Ambulance Handover Time\n(min)"
@@ -606,7 +605,7 @@ handover_boxplot <- ({
     # filter(site == "SOUTHMEAD HOSPITAL") %>%
     filter(!between(dt, ymd("2022-04-01"), ymd("2022-07-10"))) %>%
     na.omit() %>%
-    filter(n_dta < 35) %>%
+    filter(n_dta <= 35) %>%
     mutate(n_dta_norm = n_dta/total,
            standard = 30) %>%
     distinct() %>%
@@ -631,17 +630,15 @@ handover_boxplot <- ({
     scale_shape_manual(values = c(19, 17),
                        guide = guide_legend(override.aes = list(size = 3,
                                                                 alpha = 1))) +
-    # scale_colour_manual(values = c(viridis::viridis(n = 2, end = 0.6, begin = 0.2, direction = -1), "black"),
-    #                     guide = guide_legend(override.aes = list(size = 3,
-    #                                                              alpha = 1))) +
-    labs(title = "Raw data",
+    labs(title = "Raw outcome, normalised dependant",
          y = y_lab,
          x = x_lab,
          shape = "",
          col = "") +
     theme(legend.position = "bottom",
           legend.justification = "center",
-          legend.title = element_text())
+          legend.title = element_blank(),
+          legend.spacing.x = unit(0, "cm"))
   
 
   
@@ -693,14 +690,42 @@ mod_dat <- dta_df %>%
 handover_mod <- lm(handover_time ~ . -n_dta -n_dta_norm, data = mod_dat)
 handover_pred <- predict(handover_mod, mod_dat)
 
+
+
+std_mod_tab <- gtsummary::tbl_regression(
+  lm(handover_time/60 ~ . -n_dta -n_dta_norm, data = mod_dat),
+  label = list(
+    age = "Age",
+    wkend = "Weekend",
+    hour = "Time of day"
+  )
+) %>%
+  gtsummary::add_glance_table(include = c(nobs, r.squared)) |>
+  gtsummary::as_gt() %>%
+  gt::tab_header(title = gt::md(glue::glue('**Ambulance Handover Time (min)**')))#,
+
+
+full_mod_tab <- lm(handover_time/60 ~ . -n_dta, data = mod_dat) %>%
+  gtsummary::tbl_regression(
+    label = list(
+      n_dta_norm = x_lab,
+      age = "Age",
+      wkend = "Weekend",
+      hour = "Time of day"
+    )
+  ) %>%
+  gtsummary::add_glance_table(include = c(nobs, r.squared)) |>
+  gtsummary::as_gt() %>%
+  gt::tab_header(title = gt::md(glue::glue('**Ambulance Handover Time (min)**')))
+
+
+
 mod_dat <- mod_dat %>%
   mutate(handover_standard = handover_pred,
          handover_adj = handover_time - handover_standard) 
 
-
-
 plot_df <- mod_dat %>%
-  filter(n_dta < 35) 
+  filter(n_dta <= 35) 
 
 
 p_std <- plot_df %>%
@@ -722,7 +747,7 @@ p_std <- plot_df %>%
   # scale_colour_manual(values = c(viridis::viridis(n = 2, end = 0.6, begin = 0.2, direction = -1), "black"),
   #                     guide = guide_legend(override.aes = list(size = 3,
   #                                                              alpha = 1))) +
-  labs(title = "Model Standardised",
+  labs(title = "Standardised outcome, normalised dependant",
        y = y_lab,
        x = x_lab,
        shape = "") +
@@ -730,9 +755,17 @@ p_std <- plot_df %>%
         legend.justification = "center",
         legend.title = element_text())
 
-list(p_raw = p_raw, p_std = p_std)
+
+list(
+  p_raw = p_raw,
+  p_std = p_std,
+  full_mod_tab = full_mod_tab,
+  std_mod_tab = std_mod_tab
+)
 
 })
+
+saveRDS(handover_outputs, "data/handover_ouputs.RDS")
 
 patchwork::wrap_plots(handover_boxplot$p_raw,
                       handover_boxplot$p_std,
@@ -1063,49 +1096,15 @@ summary(dta_handover_age_lm_3)
 
 
 
-resp_plot_df <- dta_df %>%
-  left_join(filter(resp_time_df, call_category == "cat3")) %>%
-  # filter(site == "SOUTHMEAD HOSPITAL") %>%
-  filter(!between(dt, ymd("2022-04-01"), ymd("2022-07-10"))) %>%
-  na.omit()
-
-saveRDS(resp_plot_df, "data/dta_resp_plot_df_all_site.RDS")
-
-
-  (scatter_3 <- resp_plot_df %>%
-      ungroup() %>%
-      nest() %>%
-      expand_grid(q = c(0.5, 0.9)) %>%
-      mutate(data = map2(data, q,
-                         ~.x %>% group_by(n_dta) %>% summarise(response = quantile(response, .y))
-      )) %>%
-      unnest(cols = c(data)) %>%
-  ggplot(aes(x = n_dta, y = response, col = factor(q))) +
-  geom_point(data = resp_plot_df, aes(col = "All data"), alpha = 0.01) +
-  geom_point(size = 2.5) +
-  geom_smooth(method = "lm", se = FALSE, show.legend = FALSE)  +
-  scale_y_continuous(limits = c(0, 900), breaks = seq(0, 900, 60)) +
-  scale_x_continuous(limits = c(0, 35)) +
-  bnssgtheme() +
-  scale_colour_manual(values = c(unname(bnssgcols[c(7, 4)]), "black"),
-                      guide = guide_legend(override.aes = list(size = 3,
-                                                               alpha = 1))) +
-  guides(alpha = "none") +
-  labs(y = "Category 3 response time\n(min)",
-       x = "DTA queue",
-       colour = "Category 3 response time:") +
-  theme(legend.position = "bottom",
-        legend.justification = "center",
-        legend.title = element_text()))
-
-
-ggsave("materials/resptime_scatter_quant_all_site.png",
-       scatter_3,
-       height = 5,
-       width = 7.5, 
-       scale = 0.9)  
-
-
+# resp_plot_df <- dta_df %>%
+#   left_join(filter(resp_time_df, call_category == "cat3")) %>%
+#   # filter(site == "SOUTHMEAD HOSPITAL") %>%
+#   filter(!between(dt, ymd("2022-04-01"), ymd("2022-07-10"))) %>%
+#   na.omit()
+# 
+# saveRDS(resp_plot_df, "data/dta_resp_plot_df_all_site.RDS")
+# 
+# 
 #   (scatter_3 <- resp_plot_df %>%
 #       ungroup() %>%
 #       nest() %>%
@@ -1114,150 +1113,32 @@ ggsave("materials/resptime_scatter_quant_all_site.png",
 #                          ~.x %>% group_by(n_dta) %>% summarise(response = quantile(response, .y))
 #       )) %>%
 #       unnest(cols = c(data)) %>%
-#       mutate(q = factor(q, labels = c("Median", "90% quantile"))) %>%
-#   ggplot(aes(x = n_dta, y = response/60, shape = q)) +
-#   geom_point(data = resp_plot_df, aes(shape = "All data"), alpha = 0.01) +
-#   geom_point(size = 2.5, fill = "white") +
-#   # geom_smooth(method = "lm", se = FALSE, show.legend = FALSE, col = "black")  +
-#   scale_y_continuous(limits = c(0, 24), breaks = seq(0, 24, 4)) +
+#   ggplot(aes(x = n_dta, y = response, col = factor(q))) +
+#   geom_point(data = resp_plot_df, aes(col = "All data"), alpha = 0.01) +
+#   geom_point(size = 2.5) +
+#   geom_smooth(method = "lm", se = FALSE, show.legend = FALSE)  +
+#   scale_y_continuous(limits = c(0, 900), breaks = seq(0, 900, 60)) +
 #   scale_x_continuous(limits = c(0, 35)) +
-#   theme_minimal() +
-#   scale_shape_manual(values = c(21, 24, 19),
+#   bnssgtheme() +
+#   scale_colour_manual(values = c(unname(bnssgcols[c(7, 4)]), "black"),
 #                       guide = guide_legend(override.aes = list(size = 3,
 #                                                                alpha = 1))) +
 #   guides(alpha = "none") +
-#   labs(y = "Category 3 response time\n(hour)",
-#        x = "Queue size for admission",
-#        shape = "") +
+#   labs(y = "Category 3 response time\n(min)",
+#        x = "DTA queue",
+#        colour = "Category 3 response time:") +
 #   theme(legend.position = "bottom",
 #         legend.justification = "center",
 #         legend.title = element_text()))
 # 
 # 
-# ggsave("materials/resptime_scatter_quant_paper_all_site.png",
+# ggsave("materials/resptime_scatter_quant_all_site.png",
 #        scatter_3,
-#        bg = "white",
 #        height = 5,
 #        width = 7.5, 
-#        scale = 0.7)  
+#        scale = 0.9)  
 
 
-# resp_1_plot_df <- dta_df %>%
-#   left_join(filter(resp_time_df, call_category == "cat1")) %>%
-#   # filter(site == "SOUTHMEAD HOSPITAL") %>%
-#   filter(!between(dt, ymd("2022-04-01"), ymd("2022-07-10"))) %>%
-#   na.omit()
-# 
-# 
-# (scatter_3 <- resp_1_plot_df %>%
-#     ungroup() %>%
-#     nest() %>%
-#     expand_grid(q = c(0.5, 0.9)) %>%
-#     mutate(data = map2(data, q,
-#                        ~.x %>% group_by(n_dta) %>% summarise(response = quantile(response, .y))
-#     )) %>%
-#     unnest(cols = c(data)) %>%
-#     mutate(q = factor(q, labels = c("Median", "90% quantile"))) %>%
-#     ggplot(aes(x = n_dta, y = response/60, shape = q)) +
-#     geom_point(data = resp_plot_df, aes(shape = "All data"), alpha = 0.01) +
-#     geom_point(size = 2.5, fill = "white") +
-#     # geom_smooth(method = "lm", se = FALSE, show.legend = FALSE, col = "black")  +
-#     scale_y_continuous(limits = c(0, 24), breaks = seq(0, 24, 4)) +
-#     scale_x_continuous(limits = c(0, 35)) +
-#     theme_minimal() +
-#     scale_shape_manual(values = c(21, 24, 19),
-#                        guide = guide_legend(override.aes = list(size = 3,
-#                                                                 alpha = 1))) +
-#     guides(alpha = "none") +
-#     labs(y = "Category 1 response time\n(hour)",
-#          x = "Queue size for admission",
-#          shape = "") +
-#     theme(legend.position = "bottom",
-#           legend.justification = "center",
-#           legend.title = element_text()))
-# 
-# 
-# resp_2_plot_df <- dta_df %>%
-#   left_join(filter(resp_time_df, call_category == "cat2")) %>%
-#   # filter(site == "SOUTHMEAD HOSPITAL") %>%
-#   filter(!between(dt, ymd("2022-04-01"), ymd("2022-07-10"))) %>%
-#   na.omit()
-# 
-# 
-# (scatter_4 <- resp_2_plot_df %>%
-#     ungroup() %>%
-#     nest() %>%
-#     expand_grid(q = c(0.5, 0.9)) %>%
-#     mutate(data = map2(data, q,
-#                        ~.x %>% group_by(n_dta) %>% summarise(response = quantile(response, .y))
-#     )) %>%
-#     unnest(cols = c(data)) %>%
-#     mutate(q = factor(q, labels = c("Median", "90% quantile"))) %>%
-#     ggplot(aes(x = n_dta, y = response/60, shape = q)) +
-#     geom_point(data = resp_plot_df, aes(shape = "All data"), alpha = 0.01) +
-#     geom_point(size = 2.5, fill = "white") +
-#     # geom_smooth(method = "lm", se = FALSE, show.legend = FALSE, col = "black")  +
-#     scale_y_continuous(limits = c(0, 24), breaks = seq(0, 24, 4)) +
-#     scale_x_continuous(limits = c(0, 35)) +
-#     theme_minimal() +
-#     scale_shape_manual(values = c(21, 24, 19),
-#                        guide = guide_legend(override.aes = list(size = 3,
-#                                                                 alpha = 1))) +
-#     guides(alpha = "none") +
-#     labs(y = "Category 2 response time\n(hour)",
-#          x = "Queue size for admission",
-#          shape = "") +
-#     theme(legend.position = "bottom",
-#           legend.justification = "center",
-#           legend.title = element_text()))
-# 
-# resp_3_plot_df <- dta_df %>%
-#   left_join(filter(resp_time_df, call_category == "cat3")) %>%
-#   # filter(site == "SOUTHMEAD HOSPITAL") %>%
-#   filter(!between(dt, ymd("2022-04-01"), ymd("2022-07-10"))) %>%
-#   na.omit()
-# 
-# 
-# (scatter_5 <- resp_3_plot_df %>%
-#     ungroup() %>%
-#     nest() %>%
-#     expand_grid(q = c(0.5, 0.9)) %>%
-#     mutate(data = map2(data, q,
-#                        ~.x %>% group_by(n_dta) %>% summarise(response = quantile(response, .y))
-#     )) %>%
-#     unnest(cols = c(data)) %>%
-#     mutate(q = factor(q, labels = c("Median", "90% quantile"))) %>%
-#     ggplot(aes(x = n_dta, y = response/60, shape = q)) +
-#     geom_point(data = resp_plot_df, aes(shape = "All data"), alpha = 0.01) +
-#     geom_point(size = 2.5, fill = "white") +
-#     # geom_smooth(method = "lm", se = FALSE, show.legend = FALSE, col = "black")  +
-#     scale_y_continuous(limits = c(0, 24), breaks = seq(0, 24, 4)) +
-#     scale_x_continuous(limits = c(0, 35)) +
-#     theme_minimal() +
-#     scale_shape_manual(values = c(21, 24, 19),
-#                        guide = guide_legend(override.aes = list(size = 3,
-#                                                                 alpha = 1))) +
-#     guides(alpha = "none") +
-#     labs(y = "Category 3 response time\n(hour)",
-#          x = "Queue size for admission",
-#          shape = "") +
-#     theme(legend.position = "bottom",
-#           legend.justification = "center",
-#           legend.title = element_text()))
-# 
-# 
-# sct_ptc <- patchwork::wrap_plots(scatter_3, scatter_4, scatter_5,
-#                                  ncol = 1,
-#                                  axes = "collect",
-#                                  guides = "collect") &
-#   theme(legend.position = "bottom")
-# 
-# ggsave("materials/queue_paper_all_site.png",
-#        sct_ptc,
-#        bg = "white",
-#        height = 10,
-#        width = 7.5, 
-#        scale = 0.7)  
 
 
 dta_df %>%
@@ -1282,49 +1163,285 @@ dta_df %>%
 # q = 0.5, coeff = 6.01
 # q = 0.9, coeff = 14.4
 
-time_std <- tibble(call_category = c("cat1", "cat2", "cat3"),
-                   std = c(15, 40, 120)) %>%
-  expand_grid(n_dta = 1:35) %>%
-  mutate(n_dta_norm = n_dta/total)
+
+resp_outputs <- ({
+  x_lab <- "DTA Queue as a Percentage of Majors & Resus Cubicles"
+  y_lab <- "Ambulance Response Time\n(min)"
   
+  labels <- c(cat1 = "Category 1",
+              cat2 = "Category 2",
+              cat3 = "Category 3")
+  
+  time_std <- tibble(call_category = c("cat1", "cat2", "cat3"),
+                     std = c(15, 40, 120))
+  
+  # non normalised x-axis
+  p_raw_raw <- dta_df %>%
+    left_join(filter(resp_time_df)) %>%
+    # filter(site == "SOUTHMEAD HOSPITAL") %>%
+    filter(!between(dt, ymd("2022-04-01"), ymd("2022-07-10"))) %>%
+    na.omit() %>%
+    filter(n_dta <= 35) %>%
+    distinct() %>%
+    # mutate(n_dta = factor(n_dta)) %>%
+    ggplot(aes(x = n_dta, y = response)) +
+    # geom_boxplot(outliers = FALSE) +
+    geom_boxplot(mapping = aes(group = cut_width(n_dta, width = 1)), outliers = FALSE, fatten = NULL) +
+    geom_point(
+      data = {time_std %>% expand_grid(n_dta = 0:35)},
+      aes(y = std, col = "National target"),
+      linetype = 2,
+    ) +
+    stat_summary(
+      fun = ~ mean(.x),
+      geom = "point",
+      col = "black",
+      aes(col = "Mean", shape = "Mean")
+    ) +
+    stat_summary(
+      fun = ~ quantile(.x, 0.9),
+      geom = "point",
+      col = "black",
+      aes(col = "Mean", shape = "90th percentile")
+    ) +
+    facet_wrap(
+      vars(call_category),
+      ncol = 1,
+      scales = "free",
+      labeller = as_labeller(labels)
+    ) +
+    # scale_x_continuous(limits = c(0, 35)) +
+    theme_minimal() +
+    scale_colour_manual(values = c("red", "black"), guide = guide_legend(override.aes = list(size = 3,
+                                                                                             alpha = 1))) +
+    scale_shape_manual(values = c(19, 17),
+                       guide = guide_legend(override.aes = list(size = 3,
+                                                                alpha = 1))) +
+    guides(alpha = "none") +
+    labs(
+      title = "Raw outcome, un-normalised dependant",
+      y = y_lab,
+      x = "DTA queue",
+      shape = "",
+      col = ""
+    ) +
+    theme(
+      legend.position = "bottom",
+      legend.justification = "center",
+      legend.title = element_blank(),
+      legend.spacing.x = unit(0, "cm")
+)
+  
+  p_norm_raw <- dta_df %>%
+    ungroup() %>%
+    filter(n_dta <= 35) %>%
+    # na.omit() %>%
+    left_join(site_resus_maj) %>%
+    mutate(n_dta_norm = n_dta / total) %>%
+    group_by(dt) %>%
+    summarise(n_dta_norm = mean(n_dta_norm, na.rm = TRUE)) %>%
+    left_join(resp_time_df) %>%
+    filter(!between(dt, ymd("2022-04-01"), ymd("2022-07-10"))) %>%
+    na.omit() %>%
+    distinct() %>%
+    # mutate(n_dta = factor(n_dta)) %>%
+    ggplot(aes(x = n_dta_norm, y = response)) +
+    # geom_boxplot(outliers = FALSE) +
+    geom_boxplot(
+      mapping = aes(group = cut_width(n_dta_norm, width = .01)),
+      outliers = FALSE,
+      fatten = NULL
+    ) +
+    geom_hline(
+      data = time_std,
+      aes(yintercept = std),
+      linetype = 2,
+      col = "red"
+    ) +
+    stat_summary(
+      fun = ~ mean(.x),
+      geom = "point",
+      col = "black",
+      aes(shape = "Mean")
+    ) +
+    stat_summary(
+      fun = ~ quantile(.x, 0.9),
+      geom = "point",
+      col = "black",
+      aes(shape = "90th percentile")
+    ) +
+    facet_wrap(
+      vars(call_category),
+      ncol = 1,
+      scales = "free",
+      labeller = as_labeller(labels)
+    ) +
+    scale_x_continuous(labels = scales::percent) +
+    theme_minimal() +
+    guides(alpha = "none") +
+    labs(
+      title = "Raw outcome, normalised dependant",
+      y = y_lab,
+      x = x_lab,
+      shape = ""
+    ) +
+    theme(
+      legend.position = "bottom",
+      legend.justification = "center",
+      legend.title = element_text()
+    )
+  
+  
+  # y standardisation
+  
+  mod_dat <- dta_df %>%
+    ungroup() %>%
+    left_join(site_resus_maj) %>%
+    filter(n_dta <= 35) %>%
+    mutate(n_dta_norm = n_dta / total) %>%
+    group_by(dt) %>%
+    summarise(n_dta_norm = mean(n_dta_norm, na.rm = TRUE)) %>%
+    left_join(resp_time_df) %>%
+    na.omit() %>%
+    distinct() %>%
+    mutate(age = factor(age)) %>%
+    mutate(
+      age = fct_recode(
+        age,
+        "0-9 Years Old" = "0-4 Years Old",
+        "0-9 Years Old" = "5-9 Years Old",
+        "10-19 Years Old" = "10-14 Years Old",
+        "10-19 Years Old" = "15-19 Years Old",
+        "20-29 Years Old" = "20-24 Years Old",
+        "20-29 Years Old" = "25-29 Years Old",
+        "30-39 Years Old" = "30-34 Years Old",
+        "30-39 Years Old" = "35-39 Years Old",
+        "40-49 Years Old" = "40-44 Years Old",
+        "40-49 Years Old" = "45-49 Years Old",
+        "50-59 Years Old" = "50-54 Years Old",
+        "50-59 Years Old" = "55-59 Years Old",
+        "60-69 Years Old" = "60-64 Years Old",
+        "60-69 Years Old" = "65-69 Years Old",
+        "70-79 Years Old" = "70-74 Years Old",
+        "70-79 Years Old" = "75-79 Years Old",
+        "80-89 Years Old" = "80-84 Years Old",
+        "80-89 Years Old" = "85-89 Years Old",
+        "90-99 Years Old" = "90-94 Years Old",
+        "90-99 Years Old" = "95-99 Years Old"
+      )
+    ) %>%
+    mutate(age = fct_relevel(age, "100 Years Old Or Over", after = 10)) %>%
+    ungroup() %>%
+    filter(!between(dt, ymd("2022-04-01"), ymd("2022-07-10"))) %>%
+    mutate(wkend = factor(ifelse(wday(dt, week_start = 1) < 6, "Yes", "No")),
+           hour = factor(cut(
+             hour(dt),
+             breaks = seq(0, 24, 6),
+             include.lowest = TRUE
+           ), ordered = FALSE)) %>%
+    mutate(hour = fct_relevel(hour, "(12,18]", after = 0)) %>%
+    mutate(
+      hour = fct_recode(
+        hour,
+        "00:00-06:00" = "[0,6]",
+        "06:00-12:00" = "(6,12]",
+        "12:00-18:00" = "(12,18]",
+        "18:00-24:00" = "(18,24]"
+      )
+    ) %>%
+    select(-dt) %>%
+    ungroup()
+  
+  resp_mod <- lm(response ~ . - n_dta_norm - outcome, data = mod_dat)
+  resp_pred <- predict(resp_mod, mod_dat)
+  
+  std_mod_tab <- gtsummary::tbl_regression(
+    resp_mod,
+    label = list(
+      call_category = "Call category",
+      age = "Age",
+      wkend = "Weekend",
+      hour = "Time of day"
+    )
+  ) %>%
+    gtsummary::add_glance_table(include = c(nobs, r.squared)) |>
+    gtsummary::as_gt() %>%
+    gt::tab_header(title = gt::md(glue::glue('**Ambulance response time**')))#,
+  
+  
+  full_mod_tab <- lm(response ~ . - outcome, data = mod_dat) %>%
+    gtsummary::tbl_regression(
+      label = list(
+        n_dta_norm = x_lab,
+        call_category = "Call Category",
+        age = "Age",
+        wkend = "Weekend",
+        hour = "Time of day"
+      )
+    ) %>%
+    gtsummary::add_glance_table(include = c(nobs, r.squared)) |>
+    gtsummary::as_gt() %>%
+    gt::tab_header(title = gt::md(glue::glue('**Ambulance response time**')))
+  
+  
+  mod_dat <- mod_dat %>%
+    mutate(resp_standard = resp_pred,
+           resp_adj = response - resp_standard)
+  
+  
+  p_norm_std <- mod_dat %>%
+    ggplot(aes(x = n_dta_norm, y = resp_adj)) +
+    # geom_boxplot(outliers = FALSE) +
+    geom_boxplot(
+      mapping = aes(group = cut_width(n_dta_norm, width = .01)),
+      outliers = FALSE,
+      fatten = NULL
+    ) +
+    # geom_hline(data = time_std, aes(yintercept = std), linetype = 2, col = "red") +
+    stat_summary(
+      fun = ~ mean(.x),
+      geom = "errorbar",
+      col = "black",
+      width = 0.035,
+      aes(ymax = ..y.., ymin = ..y..)
+    ) +
+    # stat_summary(fun = ~mean(.x), geom = "point", col = "black", aes(shape = "Mean")) +
+    stat_summary(
+      fun = ~ quantile(.x, 0.9),
+      geom = "point",
+      col = "black",
+      aes(shape = "90th percentile")
+    ) +
+    facet_wrap(
+      vars(call_category),
+      ncol = 1,
+      scales = "free",
+      labeller = as_labeller(labels)
+    ) +
+    scale_x_continuous(labels = scales::percent) +
+    theme_minimal() +
+    guides(alpha = "none") +
+    labs(title = "Standardised outcome, normalised dependant", 
+         y = y_lab,
+         x = x_lab, shape = "") +
+    theme(
+      legend.position = "bottom",
+      legend.justification = "center",
+      legend.title = element_text()
+    )
+  
+  
+  list(
+    p_raw_raw = p_raw_raw,
+    p_norm_raw = p_norm_raw,
+    p_norm_std = p_norm_std,
+    std_mod_tab = std_mod_tab,
+    full_mod_tab = full_mod_tab
+  )
+  
+})
 
-
-labels <- c(cat1 = "Category 1",
-            cat2 = "Category 2",
-            cat3 = "Category 3")
-
-dta_df %>%
-  filter(n_dta < 35) %>%
-  group_by(dt) %>%
-  summarise(n_dta = sum(n_dta)) %>%
-  expand_grid({site_resus_maj %>% summarise(total = sum(total))}) %>%
-  mutate(n_dta_norm = n_dta/total) %>%
-  left_join(resp_time_df) %>%
-  # filter(site == "SOUTHMEAD HOSPITAL") %>%
-  filter(!between(dt, ymd("2022-04-01"), ymd("2022-07-10"))) %>%
-  na.omit() %>%
-  distinct() %>% 
-  # mutate(n_dta = factor(n_dta)) %>%
-  ggplot(aes(x = n_dta_norm, y = response)) +
-  # geom_boxplot(outliers = FALSE) +
-  geom_boxplot(mapping = aes(group = cut_width(n_dta, width = 2)), outliers = FALSE, fatten = NULL) +
-  # geom_point(data = time_std, mapping = aes(y = std, x = n_dta_norm), col = "red") + 
-  stat_summary(fun = ~mean(.x), geom = "point", col = "black", aes(shape = "Mean")) +
-  stat_summary(fun = ~quantile(.x, 0.9), geom = "point", col = "black", aes(shape = "90th percentile")) +
-  facet_wrap(vars(call_category), ncol = 1,
-             scales = "free",
-             labeller = as_labeller(labels)) +
-  scale_x_continuous(labels = scales::percent) +
-  theme_minimal() +
-  guides(alpha = "none") +
-  labs(y = "Ambulance Response Time\n(min)",
-       x = "Queue size for admission",
-       shape = "") +
-  theme(legend.position = "bottom",
-        legend.justification = "center",
-        legend.title = element_text())
-
-
+saveRDS(resp_outputs, "data/resp_outputs.RDS")
 
 ggsave("materials/dta_amb_resp_paper.png",
        last_plot(),
@@ -1599,4 +1716,158 @@ lm(resp_time_cat1 ~ n_dta * n_ed + wkend + hour, data = dta_mod$data[[1]]) %>%
   # to.file = huxtable::quick_html(),
   # file.name = "materials/handover_reg.html"
   )
+
+
+#   (scatter_3 <- resp_plot_df %>%
+#       ungroup() %>%
+#       nest() %>%
+#       expand_grid(q = c(0.5, 0.9)) %>%
+#       mutate(data = map2(data, q,
+#                          ~.x %>% group_by(n_dta) %>% summarise(response = quantile(response, .y))
+#       )) %>%
+#       unnest(cols = c(data)) %>%
+#       mutate(q = factor(q, labels = c("Median", "90% quantile"))) %>%
+#   ggplot(aes(x = n_dta, y = response/60, shape = q)) +
+#   geom_point(data = resp_plot_df, aes(shape = "All data"), alpha = 0.01) +
+#   geom_point(size = 2.5, fill = "white") +
+#   # geom_smooth(method = "lm", se = FALSE, show.legend = FALSE, col = "black")  +
+#   scale_y_continuous(limits = c(0, 24), breaks = seq(0, 24, 4)) +
+#   scale_x_continuous(limits = c(0, 35)) +
+#   theme_minimal() +
+#   scale_shape_manual(values = c(21, 24, 19),
+#                       guide = guide_legend(override.aes = list(size = 3,
+#                                                                alpha = 1))) +
+#   guides(alpha = "none") +
+#   labs(y = "Category 3 response time\n(hour)",
+#        x = "Queue size for admission",
+#        shape = "") +
+#   theme(legend.position = "bottom",
+#         legend.justification = "center",
+#         legend.title = element_text()))
+# 
+# 
+# ggsave("materials/resptime_scatter_quant_paper_all_site.png",
+#        scatter_3,
+#        bg = "white",
+#        height = 5,
+#        width = 7.5, 
+#        scale = 0.7)  
+
+
+# resp_1_plot_df <- dta_df %>%
+#   left_join(filter(resp_time_df, call_category == "cat1")) %>%
+#   # filter(site == "SOUTHMEAD HOSPITAL") %>%
+#   filter(!between(dt, ymd("2022-04-01"), ymd("2022-07-10"))) %>%
+#   na.omit()
+# 
+# 
+# (scatter_3 <- resp_1_plot_df %>%
+#     ungroup() %>%
+#     nest() %>%
+#     expand_grid(q = c(0.5, 0.9)) %>%
+#     mutate(data = map2(data, q,
+#                        ~.x %>% group_by(n_dta) %>% summarise(response = quantile(response, .y))
+#     )) %>%
+#     unnest(cols = c(data)) %>%
+#     mutate(q = factor(q, labels = c("Median", "90% quantile"))) %>%
+#     ggplot(aes(x = n_dta, y = response/60, shape = q)) +
+#     geom_point(data = resp_plot_df, aes(shape = "All data"), alpha = 0.01) +
+#     geom_point(size = 2.5, fill = "white") +
+#     # geom_smooth(method = "lm", se = FALSE, show.legend = FALSE, col = "black")  +
+#     scale_y_continuous(limits = c(0, 24), breaks = seq(0, 24, 4)) +
+#     scale_x_continuous(limits = c(0, 35)) +
+#     theme_minimal() +
+#     scale_shape_manual(values = c(21, 24, 19),
+#                        guide = guide_legend(override.aes = list(size = 3,
+#                                                                 alpha = 1))) +
+#     guides(alpha = "none") +
+#     labs(y = "Category 1 response time\n(hour)",
+#          x = "Queue size for admission",
+#          shape = "") +
+#     theme(legend.position = "bottom",
+#           legend.justification = "center",
+#           legend.title = element_text()))
+# 
+# 
+# resp_2_plot_df <- dta_df %>%
+#   left_join(filter(resp_time_df, call_category == "cat2")) %>%
+#   # filter(site == "SOUTHMEAD HOSPITAL") %>%
+#   filter(!between(dt, ymd("2022-04-01"), ymd("2022-07-10"))) %>%
+#   na.omit()
+# 
+# 
+# (scatter_4 <- resp_2_plot_df %>%
+#     ungroup() %>%
+#     nest() %>%
+#     expand_grid(q = c(0.5, 0.9)) %>%
+#     mutate(data = map2(data, q,
+#                        ~.x %>% group_by(n_dta) %>% summarise(response = quantile(response, .y))
+#     )) %>%
+#     unnest(cols = c(data)) %>%
+#     mutate(q = factor(q, labels = c("Median", "90% quantile"))) %>%
+#     ggplot(aes(x = n_dta, y = response/60, shape = q)) +
+#     geom_point(data = resp_plot_df, aes(shape = "All data"), alpha = 0.01) +
+#     geom_point(size = 2.5, fill = "white") +
+#     # geom_smooth(method = "lm", se = FALSE, show.legend = FALSE, col = "black")  +
+#     scale_y_continuous(limits = c(0, 24), breaks = seq(0, 24, 4)) +
+#     scale_x_continuous(limits = c(0, 35)) +
+#     theme_minimal() +
+#     scale_shape_manual(values = c(21, 24, 19),
+#                        guide = guide_legend(override.aes = list(size = 3,
+#                                                                 alpha = 1))) +
+#     guides(alpha = "none") +
+#     labs(y = "Category 2 response time\n(hour)",
+#          x = "Queue size for admission",
+#          shape = "") +
+#     theme(legend.position = "bottom",
+#           legend.justification = "center",
+#           legend.title = element_text()))
+# 
+# resp_3_plot_df <- dta_df %>%
+#   left_join(filter(resp_time_df, call_category == "cat3")) %>%
+#   # filter(site == "SOUTHMEAD HOSPITAL") %>%
+#   filter(!between(dt, ymd("2022-04-01"), ymd("2022-07-10"))) %>%
+#   na.omit()
+# 
+# 
+# (scatter_5 <- resp_3_plot_df %>%
+#     ungroup() %>%
+#     nest() %>%
+#     expand_grid(q = c(0.5, 0.9)) %>%
+#     mutate(data = map2(data, q,
+#                        ~.x %>% group_by(n_dta) %>% summarise(response = quantile(response, .y))
+#     )) %>%
+#     unnest(cols = c(data)) %>%
+#     mutate(q = factor(q, labels = c("Median", "90% quantile"))) %>%
+#     ggplot(aes(x = n_dta, y = response/60, shape = q)) +
+#     geom_point(data = resp_plot_df, aes(shape = "All data"), alpha = 0.01) +
+#     geom_point(size = 2.5, fill = "white") +
+#     # geom_smooth(method = "lm", se = FALSE, show.legend = FALSE, col = "black")  +
+#     scale_y_continuous(limits = c(0, 24), breaks = seq(0, 24, 4)) +
+#     scale_x_continuous(limits = c(0, 35)) +
+#     theme_minimal() +
+#     scale_shape_manual(values = c(21, 24, 19),
+#                        guide = guide_legend(override.aes = list(size = 3,
+#                                                                 alpha = 1))) +
+#     guides(alpha = "none") +
+#     labs(y = "Category 3 response time\n(hour)",
+#          x = "Queue size for admission",
+#          shape = "") +
+#     theme(legend.position = "bottom",
+#           legend.justification = "center",
+#           legend.title = element_text()))
+# 
+# 
+# sct_ptc <- patchwork::wrap_plots(scatter_3, scatter_4, scatter_5,
+#                                  ncol = 1,
+#                                  axes = "collect",
+#                                  guides = "collect") &
+#   theme(legend.position = "bottom")
+# 
+# ggsave("materials/queue_paper_all_site.png",
+#        sct_ptc,
+#        bg = "white",
+#        height = 10,
+#        width = 7.5, 
+#        scale = 0.7)  
 

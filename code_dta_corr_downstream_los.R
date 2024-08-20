@@ -18,6 +18,8 @@ report_start <- '2021-06-01'
 report_end <- '2024-06-01'
 pre_window_days <- 60
 
+days_outcome_window <- 30
+
 string_ecds<-glue::glue("select 
                         NHS_Number,
                         Arrival_Date,
@@ -36,13 +38,28 @@ string_ecds<-glue::glue("select
                         Acuity_Desc,
                         Index_Of_Multiple_Deprivation,
                         Stated_Gender,
-                        HES_Age_At_Arrival
+                        HES_Age_At_Arrival,
+                        Arrival_Mode_Desc,
+                        Arrival_Category_Desc,
+                        Attendance_Source_Desc,
+                        destination_desc,
+                        Chief_Complaint_Desc,
+                        Acuity_Desc,
+                        Diagnoses_Code_1_Desc,
+                        Investigation_Code_1_Desc
       FROM Analyst_SQL_Area.dbo.tbl_BNSSG_ECDS
       where Site_Name in ('BRISTOL ROYAL INFIRMARY', 'SOUTHMEAD HOSPITAL', 'WESTON GENERAL HOSPITAL')
       and Arrival_Date >= '{ymd(report_start) - ddays(pre_window_days)}'
+      and destination_desc not in ('Emergency department discharge to emergency department short stay ward',
+      'Emergency department discharge to same day emergency care service',
+      'Emergency department discharge to ambulatory emergency care service',
+      'Admission to the mortuary')
       ")
 
 dat_ecds_raw<-sqlQuery(con,string_ecds)
+saveRDS(dat_ecds_raw, "data/dat_ecds_raw_new.RDS")
+dat_ecds_raw <- readRDS("data/dat_ecds_raw_new.RDS")
+
 dat_ecds<-dat_ecds_raw %>%
   mutate(NHS_Number = as.character(NHS_Number)) %>%
   mutate(arrival_dt=as.POSIXct(paste0(Arrival_Date," ",substr(Arrival_Time,1,8)),format="%Y-%m-%d %H:%M:%S")) %>%
@@ -64,7 +81,9 @@ dat_ecds<-dat_ecds_raw %>%
     departure_dt,
     conclusion_dt,
     site = Site_Name,
-    Acuity_Desc
+    Acuity_Desc,
+    Arrival_Category_Desc,
+    Arrival_Mode_Desc
   ) %>%
   rowwise() %>%
   mutate(departure_dt=max(dta_dt,departure_dt, conclusion_dt, na.rm=TRUE)) %>%
@@ -128,6 +147,9 @@ string_attr <- glue::glue("	select
 
 dat_attr <- sqlQuery(con,string_attr) %>%
   mutate(nhs_number = as.character(nhs_number))
+
+# saveRDS(dat_attr, "data/dat_attr.RDS")
+dat_attr <- readRDS("data/dat_attr.RDS")
 
 # arrivals for joining to sus
 arrivals <- 
@@ -1080,6 +1102,20 @@ dat_scores <- arrivals %>%
   `[`(-1) %>%
   bind_cols()
 
+dat_spec <- arrivals %>%
+  left_join(
+    dat_apc %>%
+      select(AIMTC_Pseudo_NHS, MainSpecialtyCode, StartDate_HospitalProviderSpell) %>%
+      mutate(AIMTC_Pseudo_NHS = as.character(AIMTC_Pseudo_NHS)) %>%
+      filter(!is.na(AIMTC_Pseudo_NHS)),
+    by = join_by(nhs_number == AIMTC_Pseudo_NHS)) %>% 
+  mutate(diff = abs(interval(departure_dt, StartDate_HospitalProviderSpell)/ddays(1))) %>%
+  group_by(arr_id) %>%
+  filter(between(diff, 0, 2)) %>%
+  # filter(diff == min(diff), diff <= 1) %>%
+  select(nhs_number, arr_id, MainSpecialtyCode)
+
+
 dat_los <- arrivals %>%
   left_join(
     dat_apc %>%
@@ -1088,25 +1124,77 @@ dat_los <- arrivals %>%
     by = join_by(nhs_number == AIMTC_Pseudo_NHS)) %>% 
   mutate(diff = abs(interval(departure_dt, StartDate_HospitalProviderSpell)/ddays(1))) %>%
   group_by(arr_id) %>%
-  filter(diff == min(diff), diff < 2) %>% 
+  filter(between(diff, 0, 2)) %>%
+  # filter(diff == min(diff), diff < 2) %>% 
   mutate(los = interval(StartDate_HospitalProviderSpell, DischargeDate_FromHospitalProviderSpell)/ddays(1)) %>%
   select(nhs_number, arr_id, los) %>%
   distinct()
 
 
+# dat_adm <- dat_ecds %>%
+#   mutate(nhs_number = as.character(nhs_number)) %>%
+#   group_by(nhs_number) %>%
+#   filter(dta_dt == min(dta_dt, na.rm = TRUE)) %>%
+#   ungroup() %>%
+#   select(site, nhs_number, imd, age, sex, arr_id, arrival_dt, dta_dt, departure_dt, dta_time, ed_time) %>%
+#   mutate(arrival_hour = floor_date(arrival_dt, "hour")) %>%
+#   left_join(dat_ecds_perf) %>%
+#   left_join(dat_ecds_n_ed) %>% 
+#   left_join(dat_scores) %>%
+#   left_join(dat_los) %>%
+#   select(-arr_id) %>%
+#   na.omit()
+
 
 dat_adm <- dat_ecds %>%
+  # remove arrivals that dont have full outcome window
+  filter(arrival_dt < ymd(report_end) - ddays(days_outcome_window)) %>%
   mutate(nhs_number = as.character(nhs_number)) %>%
   group_by(nhs_number) %>%
-  filter(dta_dt == min(dta_dt, na.rm = TRUE)) %>%
+  slice_min(dta_dt, na_rm = TRUE) %>%
+  filter(dta_time >= 0) %>% # some records are negative 0 exactly, seems to be DQ
+  filter(age < 120, !is.na(age))   %>%
+  # filter(dta_dt == min(dta_dt, na.rm = TRUE)) %>%
   ungroup() %>%
-  select(site, nhs_number, imd, age, sex, arr_id, arrival_dt, dta_dt, departure_dt, dta_time, ed_time) %>%
+  mutate(arrival_time = factor(hms::as_hms(floor_date(arrival_dt, "6 hour")))) %>%
+  mutate(arrival_time = fct_recode(arrival_time,
+                                   "00:00-06:00" = "00:00:00",
+                                   "06:00-12:00" = "06:00:00",
+                                   "12:00-18:00" = "12:00:00",
+                                   "18:00-24:00" = "18:00:00")) %>%
+  mutate(arrival_month = factor(month(arrival_dt), labels = month.name)) %>%
+  mutate(arrival_year = factor(year(arrival_dt))) %>%
+  select(
+    site,
+    nhs_number,
+    imd,
+    age,
+    sex,
+    arr_id,
+    arrival_dt,
+    dta_dt,
+    departure_dt,
+    dta_time,
+    ed_time,
+    Acuity_Desc,
+    arrival_mode = Arrival_Mode_Desc,
+    arrival_cat = Arrival_Category_Desc,
+    arrival_time,
+    arrival_month,
+    arrival_year
+    # diagnoses,
+    # investigation
+  ) %>%
   mutate(arrival_hour = floor_date(arrival_dt, "hour")) %>%
   left_join(dat_ecds_perf) %>%
   left_join(dat_ecds_n_ed) %>% 
   left_join(dat_scores) %>%
+  left_join(dat_spec)%>%
+  mutate(perf_sq = perf^2, age_sq = age^2, n_ed_sq = n_ed^2, vw_score_sq = vw_score^2) %>%
   left_join(dat_los) %>%
   select(-arr_id) %>%
+  filter(MainSpecialtyCode %in% c(300, 326, 430)) %>% # filter General Internal Medicine
+  select(-MainSpecialtyCode) %>%
   na.omit()
 
 
@@ -1160,25 +1248,25 @@ dat_adm %>%
   summary()
 
 
-(los_plot <- local({
+los_outputs <- local({
+
   plot_df <- dat_adm %>%
     # filter(site == "SOUTHMEAD HOSPITAL") %>%
     distinct() %>%
-    filter(between(dta_time, 0, 60 * 24)) %>%
-    filter(los < 75)
-  plot_df %>%
-    # mutate(dta_time = 30*dta_time%/%30) %>%
+    filter(between(dta_time, 0, 60 * 25)) 
+  
+  p_raw <- plot_df %>%
+    mutate(dta_time = factor(dta_time %/% 60, levels = 0:24)) %>%
     ggplot(aes(
-      x = dta_time / 60,
+      x = dta_time,
       y = los
     )) +
-    geom_boxplot(aes(group = cut_width(dta_time / 60, width = 1)),
-                 outliers = FALSE,
-                 hjust = -1) +
-    geom_point(data = {plot_df %>% group_by(dta_time = 60*(dta_time %/% 60)) %>% summarise(los = quantile(los, 0.95))},
-                # aes(x = dta_time, y = los), 
-                 col = "red") +
+    geom_boxplot(outliers = FALSE,
+                 fatten = NULL) +
+    stat_summary(fun = ~quantile(.x, 0.90), geom = "point", col = "black", aes(shape = "90th percentile")) +
+    stat_summary(fun = ~mean(.x), geom = "point", col = "black", aes(shape = "Mean")) +
     theme_minimal() +
+    scale_x_discrete(breaks = function(x){x[c(TRUE, FALSE, FALSE, FALSE)]}) +
     # scale_y_continuous(limits = c(0, 25), breaks = seq(0, 45, 10)) +
     guides(alpha = "none") +
     theme(
@@ -1192,7 +1280,119 @@ dat_adm %>%
       y = "In-hospital length of stay (day)",
       colour = "Total length of stay"
     )
-}))
+  
+   mod_std <- lm(los ~ . 
+                 -nhs_number
+                 -site
+                 -arrival_dt
+                 -dta_dt
+                 -departure_dt
+                 -dta_time
+                 -arrival_hour
+                 -ed_time
+                 -n_adm
+                 , plot_df)
+   
+   reg_tab_std <- gtsummary::tbl_regression(mod_std,
+                                        label = list(
+     arrival_time = "Time of arrival",
+     arrival_month = "Month of arrival",
+     arrival_year = "Year of arrival",
+     arrival_cat = "Arrival category",
+     arrival_mode = "Arrival mode",
+     perf = "4-hour ED performance",
+     perf_sq = "4-hour ED performance (squared)",
+     age = "Age",
+     age_sq = "Age (squared)",
+     n_ed = "Number of previous ED attendances",
+     n_ed_sq = "Number of previous ED attendances (squared)",
+     sex = "Sex",
+     imd = "IMD",
+     vw_score = "Van Walraven score",
+     vw_score_sq = "Van Walraven score (squared)",
+     Acuity_Desc = "Acuity description"#,
+     # investigation = "Investigation description (encoded)",
+     # diagnoses = "Diagnoses description (encoded)"
+   )) %>%
+     gtsummary::add_glance_table(include = c(nobs)) %>%
+     gtsummary::as_gt() %>%
+     gt::tab_header(
+       title = gt::md("**In Hospital Length of Stay (days)**"))
+   
+   reg_tab_full <- gtsummary::tbl_regression(
+     lm(los ~ .
+        -nhs_number
+        -site
+        -arrival_dt
+        -dta_dt
+        -departure_dt
+        -arrival_hour
+        -ed_time
+        -n_adm
+        , {plot_df %>% mutate(dta_time = dta_time/60)}),
+                                        label = list(
+     dta_time = "Hours waiting for admission",                                    
+     arrival_time = "Time of arrival",
+     arrival_month = "Month of arrival",
+     arrival_year = "Year of arrival",
+     arrival_cat = "Arrival category",
+     arrival_mode = "Arrival mode",
+     perf = "4-hour ED performance",
+     perf_sq = "4-hour ED performance (squared)",
+     age = "Age",
+     age_sq = "Age (squared)",
+     n_ed = "Number of previous ED attendances",
+     n_ed_sq = "Number of previous ED attendances (squared)",
+     sex = "Sex",
+     imd = "IMD",
+     vw_score = "Van Walraven score",
+     vw_score_sq = "Van Walraven score (squared)",
+     Acuity_Desc = "Acuity description"#,
+     # investigation = "Investigation description (encoded)",
+     # diagnoses = "Diagnoses description (encoded)"
+   )) %>%
+     gtsummary::add_glance_table(include = c(nobs)) %>%
+     gtsummary::as_gt() %>%
+     gt::tab_header(
+       title = gt::md("**In Hospital Length of Stay (days)**"))
+   
+   los_pred <- predict(mod_std, plot_df)
+   
+   p_std <- plot_df %>%
+     mutate(los_adj = los_pred, 
+            dta_time = factor(dta_time %/% 60, levels = 0:24)) %>%
+     ggplot(aes(
+       x = dta_time,
+       y = los - los_adj
+     )) +
+     geom_boxplot(outliers = FALSE,
+                  fatten = NULL) +
+     stat_summary(fun = ~quantile(.x, 0.90), geom = "point", col = "black", aes(shape = "90th percentile")) +
+     stat_summary(fun = ~mean(.x), geom = "point", col = "black", aes(shape = "Mean")) +
+     theme_minimal() +
+     scale_x_discrete(breaks = function(x){x[c(TRUE, FALSE, FALSE, FALSE)]}) +
+     # scale_y_continuous(limits = c(0, 25), breaks = seq(0, 45, 10)) +
+     guides(alpha = "none") +
+     theme(
+       legend.position = "bottom",
+       legend.justification = "center",
+       legend.title = element_text()
+     ) +
+     labs(
+       shape = "",
+       x = "Time waiting for admission (hour)",
+       y = "In-hospital length of stay (day)",
+       colour = "Total length of stay"
+     )
+   
+   list(p_raw = p_raw, 
+        p_std = p_std,
+        reg_tab_std = reg_tab_std,
+        reg_tab_full = reg_tab_full)
+
+})
+
+saveRDS(los_outputs, "data/los_outputs.RDS")
 
 ggsave("materials/dta_los_plot_paper.png",
        last_plot(),
