@@ -1319,17 +1319,19 @@ los_outputs <- local({
      gt::tab_header(
        title = gt::md("**In Hospital Length of Stay (days)**"))
    
+   mod_full <- lm(los ~ .
+                  -nhs_number
+                  -site
+                  -arrival_dt
+                  -dta_dt
+                  -departure_dt
+                  -arrival_hour
+                  -ed_time
+                  -n_adm
+                  , {plot_df %>% mutate(dta_time = dta_time/60)})
+   
    reg_tab_full <- gtsummary::tbl_regression(
-     lm(los ~ .
-        -nhs_number
-        -site
-        -arrival_dt
-        -dta_dt
-        -departure_dt
-        -arrival_hour
-        -ed_time
-        -n_adm
-        , {plot_df %>% mutate(dta_time = dta_time/60)}),
+     mod_full,
                                         label = list(
      dta_time = "Hours waiting for admission",                                    
      arrival_time = "Time of arrival",
@@ -1387,6 +1389,8 @@ los_outputs <- local({
    
    list(p_raw = p_raw, 
         p_std = p_std,
+        mod_std = mod_std,
+        mod_full = mod_full,
         reg_tab_std = reg_tab_std,
         reg_tab_full = reg_tab_full)
 

@@ -618,7 +618,7 @@ handover_outputs <- ({
     # geom_ribbon(aes(ymin = lwr, ymax = upr, fill = q), col = NA, alpha = 0.25) +
     # geom_line(aes(y = fit, group = q)) +
     stat_summary(fun = ~mean(.x), geom = "point", col = "black", aes(col = "Mean", shape = "Mean")) +
-    stat_summary(fun = ~quantile(.x, 0.95), geom = "point", col = "black", aes(col = "90th percentile", shape = "90th percentile")) +
+    stat_summary(fun = ~quantile(.x, 0.95), geom = "point", col = "black", aes(col = "95th percentile", shape = "95th percentile")) +
     geom_point(aes(y = standard, col = "National target")) +
     # bnssgtheme() +
     theme_minimal() +
@@ -638,17 +638,19 @@ handover_outputs <- ({
     theme(legend.position = "bottom",
           legend.justification = "center",
           legend.title = element_blank(),
+          legend.margin = margin(l = 5, unit = "pt"),
           legend.spacing.x = unit(0, "cm"))
   
 
   
 # Standardised plot  
 mod_dat <- dta_df %>% 
-    left_join(handover_df) %>%
+  left_join(handover_df) %>%
   left_join(site_resus_maj) %>%
+  left_join(ed_df) %>%
+  mutate(n_ed_norm = (n_ed - n_dta)/total,
+         n_dta_norm = n_dta / total) %>%
   mutate(n_dta_norm = n_dta/total) %>%
-  # left_join(ed_df) %>%
-    # mutate(n_ed = n_ed - n_dta) %>%
     mutate(age = factor(age)) %>%
     mutate(age = fct_recode(age, 
                             "0-9 Years Old" = "0-4 Years Old",
@@ -687,13 +689,13 @@ mod_dat <- dta_df %>%
     select(-site, -dt, -maj, -resus, -total) %>%
     ungroup() 
 
-handover_mod <- lm(handover_time ~ . -n_dta -n_dta_norm, data = mod_dat)
+handover_mod <- lm(handover_time ~ . -n_dta -n_dta_norm -n_ed -n_ed_norm, data = mod_dat)
 handover_pred <- predict(handover_mod, mod_dat)
 
-
+std_mod <- handover_mod
 
 std_mod_tab <- gtsummary::tbl_regression(
-  lm(handover_time/60 ~ . -n_dta -n_dta_norm, data = mod_dat),
+  std_mod,
   label = list(
     age = "Age",
     wkend = "Weekend",
@@ -704,11 +706,12 @@ std_mod_tab <- gtsummary::tbl_regression(
   gtsummary::as_gt() %>%
   gt::tab_header(title = gt::md(glue::glue('**Ambulance Handover Time (min)**')))#,
 
-
-full_mod_tab <- lm(handover_time/60 ~ . -n_dta, data = mod_dat) %>%
+full_mod <- lm(handover_time/60 ~ . -n_dta -n_ed, data = mod_dat)
+full_mod_tab <-  full_mod %>%
   gtsummary::tbl_regression(
     label = list(
       n_dta_norm = x_lab,
+      n_ed_norm = "Number in ED (excluding DTA) as a Percentage of Majors & Resus Cubicles",
       age = "Age",
       wkend = "Weekend",
       hour = "Time of day"
@@ -735,7 +738,7 @@ p_std <- plot_df %>%
   # scale_y_continuous(limits = c(0, 300), breaks = seq(0, 300, 30)) +
   # geom_point(aes(y = standard), col = "red") +
   stat_summary(fun = ~mean(.x), geom = "point", col = "black", aes(shape = "Mean")) +
-  stat_summary(fun = ~quantile(.x, 0.95), geom = "point", col = "black", aes(shape = "90th percentile")) +
+  stat_summary(fun = ~quantile(.x, 0.95), geom = "point", col = "black", aes(shape = "95th percentile")) +
   # bnssgtheme() +
   theme_minimal() +
   scale_shape_manual(values = c(21, 24, 19), guide = guide_legend(override.aes = list(size = 3,
@@ -759,13 +762,15 @@ p_std <- plot_df %>%
 list(
   p_raw = p_raw,
   p_std = p_std,
-  full_mod_tab = full_mod_tab,
-  std_mod_tab = std_mod_tab
+  std_mod = std_mod,
+  full_mod = full_mod,
+  std_mod_tab = std_mod_tab,
+  full_mod_tab = full_mod_tab
 )
 
 })
 
-saveRDS(handover_outputs, "data/handover_ouputs.RDS")
+saveRDS(handover_outputs, "data/handover_outputs.RDS")
 
 patchwork::wrap_plots(handover_boxplot$p_raw,
                       handover_boxplot$p_std,
@@ -1164,7 +1169,7 @@ dta_df %>%
 # q = 0.9, coeff = 14.4
 
 
-resp_outputs <- ({
+resp_outputs <- local({
   x_lab <- "DTA Queue as a Percentage of Majors & Resus Cubicles"
   y_lab <- "Ambulance Response Time\n(min)"
   
@@ -1190,7 +1195,6 @@ resp_outputs <- ({
     geom_point(
       data = {time_std %>% expand_grid(n_dta = 0:35)},
       aes(y = std, col = "National target"),
-      linetype = 2,
     ) +
     stat_summary(
       fun = ~ mean(.x),
@@ -1252,11 +1256,9 @@ resp_outputs <- ({
       outliers = FALSE,
       fatten = NULL
     ) +
-    geom_hline(
-      data = time_std,
-      aes(yintercept = std),
-      linetype = 2,
-      col = "red"
+    geom_point(
+      data = {time_std %>% expand_grid(n_dta_norm = seq(0, 1.75, 0.05))},
+      aes(y = std, col = "National target"),
     ) +
     stat_summary(
       fun = ~ mean(.x),
@@ -1277,13 +1279,19 @@ resp_outputs <- ({
       labeller = as_labeller(labels)
     ) +
     scale_x_continuous(labels = scales::percent) +
-    theme_minimal() +
+    theme_minimal()  +
+    scale_colour_manual(values = c("red", "black"), guide = guide_legend(override.aes = list(size = 3,
+                                                                                             alpha = 1))) +
+    scale_shape_manual(values = c(19, 17),
+                       guide = guide_legend(override.aes = list(size = 3,
+                                                                alpha = 1))) +
     guides(alpha = "none") +
     labs(
       title = "Raw outcome, normalised dependant",
       y = y_lab,
       x = x_lab,
-      shape = ""
+      shape = "",
+      col = ""
     ) +
     theme(
       legend.position = "bottom",
@@ -1297,10 +1305,16 @@ resp_outputs <- ({
   mod_dat <- dta_df %>%
     ungroup() %>%
     left_join(site_resus_maj) %>%
+    left_join(ed_df) %>%
     filter(n_dta <= 35) %>%
-    mutate(n_dta_norm = n_dta / total) %>%
+    mutate(n_ed_norm = (n_ed - n_dta)/total,
+           n_dta_norm = n_dta / total
+           ) %>%
     group_by(dt) %>%
-    summarise(n_dta_norm = mean(n_dta_norm, na.rm = TRUE)) %>%
+    summarise(
+             n_dta_norm = mean(n_dta_norm, na.rm = TRUE),
+             n_ed_norm = mean(n_ed_norm, na.rm = TRUE),
+              ) %>%
     left_join(resp_time_df) %>%
     na.omit() %>%
     distinct() %>%
@@ -1352,45 +1366,100 @@ resp_outputs <- ({
     select(-dt) %>%
     ungroup()
   
-  resp_mod <- lm(response ~ . - n_dta_norm - outcome, data = mod_dat)
-  resp_pred <- predict(resp_mod, mod_dat)
+  resp_mods <- 
+    mod_dat %>%
+      group_by(call_category) %>%
+      nest() %>%
+      mutate(mod = map(data, ~ lm(response ~ . - n_dta_norm -n_ed_norm - outcome, data = .x))) %>%
+      mutate(mod_full = map(data, ~ lm(response ~ . - outcome, data = .x))) %>%
+      mutate(pred = map2(mod, data, predict)) %>%
+      mutate(data = pmap(list(data, call_category, pred), ~bind_cols(..1, call_category = ..2, response_pred = ..3)))
   
-  std_mod_tab <- gtsummary::tbl_regression(
-    resp_mod,
-    label = list(
-      call_category = "Call category",
-      age = "Age",
-      wkend = "Weekend",
-      hour = "Time of day"
-    )
-  ) %>%
-    gtsummary::add_glance_table(include = c(nobs, r.squared)) |>
-    gtsummary::as_gt() %>%
-    gt::tab_header(title = gt::md(glue::glue('**Ambulance response time**')))#,
+  # resp_mod <- lm(response ~ . - n_dta_norm - outcome, data = mod_dat)
+  # resp_pred <- predict(resp_mod, mod_dat)
   
   
-  full_mod_tab <- lm(response ~ . - outcome, data = mod_dat) %>%
-    gtsummary::tbl_regression(
-      label = list(
-        n_dta_norm = x_lab,
-        call_category = "Call Category",
-        age = "Age",
-        wkend = "Weekend",
-        hour = "Time of day"
-      )
-    ) %>%
-    gtsummary::add_glance_table(include = c(nobs, r.squared)) |>
-    gtsummary::as_gt() %>%
-    gt::tab_header(title = gt::md(glue::glue('**Ambulance response time**')))
+    std_mod_tabs <- resp_mods %>%
+    ungroup() %>%
+    mutate(call_category = recode(call_category, cat1 = "Category 1", cat2 = "Category 2", cat3 = "Category 3")) %>%
+    select(call_category, mod) %>%
+    mutate(tab = map2(mod, call_category, ~{
+      gtsummary::tbl_regression(.x,
+                                label = list(
+                                  age = "Age",
+                                  wkend = "Weekend",
+                                  hour = "Time of day"
+                                )) %>%
+        gtsummary::add_glance_table(include = c(nobs, r.squared)) |>
+        gtsummary::as_gt() %>%
+        gt::tab_header(title = gt::md(glue::glue('**{.y} Ambulance response time (min)**')))
+    })) %>%
+    ungroup() %>%
+    select(call_category, tab) %>%
+    as.list() 
+  
+    full_mod_tabs <- resp_mods %>%
+    ungroup() %>%
+    mutate(call_category = recode(call_category, cat1 = "Category 1", cat2 = "Category 2", cat3 = "Category 3")) %>%
+    select(call_category, mod_full) %>%
+    mutate(tab = map2(mod_full, call_category, ~{
+      gtsummary::tbl_regression(.x,
+                                label = list(
+                                  n_dta_norm = x_lab,
+                                  n_ed_norm = "Number in ED (excluding DTA) as a Percentage of Majors & Resus Cubicles",
+                                  age = "Age",
+                                  wkend = "Weekend",
+                                  hour = "Time of day"
+                                )) %>%
+        gtsummary::add_glance_table(include = c(nobs, r.squared)) |>
+        gtsummary::as_gt() %>%
+        gt::tab_header(title = gt::md(glue::glue('**{.y} Ambulance response time (min)**')))
+    })) %>%
+    ungroup() %>%
+    select(call_category, tab) %>%
+    as.list() 
   
   
-  mod_dat <- mod_dat %>%
-    mutate(resp_standard = resp_pred,
-           resp_adj = response - resp_standard)
+  # std_mod_tab <- gtsummary::tbl_regression(
+  #   resp_mod,
+  #   label = list(
+  #     call_category = "Call category",
+  #     age = "Age",
+  #     wkend = "Weekend",
+  #     hour = "Time of day"
+  #   )
+  # ) %>%
+  #   gtsummary::add_glance_table(include = c(nobs, r.squared)) |>
+  #   gtsummary::as_gt() %>%
+  #   gt::tab_header(title = gt::md(glue::glue('**Ambulance response time**')))
   
   
-  p_norm_std <- mod_dat %>%
-    ggplot(aes(x = n_dta_norm, y = resp_adj)) +
+  # full_mod_tab <- lm(response ~ . - outcome, data = mod_dat) %>%
+  #   gtsummary::tbl_regression(
+  #     label = list(
+  #       n_dta_norm = x_lab,
+  #       call_category = "Call Category",
+  #       age = "Age",
+  #       wkend = "Weekend",
+  #       hour = "Time of day"
+  #     )
+  #   ) %>%
+  #   gtsummary::add_glance_table(include = c(nobs, r.squared)) |>
+  #   gtsummary::as_gt() %>%
+  #   gt::tab_header(title = gt::md(glue::glue('**Ambulance response time**')))
+  
+    # mod_dat <- mod_dat %>%
+    # mutate(resp_standard = resp_pred,
+    #        resp_adj = response - resp_standard)
+  
+ plot_dat <- resp_mods %>% 
+    pull(data) %>%
+    bind_rows() %>%
+    mutate(response_adj = response - response_pred)
+    
+  
+  p_norm_std <- plot_dat %>%
+    ggplot(aes(x = n_dta_norm, y = response_adj)) +
     # geom_boxplot(outliers = FALSE) +
     geom_boxplot(
       mapping = aes(group = cut_width(n_dta_norm, width = .01)),
@@ -1398,14 +1467,14 @@ resp_outputs <- ({
       fatten = NULL
     ) +
     # geom_hline(data = time_std, aes(yintercept = std), linetype = 2, col = "red") +
-    stat_summary(
-      fun = ~ mean(.x),
-      geom = "errorbar",
-      col = "black",
-      width = 0.035,
-      aes(ymax = ..y.., ymin = ..y..)
-    ) +
-    # stat_summary(fun = ~mean(.x), geom = "point", col = "black", aes(shape = "Mean")) +
+    # stat_summary(
+    #   fun = ~ mean(.x),
+    #   geom = "errorbar",
+    #   col = "black",
+    #   width = 0.035,
+    #   aes(ymax = ..y.., ymin = ..y..)
+    # ) +
+    stat_summary(fun = ~mean(.x), geom = "point", col = "black", aes(shape = "Mean")) +
     stat_summary(
       fun = ~ quantile(.x, 0.9),
       geom = "point",
@@ -1423,7 +1492,8 @@ resp_outputs <- ({
     guides(alpha = "none") +
     labs(title = "Standardised outcome, normalised dependant", 
          y = y_lab,
-         x = x_lab, shape = "") +
+         x = x_lab,
+         shape = "") +
     theme(
       legend.position = "bottom",
       legend.justification = "center",
@@ -1435,8 +1505,10 @@ resp_outputs <- ({
     p_raw_raw = p_raw_raw,
     p_norm_raw = p_norm_raw,
     p_norm_std = p_norm_std,
-    std_mod_tab = std_mod_tab,
-    full_mod_tab = full_mod_tab
+    std_mod = resp_mods$mod,
+    full_mod = resp_mods$mod_full,
+    std_mod_tabs = std_mod_tabs,
+    full_mod_tabs = full_mod_tabs
   )
   
 })
