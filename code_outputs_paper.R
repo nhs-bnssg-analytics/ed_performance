@@ -33,8 +33,24 @@ patchwork::wrap_plots(resp_outputs$p_norm_raw + labs(title = "Observed outcome, 
 ggplot2::ggsave("materials/response_time_raw_standard.png",
                 ggplot2::last_plot(),
                 height = 15,
-                width = 20, 
+                width = 20,
                 scale = 0.5)
+
+map(resp_outputs$full_mod, broom::tidy) %>%
+  bind_rows(.id = "call_category") %>%
+  filter(term == "n_dta_norm") %>%
+  select(call_category, estimate, std.error) %>%
+  mutate(hi = estimate+std.error*qnorm(0.975), lo = estimate-std.error*qnorm(0.975)) %>%
+  expand_grid(ed_size = seq(5, 30, 1), n = 1) %>%
+  mutate(diff = (n/ed_size)*estimate,
+         diff_lo = (n/ed_size)*lo,
+         diff_hi = (n/ed_size)*hi,
+         ) %>%
+  ggplot(aes(x = ed_size, y = diff, col = factor(call_category))) +
+  geom_ribbon(aes(ymin = diff_lo, ymax = diff_hi), alpha = 0.1) +
+  geom_line() +
+  theme_minimal()
+  
 
 
 # DOWNSTREAM OUTPUTS

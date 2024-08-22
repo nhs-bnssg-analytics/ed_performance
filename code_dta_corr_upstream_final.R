@@ -732,9 +732,9 @@ plot_df <- mod_dat %>%
 
 
 p_std <- plot_df %>%
-  ggplot(aes(x = n_dta_norm, y = handover_adj/60)) +
+  ggplot(aes(x = n_dta_norm^2, y = handover_adj/60, group = cut_width(n_dta_norm, width = 0.05))) +
   # geom_boxplot(outliers = FALSE) +
-  geom_boxplot(mapping = aes(group = cut_width(n_dta, width = 1)), outliers = FALSE, fatten = NULL) +
+  geom_boxplot(outliers = FALSE, fatten = NULL) +
   # scale_y_continuous(limits = c(0, 300), breaks = seq(0, 300, 30)) +
   # geom_point(aes(y = standard), col = "red") +
   stat_summary(fun = ~mean(.x), geom = "point", col = "black", aes(shape = "Mean")) +
@@ -1505,8 +1505,8 @@ resp_outputs <- local({
     p_raw_raw = p_raw_raw,
     p_norm_raw = p_norm_raw,
     p_norm_std = p_norm_std,
-    std_mod = resp_mods$mod,
-    full_mod = resp_mods$mod_full,
+    std_mod = set_names(resp_mods$mod, resp_mods$call_category),
+    full_mod = set_names(resp_mods$mod_full, resp_mods$call_category),
     std_mod_tabs = std_mod_tabs,
     full_mod_tabs = full_mod_tabs
   )
