@@ -26,6 +26,11 @@ snapshot_seq <- seq.POSIXt(from = as.POSIXct(lubridate::ymd(report_start)),
 snapshot_int <- map(snapshot_seq, ~lubridate::interval(.x - dminutes((60*n_hour)/2),
                                                        .x + dminutes((60*n_hour)/2)))
 
+# Site normalisation data
+site_resus_maj <- tibble(site = c("BRI", "WESTON", "SOUTHMEAD HOSPITAL"), maj = c(16, 9, 14), resus = c(8, 4, 6)) %>%
+  mutate(total = maj + resus)
+
+
 dta_df <- local({
   string_ecds<-glue::glue("select Arrival_Date,
                         Arrival_Time,
@@ -588,9 +593,6 @@ ggsave("materials/dta_handover_scatter_quant_paper_all_site.png",
 
 
 # Normalisation and standardisation
-# Site normalisation data
-site_resus_maj <- tibble(site = c("BRI", "WESTON", "SOUTHMEAD HOSPITAL"), maj = c(16, 9, 14), resus = c(8, 4, 6)) %>%
-  mutate(total = maj + resus)
 
 
 handover_outputs <- ({
@@ -706,7 +708,29 @@ std_mod_tab <- gtsummary::tbl_regression(
   gtsummary::as_gt() %>%
   gt::tab_header(title = gt::md(glue::glue('**Ambulance Handover Time (min)**')))#,
 
-full_mod <- lm(handover_time/60 ~ . -n_dta -n_ed, data = mod_dat)
+full_mod <- lm(handover_time/60 ~ age + n_ed_norm + n_dta_norm + wkend + hour, data = mod_dat)
+
+# This code assesses which transform is best?
+
+
+pow <- mod_dat %>%
+  nest() %>%
+  expand_grid(pow = seq(0.1, 4, 0.01)) %>%
+  mutate(data = map2(data, pow, ~
+                       mutate(.x, n_dta_norm = n_dta_norm ^ .y))) %>% mutate(lm = map(
+                         data,
+                         ~ lm(handover_time / 60 ~ age + n_ed_norm + n_dta_norm + wkend + hour, data = .x)
+                       )) %>%
+  mutate(stats = map(lm, broom::glance)) %>%
+  unnest(stats) %>% 
+  slice_min(AIC, n = 1) %>%
+  pull(pow)
+
+mod_dat_trans = mutate(mod_dat, n_dta_norm_trans = n_dta_norm^pow)
+full_mod_trans <- lm(handover_time/60 ~ age + n_dta_norm_trans + n_ed_norm + wkend + hour, data = mod_dat_trans)
+
+
+
 full_mod_tab <-  full_mod %>%
   gtsummary::tbl_regression(
     label = list(
@@ -732,7 +756,7 @@ plot_df <- mod_dat %>%
 
 
 p_std <- plot_df %>%
-  ggplot(aes(x = n_dta_norm^2, y = handover_adj/60, group = cut_width(n_dta_norm, width = 0.05))) +
+  ggplot(aes(x = n_dta_norm, y = handover_adj/60, group = cut_width(n_dta_norm, width = 0.05))) +
   # geom_boxplot(outliers = FALSE) +
   geom_boxplot(outliers = FALSE, fatten = NULL) +
   # scale_y_continuous(limits = c(0, 300), breaks = seq(0, 300, 30)) +
@@ -758,12 +782,43 @@ p_std <- plot_df %>%
         legend.justification = "center",
         legend.title = element_text())
 
+p_std_trans <- plot_df %>%
+  ggplot(aes(x = n_dta_norm, y = handover_adj/60, group = cut_width(n_dta_norm, width = 0.05))) +
+  # geom_boxplot(outliers = FALSE) +
+  geom_boxplot(outliers = FALSE, fatten = NULL, width = 5) +
+  # scale_y_continuous(limits = c(0, 300), breaks = seq(0, 300, 30)) +
+  # geom_point(aes(y = standard), col = "red") +
+  stat_summary(fun = ~mean(.x), geom = "point", col = "black", aes(shape = "Mean")) +
+  stat_summary(fun = ~quantile(.x, 0.95), geom = "point", col = "black", aes(shape = "95th percentile")) +
+  # bnssgtheme() +
+  theme_minimal() +
+  scale_shape_manual(values = c(21, 24, 19), guide = guide_legend(override.aes = list(size = 3,
+                                                                                      alpha = 1))) +
+  scale_x_continuous(labels = scales::percent, transform = ggforce::power_trans(pow)) +
+  scale_shape_manual(values = c(19, 17),
+                      guide = guide_legend(override.aes = list(size = 3,
+                                                               alpha = 1))) +
+  # scale_colour_manual(values = c(viridis::viridis(n = 2, end = 0.6, begin = 0.2, direction = -1), "black"),
+  #                     guide = guide_legend(override.aes = list(size = 3,
+  #                                                              alpha = 1))) +
+  labs(title = "Standardised outcome, normalised dependant",
+       y = y_lab,
+       x = x_lab,
+       shape = "") +
+  theme(legend.position = "bottom",
+        legend.justification = "center",
+        legend.title = element_text())
+
 
 list(
   p_raw = p_raw,
   p_std = p_std,
+  p_std_trans = p_std_trans,
+  mod_dat_row = mod_dat[1, ],
   std_mod = std_mod,
   full_mod = full_mod,
+  full_mod_trans = full_mod_trans,
+  trans_pow = pow,
   std_mod_tab = std_mod_tab,
   full_mod_tab = full_mod_tab
 )
@@ -1507,6 +1562,7 @@ resp_outputs <- local({
     p_norm_std = p_norm_std,
     std_mod = set_names(resp_mods$mod, resp_mods$call_category),
     full_mod = set_names(resp_mods$mod_full, resp_mods$call_category),
+    mod_dat_row = mod_dat[1, ],
     std_mod_tabs = std_mod_tabs,
     full_mod_tabs = full_mod_tabs
   )

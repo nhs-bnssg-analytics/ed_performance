@@ -36,6 +36,23 @@ ggplot2::ggsave("materials/response_time_raw_standard.png",
                 width = 20,
                 scale = 0.5)
 
+
+handover_outputs$mod_dat_row %>%
+  select(-n_dta) %>%
+  expand_grid(
+              n_dta = seq(0, 35, 5),
+              # n_dta = c(seq(0, 35, 5), seq(1, 36, 5)),
+              ed_size = seq(5, 35, 10))  %>%
+  bind_rows(., mutate(., n_dta = n_dta + 1), .id = "id") %>%
+  mutate(id = str_c("row_", id), n_dta_norm_trans = (n_dta / ed_size) ^ pow) %>%
+  bind_cols(., pred = predict(handover_outputs$full_mod_trans, newdata = .)) %>% 
+  select(id, n_dta, ed_size, pred) %>%
+  pivot_wider(id_cols = c(ed_size), names_from = id, values_from = pred)
+  
+
+
+
+
 map(resp_outputs$full_mod, broom::tidy) %>%
   bind_rows(.id = "call_category") %>%
   filter(term == "n_dta_norm") %>%
@@ -50,6 +67,30 @@ map(resp_outputs$full_mod, broom::tidy) %>%
   geom_ribbon(aes(ymin = diff_lo, ymax = diff_hi), alpha = 0.1) +
   geom_line() +
   theme_minimal()
+
+
+
+resp_outputs$mod_dat_row %>%
+  expand_grid(n_dta = 10:11, ed_size = seq(5, 35, 1)) %>%
+  mutate(n_dta_norm = n_dta/ed_size) %>%
+  group_by(ed_size) %>%
+  nest() %>%
+  mutate(pred = map(data, function(data) 
+    map(resp_outputs$full_mod,
+        ~predict(.x, data)) %>%
+        # ~predict(.x, data, interval = "prediction", level = 0.5)) %>%
+      as.list() %>% as.data.frame()
+     )
+    ) %>%
+  unnest(pred) %>%
+  select(-data) %>%
+  pivot_longer(-ed_size, names_to = c("call_cat")) %>%
+  group_by(ed_size, call_cat) %>%
+  mutate(id = str_c("row_", 1:n())) %>%
+  pivot_wider(id_cols = c(ed_size, call_cat), names_from = id, values_from = value) %>%
+  mutate(value = row_2 - row_1) %>%
+  ggplot(aes(x = ed_size, y = value, col = call_cat)) + geom_line()
+  
   
 
 
