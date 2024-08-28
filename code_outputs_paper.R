@@ -37,17 +37,48 @@ ggplot2::ggsave("materials/response_time_raw_standard.png",
                 scale = 0.5)
 
 
-handover_outputs$mod_dat_row %>%
+handover_model_plot_dat <- handover_outputs$mod_dat_row %>%
   select(-n_dta) %>%
   expand_grid(
               n_dta = seq(0, 35, 5),
               # n_dta = c(seq(0, 35, 5), seq(1, 36, 5)),
-              ed_size = seq(5, 35, 10))  %>%
+              ed_size = seq(10, 35, 1))  %>%
+  ungroup() %>%
+  mutate(row_id = 1:n(),
+         n_dta_i = n_dta) %>%
   bind_rows(., mutate(., n_dta = n_dta + 1), .id = "id") %>%
-  mutate(id = str_c("row_", id), n_dta_norm_trans = (n_dta / ed_size) ^ pow) %>%
+  mutate(id = str_c("row_", id), n_dta_norm_trans = (n_dta / ed_size) ^ handover_outputs$trans_pow) %>%
   bind_cols(., pred = predict(handover_outputs$full_mod_trans, newdata = .)) %>% 
-  select(id, n_dta, ed_size, pred) %>%
-  pivot_wider(id_cols = c(ed_size), names_from = id, values_from = pred)
+  select(id, row_id, n_dta_i, ed_size, pred) %>%
+  pivot_wider(id_cols = c(ed_size, n_dta_i, row_id), names_from = id, values_from = pred) %>%
+  mutate(diff = row_2 - row_1) 
+  
+  
+  
+  ggplot(handover_model_plot_dat, 
+         aes(x = ed_size, y = diff, group = n_dta_i)) +
+  geom_line() +
+  scale_x_continuous(limits = c(2, NA)) +
+  scale_y_continuous(position = "right") +
+  directlabels::geom_dl(aes(label = str_c("DTA Queue: ", n_dta_i)),
+                        method = list(directlabels::dl.combine("first.points"),
+                                      directlabels::dl.trans(x=x-0.5)), cex = 1) +
+  theme_minimal() +
+  labs(x = "ED capacity (majors + resus)",
+       y = str_wrap("Increase in handover time associated with 1 extra person on DTA Queue (min)", 50))
+  
+  ggplot2::ggsave("materials/handover_model_plot.png",
+                  ggplot2::last_plot(),
+                  bg = "white",
+                  height = 7.5,
+                  width = 10, 
+                  scale = 0.6)
+  
+  
+ 
+
+# +
+#   facet_wrap(vars(n_dta_i))
   
 
 
@@ -89,11 +120,35 @@ resp_outputs$mod_dat_row %>%
   mutate(id = str_c("row_", 1:n())) %>%
   pivot_wider(id_cols = c(ed_size, call_cat), names_from = id, values_from = value) %>%
   mutate(value = row_2 - row_1) %>%
-  ggplot(aes(x = ed_size, y = value, col = call_cat)) + geom_line()
+  ggplot(aes(x = ed_size, y = value, group = call_cat)) +
+  geom_line() +
+  scale_y_continuous(position = "right") +
+  scale_x_continuous(limits = c(-5, NA), breaks = seq(0, 50, 10)) +
+  directlabels::geom_dl(aes(label = str_c("Call category ", str_remove(call_cat, "cat"))),
+                        method = list(directlabels::dl.combine("first.points"),
+                                      directlabels::dl.trans(x=x-0.5)), cex = 1) +
+  theme_minimal() +
+  labs(x = "ED capacity (majors + resus)",
+       y = str_wrap("Increase in call response time associated with 1 extra person on DTA Queue (min)", 50))
   
-  
+ggplot2::ggsave("materials/response_model_plot.png",
+                ggplot2::last_plot(),
+                bg = "white",
+                height = 7.5,
+                width = 10, 
+                scale = 0.6)
 
 
+
+
+ggplot2::ggsave("materials/response_model_plot_log_y.png",
+                ggplot2::last_plot() +
+                  scale_y_log10(position = "right") +
+                  guides(y =  guide_axis_logticks(position = "right")),
+                bg = "white",
+                height = 7.5,
+                width = 10, 
+                scale = 0.6)
 # DOWNSTREAM OUTPUTS
 
 los_outputs <- readRDS("data/los_outputs.RDS")

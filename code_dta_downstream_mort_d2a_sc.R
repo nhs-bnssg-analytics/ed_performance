@@ -594,7 +594,7 @@ mod_df <- dat_adm %>%
     vw_score_sq,
     mort_30,
     pathway,
-    sc,
+    # sc,
     dta_time,
     ed_time,
   )
@@ -608,7 +608,8 @@ split_mort <- initial_split(mod_df, strata = mort_30)
 glm_spec <- logistic_reg()
 
 rec_mort <- recipe(mort_30 ~ ., data = training(split_mort)) %>%
-  update_role(pathway, sc, new_role = "outcomes") %>%
+  # update_role(pathway, sc, new_role = "outcomes") %>%
+  update_role(pathway, new_role = "outcomes") %>%
   step_other(all_nominal_predictors(), -dta_time, other = "other") %>%
   step_novel(all_nominal_predictors(), new_level = "novel") %>%
   step_dummy(all_nominal_predictors()) %>%
@@ -630,7 +631,12 @@ augment(fit_mort) %>%
 
 full_fit_mort <- fit(wf_mort, mod_df)
 full_fit_mort %>% broom::tidy() %>% filter(str_detect(term, "dta"))
-
+full_pred_mort <- mod_df %>%
+  filter(dta_time <= t_max) %>%
+  bake(prep(rec_mort), new_data = .) %>%
+  predict(extract_fit_engine(full_fit_mort),
+          newdata = .,
+          type = "response")
 
 
 # pathway outcome

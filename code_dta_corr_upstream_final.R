@@ -17,6 +17,10 @@ report_start <- '2021-06-01'
 report_end <- '2024-06-01'
 n_hour <- 2
 
+# Site normalisation data
+site_resus_maj <- tibble(site = c("BRI", "WESTON", "SOUTHMEAD HOSPITAL"), maj = c(16, 9, 14), resus = c(8, 4, 6)) %>%
+  mutate(total = maj + resus)
+
 # sequence of time snapshots (i.e. when we measure DTA queue)
 snapshot_seq <- seq.POSIXt(from = as.POSIXct(lubridate::ymd(report_start)),
                            to = as.POSIXct(lubridate::ymd(report_end)),
@@ -26,9 +30,6 @@ snapshot_seq <- seq.POSIXt(from = as.POSIXct(lubridate::ymd(report_start)),
 snapshot_int <- map(snapshot_seq, ~lubridate::interval(.x - dminutes((60*n_hour)/2),
                                                        .x + dminutes((60*n_hour)/2)))
 
-# Site normalisation data
-site_resus_maj <- tibble(site = c("BRI", "WESTON", "SOUTHMEAD HOSPITAL"), maj = c(16, 9, 14), resus = c(8, 4, 6)) %>%
-  mutate(total = maj + resus)
 
 
 dta_df <- local({
@@ -783,7 +784,7 @@ p_std <- plot_df %>%
         legend.title = element_text())
 
 p_std_trans <- plot_df %>%
-  ggplot(aes(x = n_dta_norm, y = handover_adj/60, group = cut_width(n_dta_norm, width = 0.05))) +
+  ggplot(aes(x = n_dta_norm^pow, y = handover_adj/60, group = cut_width(n_dta_norm, width = 0.05))) +
   # geom_boxplot(outliers = FALSE) +
   geom_boxplot(outliers = FALSE, fatten = NULL, width = 5) +
   # scale_y_continuous(limits = c(0, 300), breaks = seq(0, 300, 30)) +

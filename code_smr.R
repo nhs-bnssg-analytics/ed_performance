@@ -486,6 +486,12 @@ full_fit %>%
   broom::tidy() %>%
   filter(term == "dta_time")
 
+# # A tibble: 1 × 5
+# term     estimate std.error statistic p.value
+# <chr>       <dbl>     <dbl>     <dbl>   <dbl>
+#   1 dta_time 0.000230 0.0000707      3.25 0.00117
+
+
 full_fit %>%
   extract_fit_engine() %>%
   gtsummary::tbl_regression(label = list(
