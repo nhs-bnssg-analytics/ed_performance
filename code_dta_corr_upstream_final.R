@@ -18,7 +18,7 @@ report_end <- '2024-06-01'
 n_hour <- 2
 
 # Site normalisation data
-site_resus_maj <- tibble(site = c("BRI", "WESTON", "SOUTHMEAD HOSPITAL"), maj = c(16, 9, 14), resus = c(8, 4, 6)) %>%
+site_resus_maj <- tibble(site = c("BRISTOL ROYAL INFIRMARY", "WESTON GENERAL HOSPITAL", "SOUTHMEAD HOSPITAL"), maj = c(16, 9, 14), resus = c(8, 4, 6)) %>%
   mutate(total = maj + resus)
 
 # sequence of time snapshots (i.e. when we measure DTA queue)
@@ -33,6 +33,7 @@ snapshot_int <- map(snapshot_seq, ~lubridate::interval(.x - dminutes((60*n_hour)
 
 
 dta_df <- local({
+  browser()
   string_ecds<-glue::glue("select Arrival_Date,
                         Arrival_Time,
                         Initial_Assessment_Date,
@@ -482,6 +483,9 @@ handover_df <-  readRDS("data/upstream_handover_df.RDS")
 resp_time_df <-  readRDS("data/upstream_resp_time_df.RDS")
 
 
+dta_df <- dta_df %>%
+  filter(!(site == "WESTON GENERAL HOSPITAL" & hour(dt) %in% c(10:12, 1:7))) 
+
 
 # Handover time quantile analysis
 # fitting model
@@ -602,20 +606,20 @@ handover_outputs <- ({
   y_lab <- "Ambulance Handover Time\n(min)"
 
   # Non standardised plot
-  p_raw <- dta_df %>%
+  p_raw <-   dta_df %>%
     left_join(handover_df) %>%
     left_join(site_resus_maj) %>%
     # filter(site == "SOUTHMEAD HOSPITAL") %>%
     filter(!between(dt, ymd("2022-04-01"), ymd("2022-07-10"))) %>%
     na.omit() %>%
-    filter(n_dta <= 35) %>%
     mutate(n_dta_norm = n_dta/total,
            standard = 30) %>%
-    distinct() %>%
-    # mutate(n_dta = factor(n_dta)) %>%
+    filter(n_dta_norm <= 1.75) %>%
+    # distinct() %>%
+    mutate(n_dta_norm = plyr::round_any(n_dta_norm, accuracy = 0.05)) %>%
     ggplot(aes(x = n_dta_norm, y = handover_time/60)) +
     # geom_boxplot(outliers = FALSE) +
-    geom_boxplot(mapping = aes(group = cut_width(n_dta, width = 1)), outliers = FALSE, fatten = NULL) +
+    geom_boxplot(mapping = aes(group = cut_width(n_dta_norm, width = 0.05)), outliers = FALSE, fatten = NULL) +
     # geom_hline(yintercept = 30, linetype = 2) +
     scale_y_continuous(limits = c(0, 300), breaks = seq(0, 300, 30)) +
     # geom_ribbon(aes(ymin = lwr, ymax = upr, fill = q), col = NA, alpha = 0.25) +
@@ -647,6 +651,8 @@ handover_outputs <- ({
 
   
 # Standardised plot  
+  
+  
 mod_dat <- dta_df %>% 
   left_join(handover_df) %>%
   left_join(site_resus_maj) %>%
@@ -682,6 +688,7 @@ mod_dat <- dta_df %>%
     na.omit() %>%
     filter(!between(dt, ymd("2022-04-01"), ymd("2022-07-10"))) %>%
     filter(handover_time > 0) %>%
+    filter(n_dta_norm <= 1.75) %>%
     mutate(wkend = factor(ifelse(wday(dt, week_start = 1) < 6, "Yes", "No")),
            hour = factor(cut(hour(dt), breaks = seq(0, 24, 6), include.lowest = TRUE), ordered = FALSE)) %>% 
     mutate(hour = fct_relevel(hour, "(12,18]", after = 0)) %>%
@@ -753,10 +760,12 @@ mod_dat <- mod_dat %>%
          handover_adj = handover_time - handover_standard) 
 
 plot_df <- mod_dat %>%
-  filter(n_dta <= 35) 
+  # filter(n_dta <= 35) 
+  filter(n_dta_norm <= 1.75)
 
 
 p_std <- plot_df %>%
+  mutate(n_dta_norm = plyr::round_any(n_dta_norm, accuracy = 0.05)) %>%
   ggplot(aes(x = n_dta_norm, y = handover_adj/60, group = cut_width(n_dta_norm, width = 0.05))) +
   # geom_boxplot(outliers = FALSE) +
   geom_boxplot(outliers = FALSE, fatten = NULL) +
@@ -783,10 +792,23 @@ p_std <- plot_df %>%
         legend.justification = "center",
         legend.title = element_text())
 
+plot_df <- mod_dat %>%
+  # filter(n_dta <= 35) 
+  filter(n_dta_norm <= 1.75)
+
+dta_range <- range(plot_df$n_dta_norm)^pow
+dta_seq <- seq(from = dta_range[1], to = dta_range[2], length.out = 21)^(1/pow)
+dta_seq[length(dta_seq)] <- 1.75
+
 p_std_trans <- plot_df %>%
-  ggplot(aes(x = n_dta_norm^pow, y = handover_adj/60, group = cut_width(n_dta_norm, width = 0.05))) +
+  mutate(x_bin = cut(n_dta_norm, breaks = dta_seq, include.lowest = TRUE, right = FALSE),
+         left = dta_seq[findInterval(n_dta_norm, dta_seq, all.inside = T)],
+         right = dta_seq[findInterval(n_dta_norm, dta_seq, all.inside = T)+1],
+         mids = (left + right)/2,
+         width = right - left) %>%
+  ggplot(aes(x = mids, y = handover_adj/60, group = x_bin)) +
   # geom_boxplot(outliers = FALSE) +
-  geom_boxplot(outliers = FALSE, fatten = NULL, width = 5) +
+  geom_boxplot(outliers = FALSE, fatten = NULL) +
   # scale_y_continuous(limits = c(0, 300), breaks = seq(0, 300, 30)) +
   # geom_point(aes(y = standard), col = "red") +
   stat_summary(fun = ~mean(.x), geom = "point", col = "black", aes(shape = "Mean")) +
@@ -797,8 +819,8 @@ p_std_trans <- plot_df %>%
                                                                                       alpha = 1))) +
   scale_x_continuous(labels = scales::percent, transform = ggforce::power_trans(pow)) +
   scale_shape_manual(values = c(19, 17),
-                      guide = guide_legend(override.aes = list(size = 3,
-                                                               alpha = 1))) +
+                     guide = guide_legend(override.aes = list(size = 3,
+                                                              alpha = 1))) +
   # scale_colour_manual(values = c(viridis::viridis(n = 2, end = 0.6, begin = 0.2, direction = -1), "black"),
   #                     guide = guide_legend(override.aes = list(size = 3,
   #                                                              alpha = 1))) +
@@ -1226,6 +1248,7 @@ dta_df %>%
 
 
 resp_outputs <- local({
+  
   x_lab <- "DTA Queue as a Percentage of Majors & Resus Cubicles"
   y_lab <- "Ambulance Response Time\n(min)"
   
@@ -1291,16 +1314,18 @@ resp_outputs <- local({
       legend.title = element_blank(),
       legend.spacing.x = unit(0, "cm")
 )
-  
+
   p_norm_raw <- dta_df %>%
     ungroup() %>%
-    filter(n_dta <= 35) %>%
+    # filter(n_dta <= 35) %>%
     # na.omit() %>%
     left_join(site_resus_maj) %>%
     mutate(n_dta_norm = n_dta / total) %>%
     group_by(dt) %>%
     summarise(n_dta_norm = mean(n_dta_norm, na.rm = TRUE)) %>%
-    left_join(resp_time_df) %>%
+    mutate(n_dta_norm = plyr::round_any(n_dta_norm, accuracy = 0.05)) %>%
+    filter(n_dta_norm <= 1.75) %>%
+    left_join(resp_time_df) 
     filter(!between(dt, ymd("2022-04-01"), ymd("2022-07-10"))) %>%
     na.omit() %>%
     distinct() %>%
@@ -1308,7 +1333,7 @@ resp_outputs <- local({
     ggplot(aes(x = n_dta_norm, y = response)) +
     # geom_boxplot(outliers = FALSE) +
     geom_boxplot(
-      mapping = aes(group = cut_width(n_dta_norm, width = .01)),
+      mapping = aes(group = cut_width(n_dta_norm, width = .05)),
       outliers = FALSE,
       fatten = NULL
     ) +
@@ -1373,6 +1398,7 @@ resp_outputs <- local({
               ) %>%
     left_join(resp_time_df) %>%
     na.omit() %>%
+    filter(n_dta_norm <= 1.75) %>%
     distinct() %>%
     mutate(age = factor(age)) %>%
     mutate(
@@ -1515,10 +1541,11 @@ resp_outputs <- local({
     
   
   p_norm_std <- plot_dat %>%
+    mutate(n_dta_norm = plyr::round_any(n_dta_norm, accuracy = 0.05)) %>%
     ggplot(aes(x = n_dta_norm, y = response_adj)) +
     # geom_boxplot(outliers = FALSE) +
     geom_boxplot(
-      mapping = aes(group = cut_width(n_dta_norm, width = .01)),
+      mapping = aes(group = cut_width(n_dta_norm, width = .05)),
       outliers = FALSE,
       fatten = NULL
     ) +

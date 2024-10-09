@@ -22,6 +22,16 @@ ggplot2::ggsave("materials/handover_raw_standard.png",
                 width = 20, 
                 scale = 0.5)
 
+ggplot2::ggsave("materials/handover_raw_transformed.png",
+                handover_outputs$p_std_trans,
+                bg = "white",
+                height = 7.5,
+                width = 10, 
+                scale = 0.7)
+
+
+
+
 patchwork::wrap_plots(resp_outputs$p_norm_raw + labs(title = "Observed outcome, normalised dependent"),
                       resp_outputs$p_norm_std + labs(title = "Standadised outcome, normalised dependent") + guides(shape = FALSE),
                       axes = "collect",
@@ -40,7 +50,7 @@ ggplot2::ggsave("materials/response_time_raw_standard.png",
 handover_model_plot_dat <- handover_outputs$mod_dat_row %>%
   select(-n_dta) %>%
   expand_grid(
-              n_dta = seq(0, 35, 5),
+              n_dta = seq(0, 35, 10),
               # n_dta = c(seq(0, 35, 5), seq(1, 36, 5)),
               ed_size = seq(10, 35, 1))  %>%
   ungroup() %>%
