@@ -327,7 +327,6 @@ dat_disch <- arrivals %>%
 
 # reattendance/readmissions outcomes
 
-
 arrivals_full <- dat_ecds %>%
   select(nhs_number, arrival_dt) %>%
   distinct()

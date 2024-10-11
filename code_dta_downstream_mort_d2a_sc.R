@@ -304,6 +304,36 @@ dat_spec <- arrivals %>%
 
 # d2a pathway
 pathway_df <- local({
+  
+  pathway_recodes <- c(
+    "Pathway 3 - Other" = "P3",
+    "Awaiting confirmation MDT" = "Other",
+    "Awaiting referral to SPA" = "Other",
+    "Pathway 3 - D2A" = "P3",
+    "Pathway 0" = "Other",
+    "Pathway 1 - D2A" = "P1",
+    "Awaiting confirmation Social" = "Other",
+    "Pathway 2 - Other" = "P2",
+    "Pathway 2 - D2A" = "P2",
+    "Pathway 2" = "P2",
+    "Pathway 2  Safeguarding concern" = "P2",
+    "Pathway 2   Specialist  eg BIRU" = "P2",
+    "Awaiting confirmation Other" = "Other",
+    "Pathway 1 - Other" = "P1",
+    "Pathway 1" = "P1",
+    "P3 / Other Complex Discharge" = "P3",
+    "Pathway 3 / Other Complex Discharge" = "P3",
+    "Uncoded" = "Other",
+    "Repatriation" = "Other",
+    "NCTR Null" = "Other",
+    "Not Set" = "Other",
+    "18a  Infection  bxviii  Standard" = "Other",
+    "xviii. Awaiting discharge to a care home but have not had a COVID 19 test (in 48 hrs preceding discharge)." = "Other",
+    "15b  Repat  bxv  WGH" = "Other",
+    "Meets Criteria to Reside" = "Other"
+  )
+  
+  
   nctr_df <-
     RODBC::sqlQuery(
       con,
@@ -351,14 +381,7 @@ pathway_df <- local({
   
   pathway_df <- nctr_df %>%
     mutate(pathway = recode(Current_Delay_Code_Standard,
-                            "P3 / Other Complex Discharge" = "P3",
-                            "18a  Infection  bxviii  Standard" = "Other",
-                            "Uncoded" = "Other",
-                            "Repatriation" = "Other",
-                            "NCTR Null" = "Other",
-                            "Not Set" = "Other",
-                            "xviii. Awaiting discharge to a care home but have not had a COVID 19 test (in 48 hrs preceding discharge)." = "Other",
-                            "15b  Repat  bxv  WGH" = "Other"),
+                            !!!pathway_recodes),
            pathway = coalesce(pathway, "Other")) %>%
     mutate(pathway = if_else(pathway %in% c("Other", "P1", "P2", "P3"), pathway, "Other")) %>%
     filter(Person_Stated_Gender_Code %in% 1:2) %>%
@@ -386,7 +409,13 @@ pathway_df <- local({
 pathway_arr <- arrivals %>%
   left_join(pathway_df) %>%
   mutate(diff = interval(departure_dt, as.Date(adm_date))/ddays(1)) %>%
-  filter(between(diff, 0, 2)) %>%
+  filter(diff < 30) %>% # D2A before 30 days after leaving ED (negative left in to filter our previous D2A later)
+  # filter(between(diff, 0, 2)) %>%
+  # remove any patients with previous D2A
+  group_by(arr_id) %>%
+  filter(!any(diff < 0)) %>%
+  filter(diff == min(diff)) %>% # take the lowest diff
+  ungroup() %>%
   select(nhs_number, arr_id, pathway)
 
 # # social care:
@@ -651,7 +680,8 @@ split_pathway <- initial_split(mod_df_pathway, strata = pathway)
 glm_spec <- logistic_reg()
 
 rec_pathway <- recipe(pathway ~ ., data = training(split_pathway)) %>%
-  update_role(mort_30, sc, new_role = "outcomes") %>%
+  # update_role(mort_30, sc, new_role = "outcomes") %>%
+  update_role(mort_30, new_role = "outcomes") %>%
   # update_role(ed_time, new_role = "not for prediction") %>%
   update_role(dta_time, ed_time, new_role = "not for prediction") %>%
   # step_other(all_nominal_predictors(), -dta_time, other = "other") %>%
@@ -993,3 +1023,10 @@ ggsave("materials/scratch_smr_multiplot.png",
        height = 15,
        width = 20, 
        scale = 0.5)
+
+ggsave("materials/scratch_d2a_smr_multiplot.png",
+       last_plot(),
+       bg = "white",
+       height = 7.5,
+       width = 10, 
+       scale = 0.7)
