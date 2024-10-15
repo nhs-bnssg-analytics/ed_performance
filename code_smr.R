@@ -59,6 +59,7 @@ dat_ecds_raw<-sqlQuery(con,string_ecds)
 saveRDS(dat_ecds_raw, "data/dat_ecds_raw_new.RDS")
 dat_ecds_raw <- readRDS("data/dat_ecds_raw_new.RDS")
 
+
 dat_ecds<-dat_ecds_raw %>%
   mutate(NHS_Number = as.character(NHS_Number)) %>%
   mutate(arrival_dt=as.POSIXct(paste0(Arrival_Date," ",substr(Arrival_Time,1,8)),format="%Y-%m-%d %H:%M:%S")) %>%
@@ -334,10 +335,11 @@ dat_adm <- dat_ecds %>%
   select(-arr_id) %>%
   filter(MainSpecialtyCode %in% c(300, 326, 430)) %>% # filter General Internal Medicine
   select(-MainSpecialtyCode) %>%
-  na.omit()
+  na.omit() %>%
+  distinct()
 
-saveRDS(dat_adm, "data/dat_adm_new.RDS")
-# dat_adm <- readRDS("data/dat_adm_new.RDS")
+saveRDS(dat_adm, "data/dat_adm_new_1.RDS")
+# dat_adm <- readRDS("data/dat_adm_new_1.RDS")
 
 
 mortality_df <- local({
@@ -454,8 +456,8 @@ mod_df <- dat_adm %>%
    ed_time
   )
 
-saveRDS(mod_df, "data/smr_mod_df_new.RDS")
-mod_df <- readRDS("data/smr_mod_df_new.RDS")
+saveRDS(mod_df, "data/smr_mod_df_new_1.RDS")
+mod_df <- readRDS("data/smr_mod_df_new_1.RDS")
 
 set.seed(123)
 
@@ -463,8 +465,8 @@ split <- initial_split(mod_df, strata = mort_30)
 glm_spec <- logistic_reg()
 
 rec <- recipe(mort_30 ~ ., data = training(split)) %>%
-  # update_role(ed_time, new_role = "not for prediction") %>%
-  update_role(dta_time, ed_time, new_role = "not for prediction") %>%
+  update_role(ed_time, new_role = "not for prediction") %>%
+  # update_role(dta_time, ed_time, new_role = "not for prediction") %>%
   # step_other(all_nominal_predictors(), -dta_time, other = "other") %>%
   # step_novel(all_nominal_predictors(), new_level = "novel") %>%
   # step_dummy(all_nominal_predictors()) %>%

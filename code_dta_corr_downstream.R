@@ -312,7 +312,7 @@ smr_df <- local({
 
 mod_df <- dta_df %>%
   left_join(mortality_df) %>%
-  filter(site == "SOUTHMEAD HOSPITAL") %>%
+  # filter(site == "SOUTHMEAD HOSPITAL") %>%
   mutate(age_sq = age^2) %>%
   mutate(n_ed_sq = n_ed^2) %>%
   mutate(n_adm_sq = n_adm^2) %>%

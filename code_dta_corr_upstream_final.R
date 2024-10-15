@@ -33,7 +33,6 @@ snapshot_int <- map(snapshot_seq, ~lubridate::interval(.x - dminutes((60*n_hour)
 
 
 dta_df <- local({
-  browser()
   string_ecds<-glue::glue("select Arrival_Date,
                         Arrival_Time,
                         Initial_Assessment_Date,
@@ -602,7 +601,9 @@ ggsave("materials/dta_handover_scatter_quant_paper_all_site.png",
 
 handover_outputs <- ({
   
-  x_lab <- "DTA Queue as a Percentage of Majors & Resus Cubicles"
+  bin_acc <- 0.1
+  
+  x_lab <- "DTA Queue as a Percentage of Cubical Capacity (Majors + Resus)s"
   y_lab <- "Ambulance Handover Time\n(min)"
 
   # Non standardised plot
@@ -616,10 +617,10 @@ handover_outputs <- ({
            standard = 30) %>%
     filter(n_dta_norm <= 1.75) %>%
     # distinct() %>%
-    mutate(n_dta_norm = plyr::round_any(n_dta_norm, accuracy = 0.05)) %>%
+    mutate(n_dta_norm = plyr::round_any(n_dta_norm, accuracy = bin_acc)) %>%
     ggplot(aes(x = n_dta_norm, y = handover_time/60)) +
     # geom_boxplot(outliers = FALSE) +
-    geom_boxplot(mapping = aes(group = cut_width(n_dta_norm, width = 0.05)), outliers = FALSE, fatten = NULL) +
+    geom_boxplot(mapping = aes(group = cut_width(n_dta_norm, width = bin_acc)), outliers = FALSE, fatten = NULL) +
     # geom_hline(yintercept = 30, linetype = 2) +
     scale_y_continuous(limits = c(0, 300), breaks = seq(0, 300, 30)) +
     # geom_ribbon(aes(ymin = lwr, ymax = upr, fill = q), col = NA, alpha = 0.25) +
@@ -651,7 +652,6 @@ handover_outputs <- ({
 
   
 # Standardised plot  
-  
   
 mod_dat <- dta_df %>% 
   left_join(handover_df) %>%
@@ -696,10 +696,10 @@ mod_dat <- dta_df %>%
                              "06:00-12:00" = "(6,12]",
                              "12:00-18:00" = "(12,18]",
                              "18:00-24:00" = "(18,24]")) %>%
-    select(-site, -dt, -maj, -resus, -total) %>%
+    select(-dt, -maj, -resus, -total) %>%
     ungroup() 
 
-handover_mod <- lm(handover_time ~ . -n_dta -n_dta_norm -n_ed -n_ed_norm, data = mod_dat)
+handover_mod <- lm(handover_time ~ . -n_dta -n_dta_norm -n_ed -n_ed_norm -site, data = mod_dat)
 handover_pred <- predict(handover_mod, mod_dat)
 
 std_mod <- handover_mod
@@ -716,7 +716,7 @@ std_mod_tab <- gtsummary::tbl_regression(
   gtsummary::as_gt() %>%
   gt::tab_header(title = gt::md(glue::glue('**Ambulance Handover Time (min)**')))#,
 
-full_mod <- lm(handover_time/60 ~ age + n_ed_norm + n_dta_norm + wkend + hour, data = mod_dat)
+full_mod <- lm(handover_time/60 ~ age + n_ed_norm + n_dta_norm + wkend + hour -site, data = mod_dat)
 
 # This code assesses which transform is best?
 
@@ -757,33 +757,36 @@ full_mod_tab <-  full_mod %>%
 
 mod_dat <- mod_dat %>%
   mutate(handover_standard = handover_pred,
-         handover_adj = handover_time - handover_standard) 
+         handover_adj = handover_time - handover_standard,
+         handover_adj_inv = handover_adj + mean(handover_time)) 
 
 plot_df <- mod_dat %>%
   # filter(n_dta <= 35) 
   filter(n_dta_norm <= 1.75)
 
 
+
 p_std <- plot_df %>%
-  mutate(n_dta_norm = plyr::round_any(n_dta_norm, accuracy = 0.05)) %>%
-  ggplot(aes(x = n_dta_norm, y = handover_adj/60, group = cut_width(n_dta_norm, width = 0.05))) +
+  mutate(n_dta_norm = plyr::round_any(n_dta_norm, accuracy = bin_acc)) %>%
+  mutate(standard = 30) %>%
+  ggplot(aes(x = n_dta_norm, y = handover_adj_inv/60, group = cut_width(n_dta_norm, width = bin_acc))) +
   # geom_boxplot(outliers = FALSE) +
   geom_boxplot(outliers = FALSE, fatten = NULL) +
   # scale_y_continuous(limits = c(0, 300), breaks = seq(0, 300, 30)) +
   # geom_point(aes(y = standard), col = "red") +
-  stat_summary(fun = ~mean(.x), geom = "point", col = "black", aes(shape = "Mean")) +
-  stat_summary(fun = ~quantile(.x, 0.95), geom = "point", col = "black", aes(shape = "95th percentile")) +
+  stat_summary(fun = ~mean(.x), geom = "point", col = "black", aes(col = "Mean", shape = "Mean")) +
+  stat_summary(fun = ~quantile(.x, 0.95), geom = "point", col = "black", aes(col = "95th percentile", shape = "95th percentile")) +
+  geom_point(aes(y = standard, col = "National target")) +
   # bnssgtheme() +
   theme_minimal() +
   scale_shape_manual(values = c(21, 24, 19), guide = guide_legend(override.aes = list(size = 3,
                                                                                       alpha = 1))) +
+  scale_colour_manual(values = c("red", "black"), guide = guide_legend(override.aes = list(size = 3,
+                                                                                           alpha = 1))) +
   scale_x_continuous(labels = scales::percent) +
   scale_shape_manual(values = c(19, 17),
-                      guide = guide_legend(override.aes = list(size = 3,
-                                                               alpha = 1))) +
-  # scale_colour_manual(values = c(viridis::viridis(n = 2, end = 0.6, begin = 0.2, direction = -1), "black"),
-  #                     guide = guide_legend(override.aes = list(size = 3,
-  #                                                              alpha = 1))) +
+                     guide = guide_legend(override.aes = list(size = 3,
+                                                              alpha = 1))) +
   labs(title = "Standardised outcome, normalised dependant",
        y = y_lab,
        x = x_lab,
@@ -806,7 +809,7 @@ p_std_trans <- plot_df %>%
          right = dta_seq[findInterval(n_dta_norm, dta_seq, all.inside = T)+1],
          mids = (left + right)/2,
          width = right - left) %>%
-  ggplot(aes(x = mids, y = handover_adj/60, group = x_bin)) +
+  ggplot(aes(x = mids, y = handover_adj_inv/60, group = x_bin)) +
   # geom_boxplot(outliers = FALSE) +
   geom_boxplot(outliers = FALSE, fatten = NULL) +
   # scale_y_continuous(limits = c(0, 300), breaks = seq(0, 300, 30)) +
@@ -1249,7 +1252,11 @@ dta_df %>%
 
 resp_outputs <- local({
   
-  x_lab <- "DTA Queue as a Percentage of Majors & Resus Cubicles"
+  browser()
+  
+  bin_acc <- 0.1
+  
+  x_lab <- "DTA Queue as a Percentage of Cubical Capacity (Majors + Resus)"
   y_lab <- "Ambulance Response Time\n(min)"
   
   labels <- c(cat1 = "Category 1",
@@ -1261,7 +1268,7 @@ resp_outputs <- local({
   
   # non normalised x-axis
   p_raw_raw <- dta_df %>%
-    left_join(filter(resp_time_df)) %>%
+    left_join(resp_time_df) %>%
     # filter(site == "SOUTHMEAD HOSPITAL") %>%
     filter(!between(dt, ymd("2022-04-01"), ymd("2022-07-10"))) %>%
     na.omit() %>%
@@ -1323,9 +1330,9 @@ resp_outputs <- local({
     mutate(n_dta_norm = n_dta / total) %>%
     group_by(dt) %>%
     summarise(n_dta_norm = mean(n_dta_norm, na.rm = TRUE)) %>%
-    mutate(n_dta_norm = plyr::round_any(n_dta_norm, accuracy = 0.05)) %>%
+    mutate(n_dta_norm = plyr::round_any(n_dta_norm, accuracy = bin_acc)) %>%
     filter(n_dta_norm <= 1.75) %>%
-    left_join(resp_time_df) 
+    left_join(resp_time_df)  %>%
     filter(!between(dt, ymd("2022-04-01"), ymd("2022-07-10"))) %>%
     na.omit() %>%
     distinct() %>%
@@ -1333,12 +1340,12 @@ resp_outputs <- local({
     ggplot(aes(x = n_dta_norm, y = response)) +
     # geom_boxplot(outliers = FALSE) +
     geom_boxplot(
-      mapping = aes(group = cut_width(n_dta_norm, width = .05)),
+      mapping = aes(group = cut_width(n_dta_norm, width = bin_acc)),
       outliers = FALSE,
       fatten = NULL
     ) +
     geom_point(
-      data = {time_std %>% expand_grid(n_dta_norm = seq(0, 1.75, 0.05))},
+      data = {time_std %>% expand_grid(n_dta_norm = seq(0, 1.75, 0.01))},
       aes(y = std, col = "National target"),
     ) +
     stat_summary(
@@ -1541,11 +1548,11 @@ resp_outputs <- local({
     
   
   p_norm_std <- plot_dat %>%
-    mutate(n_dta_norm = plyr::round_any(n_dta_norm, accuracy = 0.05)) %>%
+    mutate(n_dta_norm = plyr::round_any(n_dta_norm, accuracy = bin_acc)) %>%
     ggplot(aes(x = n_dta_norm, y = response_adj)) +
     # geom_boxplot(outliers = FALSE) +
     geom_boxplot(
-      mapping = aes(group = cut_width(n_dta_norm, width = .05)),
+      mapping = aes(group = cut_width(n_dta_norm, width = bin_acc)),
       outliers = FALSE,
       fatten = NULL
     ) +
