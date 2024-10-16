@@ -39,6 +39,7 @@ string_ecds<-glue::glue("select
                         Index_Of_Multiple_Deprivation,
                         Stated_Gender,
                         HES_Age_At_Arrival,
+                        Organisation_Code_Commissioner,
                         Arrival_Mode_Desc,
                         Arrival_Category_Desc,
                         Attendance_Source_Desc,
@@ -61,6 +62,7 @@ saveRDS(dat_ecds_raw, "data/dat_ecds_raw_new.RDS")
 dat_ecds_raw <- readRDS("data/dat_ecds_raw_new.RDS")
 
 dat_ecds<-dat_ecds_raw %>%
+  filter(Organisation_Code_Commissioner == '15C') %>% # filter for 15C as we can not pick up deaths for non BNSSG patients
   mutate(NHS_Number = as.character(NHS_Number)) %>%
   mutate(arrival_dt=as.POSIXct(paste0(Arrival_Date," ",substr(Arrival_Time,1,8)),format="%Y-%m-%d %H:%M:%S")) %>%
   mutate(initial_dt=as.POSIXct(paste0(Initial_Assessment_Date," ",substr(Initial_Assessment_Time,1,8)),format="%Y-%m-%d %H:%M:%S")) %>%
@@ -134,33 +136,33 @@ dat_ecds_n_ed <-
   distinct()
 
 
-# get bnssg nhs nums for filtering
-string_attr <- glue::glue("	select
-	nhs_number
-	,max(attribute_period) as max_date
-	,count(attribute_period) as date_count
-	from
-	MODELLING_SQL_AREA.dbo.primary_care_attributes
-	where attribute_period between '{report_start}' and '{report_end}'
-	group by nhs_number")
-
-
-dat_attr <- sqlQuery(con,string_attr) %>%
-  mutate(nhs_number = as.character(nhs_number))
-
-# saveRDS(dat_attr, "data/dat_attr.RDS")
-dat_attr <- readRDS("data/dat_attr.RDS")
+# # get bnssg nhs nums for filtering
+# string_attr <- glue::glue("	select
+# 	nhs_number
+# 	,max(attribute_period) as max_date
+# 	,count(attribute_period) as date_count
+# 	from
+# 	MODELLING_SQL_AREA.dbo.primary_care_attributes
+# 	where attribute_period between '{report_start}' and '{report_end}'
+# 	group by nhs_number")
+# 
+# 
+# dat_attr <- sqlQuery(con,string_attr) %>%
+#   mutate(nhs_number = as.character(nhs_number))
+# 
+# # saveRDS(dat_attr, "data/dat_attr.RDS")
+# dat_attr <- readRDS("data/dat_attr.RDS")
 
 # arrivals for joining to sus
 arrivals <- 
   dat_ecds %>%
-  filter(!is.na(dta_time), nhs_number %in% unique(dat_attr$nhs_number)) %>%
+  # filter(!is.na(dta_time), nhs_number %in% unique(dat_attr$nhs_number)) %>%
   group_by(nhs_number, arr_id) %>%
   summarise(departure_dt = as.Date(departure_dt)[1]
   )
 
 # SUS query (takes a long time, should prune the variables it is returning)
-string_apc <- {glue::glue("SELECT 
+string_apc <- {glue::glue("SELECT
                           [Process_ID]
       ,[GeneratedRecordIdentifier]
       ,[PBRspellID]
@@ -1074,21 +1076,25 @@ string_apc <- {glue::glue("SELECT
   where cast(StartDate_HospitalProviderSpell as date) between '{report_start}' and '{report_end}'")
 }
 
-dat_apc <- sqlQuery(con,string_apc) %>%
-  mutate(AIMTC_Pseudo_NHS = as.character(AIMTC_Pseudo_NHS))
+# dat_apc <- sqlQuery(con,string_apc) %>%
+#   mutate(AIMTC_Pseudo_NHS = as.character(AIMTC_Pseudo_NHS))
 
 saveRDS(dat_apc, "data/dat_apc.RDS")
 dat_apc <- readRDS("data/dat_apc.RDS")
+
 
 dat_scores <- arrivals %>%
   left_join(
     dat_apc %>%
       select(AIMTC_Pseudo_NHS, StartDate_HospitalProviderSpell, contains("ICD")) %>%
-      mutate(AIMTC_Pseudo_NHS = as.character(AIMTC_Pseudo_NHS)),
+      mutate(AIMTC_Pseudo_NHS = as.character(AIMTC_Pseudo_NHS)) %>%
+      filter(!is.na(AIMTC_Pseudo_NHS)),
     by = join_by(nhs_number == AIMTC_Pseudo_NHS)) %>% 
   mutate(diff = abs(interval(departure_dt, StartDate_HospitalProviderSpell)/ddays(1))) %>%
   group_by(arr_id) %>%
-  filter(diff == min(diff), diff < 2)  %>%
+  # filter(diff == min(diff), diff <= 1)  %>%
+  filter(between(diff, 0 , 2))  %>%
+  filter(diff == min(diff)) %>%
   select(-DiagnosisSchemeInUse_ICD) %>%
   select(nhs_number, arr_id, matches("ICD")) %>%
   pivot_longer(-c(nhs_number, arr_id)) %>%
@@ -1102,6 +1108,7 @@ dat_scores <- arrivals %>%
   `[`(-1) %>%
   bind_cols()
 
+
 dat_spec <- arrivals %>%
   left_join(
     dat_apc %>%
@@ -1112,8 +1119,11 @@ dat_spec <- arrivals %>%
   mutate(diff = abs(interval(departure_dt, StartDate_HospitalProviderSpell)/ddays(1))) %>%
   group_by(arr_id) %>%
   filter(between(diff, 0, 2)) %>%
-  # filter(diff == min(diff), diff <= 1) %>%
-  select(nhs_number, arr_id, MainSpecialtyCode)
+  filter(diff == min(diff)) %>% 
+  arrange(diff) %>%
+  slice(1) %>%
+  select(nhs_number, arr_id, MainSpecialtyCode) %>%
+  ungroup()
 
 
 dat_los <- arrivals %>%
@@ -1125,10 +1135,11 @@ dat_los <- arrivals %>%
   mutate(diff = abs(interval(departure_dt, StartDate_HospitalProviderSpell)/ddays(1))) %>%
   group_by(arr_id) %>%
   filter(between(diff, 0, 2)) %>%
-  # filter(diff == min(diff), diff < 2) %>% 
+  arrange(diff) %>%
+  slice(1) %>%
   mutate(los = interval(StartDate_HospitalProviderSpell, DischargeDate_FromHospitalProviderSpell)/ddays(1)) %>%
   select(nhs_number, arr_id, los) %>%
-  distinct()
+  ungroup()
 
 
 # dat_adm <- dat_ecds %>%

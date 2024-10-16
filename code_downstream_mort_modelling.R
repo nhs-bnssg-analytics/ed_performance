@@ -20,7 +20,9 @@ mod_df <- mod_df %>%
 
 
 split_mort <- initial_split(mod_df, strata = mort_30) 
-glm_spec <- logistic_reg()
+glm_spec <- logistic_reg(penalty = 0) %>% 
+  set_engine("glm", model = TRUE) %>% 
+  translate()
 
 rec_mort <- recipe(mort_30 ~ ., data = mod_df) %>%
   # step_interact(terms = ~ dta_time:ed_time) %>%
@@ -33,7 +35,7 @@ rec_mort <- recipe(mort_30 ~ ., data = mod_df) %>%
 
 wf_mort <- workflow() %>%
   add_recipe(rec_mort) %>%
-  add_model(glm_spec)
+  add_model(glm_spec)  
 
 
 fit_mort <- last_fit(wf_mort, split_mort)
@@ -62,15 +64,16 @@ full_pred = predict(full_fit, mod_df, type = "prob")
 
 yardstick::roc_auc_vec(mod_df$mort_30, estimate = full_pred$.pred_no)
 # 
-# foo <- map_dbl(60 * seq(0, 20, 0.25),
-#         \(x) mod_df %>%
-#           mutate(dta_time = x, dta_time_sq = x^2) %>%
-#           predict(full_fit, new_data = ., type = "prob") %>%
-#           pull(.pred_yes) %>%
-#           mean())
-# 
-# 
-# plot(foo)
+foo <- map_dbl(60 * seq(0, 24, 0.25),
+        \(x) mod_df %>%
+          mutate(dta_time = x) %>%
+          predict(full_fit, new_data = ., type = "prob") %>%
+          pull(.pred_yes) %>%
+          mean(na.rm = TRUE))
+
+
+
+plot(foo)
 
 full_fit %>%
   extract_fit_engine() %>%

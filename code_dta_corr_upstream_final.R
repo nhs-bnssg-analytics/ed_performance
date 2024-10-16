@@ -470,10 +470,10 @@ CCG = '15C' AND
   response_time
 })
 
-saveRDS(dta_df, "data/upstream_dta_df.RDS")
-saveRDS(ed_df, "data/upstream_ed_df.RDS")
-saveRDS(handover_df, "data/upstream_handover_df.RDS")
-saveRDS(resp_time_df, "data/upstream_resp_time_df.RDS")
+# saveRDS(dta_df, "data/upstream_dta_df.RDS")
+# saveRDS(ed_df, "data/upstream_ed_df.RDS")
+# saveRDS(handover_df, "data/upstream_handover_df.RDS")
+# saveRDS(resp_time_df, "data/upstream_resp_time_df.RDS")
 
 
 dta_df <-  readRDS("data/upstream_dta_df.RDS")
@@ -1252,8 +1252,6 @@ dta_df %>%
 
 resp_outputs <- local({
   
-  browser()
-  
   bin_acc <- 0.1
   
   x_lab <- "DTA Queue as a Percentage of Cubical Capacity (Majors + Resus)"
@@ -1345,7 +1343,7 @@ resp_outputs <- local({
       fatten = NULL
     ) +
     geom_point(
-      data = {time_std %>% expand_grid(n_dta_norm = seq(0, 1.75, 0.01))},
+      data = {time_std %>% expand_grid(n_dta_norm = seq(0, 1.75, bin_acc))},
       aes(y = std, col = "National target"),
     ) +
     stat_summary(
@@ -1394,7 +1392,7 @@ resp_outputs <- local({
     ungroup() %>%
     left_join(site_resus_maj) %>%
     left_join(ed_df) %>%
-    filter(n_dta <= 35) %>%
+    # filter(n_dta <= 35) %>%
     mutate(n_ed_norm = (n_ed - n_dta)/total,
            n_dta_norm = n_dta / total
            ) %>%
@@ -1541,15 +1539,18 @@ resp_outputs <- local({
     # mutate(resp_standard = resp_pred,
     #        resp_adj = response - resp_standard)
   
+
+   
  plot_dat <- resp_mods %>% 
     pull(data) %>%
     bind_rows() %>%
-    mutate(response_adj = response - response_pred)
+    mutate(response_adj = response - response_pred) %>%
+    mutate(response_adj_inv = response_adj + mean(response), .by = call_category)
     
-  
+ 
   p_norm_std <- plot_dat %>%
     mutate(n_dta_norm = plyr::round_any(n_dta_norm, accuracy = bin_acc)) %>%
-    ggplot(aes(x = n_dta_norm, y = response_adj)) +
+    ggplot(aes(x = n_dta_norm, y = response_adj_inv)) +
     # geom_boxplot(outliers = FALSE) +
     geom_boxplot(
       mapping = aes(group = cut_width(n_dta_norm, width = bin_acc)),
@@ -1564,7 +1565,16 @@ resp_outputs <- local({
     #   width = 0.035,
     #   aes(ymax = ..y.., ymin = ..y..)
     # ) +
-    stat_summary(fun = ~mean(.x), geom = "point", col = "black", aes(shape = "Mean")) +
+    geom_point(
+      data = {time_std %>% expand_grid(n_dta_norm = seq(0, 1.75, bin_acc))},
+      aes(y = std, col = "National target"),
+    ) +
+    stat_summary(
+      fun = ~ mean(.x),
+      geom = "point",
+      col = "black",
+      aes(shape = "Mean")
+    ) +
     stat_summary(
       fun = ~ quantile(.x, 0.9),
       geom = "point",
@@ -1578,12 +1588,20 @@ resp_outputs <- local({
       labeller = as_labeller(labels)
     ) +
     scale_x_continuous(labels = scales::percent) +
-    theme_minimal() +
+    theme_minimal()  +
+    scale_colour_manual(values = c("red", "black"), guide = guide_legend(override.aes = list(size = 3,
+                                                                                             alpha = 1))) +
+    scale_shape_manual(values = c(19, 17),
+                       guide = guide_legend(override.aes = list(size = 3,
+                                                                alpha = 1))) +
     guides(alpha = "none") +
-    labs(title = "Standardised outcome, normalised dependant", 
-         y = y_lab,
-         x = x_lab,
-         shape = "") +
+    labs(
+      title = "Raw outcome, normalised dependant",
+      y = y_lab,
+      x = x_lab,
+      shape = "",
+      col = ""
+    ) +
     theme(
       legend.position = "bottom",
       legend.justification = "center",
