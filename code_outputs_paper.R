@@ -6,21 +6,89 @@ library(tidyverse)
 handover_outputs <- readRDS("data/handover_outputs.RDS")
 resp_outputs <- readRDS("data/resp_outputs.RDS")
 
-patchwork::wrap_plots(
-  handover_outputs$p_raw + labs(title = "Observed outcome, normalised dependent"),
-  handover_outputs$p_std + labs(title = "Standadised outcome, normalised dependent") + guides(shape = FALSE),
-  axes = "collect",
-  nrow = 1,
-  guides = "collect"
-) & theme(legend.position = "bottom",
-          legend.margin = margin(l = 5, unit = "pt"),
-          legend.spacing.x = unit(0, "cm"))
+bin_acc <- 0.1
 
-ggplot2::ggsave("materials/handover_raw_standard.png",
+x_lab <- "DTA Queue as a Percentage of Cubicle Capacity (Majors + Resus)"
+y_lab <- "Model-Standardised Ambulance Handover Time\n(min)"
+
+handover_outputs$p_std +
+  labs(x = x_lab,
+       y = y_lab,
+       title = "",
+       col = "") +
+  scale_y_continuous(breaks = breaks_width(60)) +
+  theme(legend.title = element_blank(),
+        legend.spacing.x = unit(0, "cm"))
+
+
+ggplot2::ggsave("materials/handover_standard.png",
                 ggplot2::last_plot(),
-                height = 15,
-                width = 20, 
-                scale = 0.5)
+                bg = "white",
+                height = 7.5,
+                width = 10, 
+                scale = 0.6)
+
+x_lab <- "DTA Queue as a Percentage of Cubicle Capacity (Majors + Resus)"
+y_lab <- "Model-Standardised Ambulance Response Time\n(min)"
+
+resp_outputs$p_norm_std +
+  labs(x = x_lab,
+       y = y_lab,
+       title = "",
+       col = "") +
+  # scale_y_continuous(breaks = breaks_width(60)) +
+  theme(legend.title = element_blank(),
+        legend.spacing.x = unit(0, "cm"))
+
+
+ggplot2::ggsave("materials/response_standard.png",
+                ggplot2::last_plot(),
+                bg = "white",
+                height = 10,
+                width = 10, 
+                scale = 0.6)
+
+
+# Downstream outputs
+
+los_outputs <- readRDS("data/los_outputs.RDS")
+
+x_lab <- "Time Spent DTA (hour)"
+y_lab <- "Model-Standardised In-Hospital Length of Stay (day)"
+
+los_outputs$p_std +
+  labs(x = x_lab,
+       y = y_lab,
+       title = "",
+       col = "") +
+  # scale_y_continuous(breaks = breaks_width(60)) +
+  theme(legend.title = element_blank(),
+        legend.spacing.x = unit(0, "cm"))
+
+
+ggplot2::ggsave("materials/los_standard.png",
+                ggplot2::last_plot(),
+                bg = "white",
+                height = 7.5,
+                width = 10, 
+                scale = 0.6)
+
+
+# patchwork::wrap_plots(
+#   handover_outputs$p_raw + labs(title = "Observed outcome, normalised dependent"),
+#   handover_outputs$p_std + labs(title = "Standadised outcome, normalised dependent") + guides(shape = FALSE),
+#   axes = "collect",
+#   nrow = 1,
+#   guides = "collect"
+# ) & theme(legend.position = "bottom",
+#           legend.margin = margin(l = 5, unit = "pt"),
+#           legend.spacing.x = unit(0, "cm"))
+
+# ggplot2::ggsave("materials/handover_raw_standard.png",
+#                 ggplot2::last_plot(),
+#                 height = 15,
+#                 width = 20, 
+#                 scale = 0.5)
 
 ggplot2::ggsave("materials/handover_raw_transformed.png",
                 handover_outputs$p_std_trans,

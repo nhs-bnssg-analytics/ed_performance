@@ -95,6 +95,73 @@ ggplot2::ggsave("materials/mort_model_effects_plot.png",
                 scale = 0.5)
 
 
+mod_raw <- glm(
+  formula = mort_30 ~ . 
+  + I(dta_time ^ 2)
+  + I(age ^ 2)
+  + I(perf ^ 2)
+  + I(n_ed ^ 2)
+  + I(vw_score ^2),
+  data = select(mod_df, -ed_time, -Acuity_Desc, -arrival_mode, -arrival_cat),
+  family = binomial(link = "logit")
+) 
+
+mod_raw %>%
+  broom::tidy() %>% 
+  filter(str_detect(term, "dta_time"))
+
+raw_pred = predict(mod_raw, mod_df, type = "response")
+
+yardstick::roc_auc_vec(mod_df$mort_30, estimate = raw_pred, event_level = "second")
+
+
+mod_raw %>%
+  jtools::effect_plot(pred = "dta_time", interval = TRUE) +
+  scale_x_continuous(limits = c(0, NA), breaks = scales::breaks_width(width = 120), labels = \(x) x/60, , expand = c(0, 1)) +
+  # scale_y_continuous(labels = function(x) x * 100, breaks = seq(0, .5, .05)) +
+  scale_y_continuous(labels = \(x) scales::percent(x, accuracy = 1), breaks = scales::breaks_width(width = 0.01)) +
+  labs(x = "Time spent DTA (hours)",
+       # y = str_wrap("Out of 100 patients, the number who die within 30 days due to delay related harm", 50)) +
+       y = str_wrap("Model estimated 30-day mortality rate.", 50)) +
+  theme_minimal()
+
+
+map_dfr(
+  60 * seq(0, 24, 0.25),
+  \(x)
+  mod_df %>%
+    mutate(dta_time = x) %>%
+    predict(
+      mod_raw,
+      newdata = .,
+      type = "response",
+      se.fit = TRUE
+    ) %>%
+    as_tibble() %>%
+    select(fit, se.fit) %>%
+    summarise(
+      u = quantile(fit, 0.975, na.rm = TRUE),
+      l = quantile(fit, 0.025, na.rm = TRUE),
+      fit = mean(fit, na.rm = TRUE)
+    ) %>%
+    mutate(
+      dta_time = x,
+      # u = fit + se.fit,
+      # l = fit - se.fit
+    )
+) %>%
+  ggplot(aes(x = dta_time, y = fit)) +
+  geom_ribbon(aes(ymin = l, ymax = u), alpha = 0.25) + geom_line() +
+  scale_x_continuous(limits = c(0, NA), breaks = scales::breaks_width(width = 120), labels = \(x) x/60, , expand = c(0, 1)) +
+  # scale_y_continuous(labels = function(x) x * 100, breaks = seq(0, .5, .05)) +
+  scale_y_continuous(labels = \(x) scales::percent(x, accuracy = 1), breaks = scales::breaks_width(width = 0.01)) +
+  labs(x = "Time spent DTA (hours)",
+       # y = str_wrap("Out of 100 patients, the number who die within 30 days due to delay related harm", 50)) +
+       y = str_wrap("Model estimated 30-day mortality rate.", 50)) +
+  theme_minimal()
+
+
+
 effect_plot_fn <- function(fit, var) {
   
   var <- rlang::sym(var)
