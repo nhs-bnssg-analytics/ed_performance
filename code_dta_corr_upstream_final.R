@@ -486,116 +486,6 @@ dta_df <- dta_df %>%
   filter(!(site == "WESTON GENERAL HOSPITAL" & hour(dt) %in% c(10:12, 1:7))) 
 
 
-# Handover time quantile analysis
-# fitting model
-# exponential model fits well for n_dta < 30
-f <- function(x, a, c) {
- exp(a*x) + c 
-}
-
-# plot_df <- map_dfr(c(0.5, seq(0.7, 0.9, 0.1)), ~
-plot_df <- map_dfr(c(0.5, 0.9), ~
-
-{ plot_df <- dta_df %>% 
-  # filter(site == "SOUTHMEAD HOSPITAL") %>%
-  filter(!between(dt, ymd("2022-04-01"), ymd("2022-07-10"))) %>%
-  left_join(handover_df) %>% 
-  # left_join(minor_time_in_ed_df) %>%
-  na.omit() %>%
-  group_by(n_dta) %>%
-  summarise(handover_time = quantile(handover_time/60, .x)) %>%
-  filter(n_dta <= 30)
-
-dta_handover_mod <- nls(formula = handover_time ~ f(n_dta, a, c), data = plot_df, start = list(a = 1, c = 0))
-
-plot_df <- bind_cols(plot_df, investr::predFit(dta_handover_mod, plot_df, interval = "confidence", level= 0.9))
-plot_df$q <- factor(.x, labels = scales::percent(.x)) %>% paste0(" quantile") %>% forcats::fct_recode("Median" = "50% quantile")
-
-plot_df$r <- round(log(30 - min(29, coef(dta_handover_mod)[2]))/coef(dta_handover_mod)[1])
-plot_df$c <- coef(dta_handover_mod)[2]
-
-plot_df}
-)
-
-
-
-(scatter_1 <- plot_df %>%
-    ggplot(aes(x = n_dta, y = handover_time)) +
-    geom_point(data = {dta_df %>% 
-      left_join(handover_df) %>% 
-      # left_join(minor_time_in_ed_df) %>%
-      filter(site == "SOUTHMEAD HOSPITAL", n_dta <= 30) %>%
-      filter(!between(dt, ymd("2022-04-01"), ymd("2022-07-10"))) %>%
-      mutate(handover_time = handover_time/60) %>%
-      na.omit()}, aes(x = n_dta, y = handover_time, col = "All data"), alpha = 0.015) +
-    geom_point(aes(col = q, group = q), size = 2.5) +
-    scale_y_continuous(limits = c(0, 180), breaks = seq(0, 180, 30)) +
-    # geom_ribbon(aes(ymin = lwr, ymax = upr, fill = q), col = NA, alpha = 0.25) +
-    # geom_line(aes(y = fit, col = q)) +
-    geom_hline(yintercept = 30, linetype = 2) +
-    bnssgtheme() +
-    scale_colour_manual(values = c(unname(bnssgcols[c(7,4)]), "black"),
-                        guide = guide_legend(override.aes = list(size = 3,
-                                                                 alpha = 1))) +
-    # scale_colour_manual(values = c(viridis::viridis(n = 2, end = 0.6, begin = 0.2, direction = -1), "black"),
-    #                     guide = guide_legend(override.aes = list(size = 3,
-    #                                                              alpha = 1))) +
-    labs(y = "Ambulance handover time\n(min)",
-         x = "DTA queue",
-         colour = "Handover time quantile") +
-    theme(legend.position = "bottom",
-          legend.justification = "center",
-          legend.title = element_text())
-)
-
-
-ggsave("materials/dta_handover_scatter_quant_all_site.png",
-       scatter_1,
-       height = 5,
-       width = 7.5, 
-       scale = 0.9)
-
-(scatter_1 <- plot_df %>%
-    ggplot(aes(x = n_dta, y = handover_time)) +
-    geom_point(data = {dta_df %>% 
-        left_join(handover_df) %>% 
-        # left_join(minor_time_in_ed_df) %>%
-        filter(site == "SOUTHMEAD HOSPITAL", n_dta <= 30) %>%
-        filter(!between(dt, ymd("2022-04-01"), ymd("2022-07-10"))) %>%
-        mutate(handover_time = handover_time/60) %>%
-        na.omit()}, aes(x = n_dta, y = handover_time, shape = "All data"), alpha = 0.015) +
-    geom_point(aes(shape = q, group = q), fill = "white", size = 2.5) +
-    scale_y_continuous(limits = c(0, 180), breaks = seq(0, 180, 30)) +
-    # geom_ribbon(aes(ymin = lwr, ymax = upr, fill = q), col = NA, alpha = 0.25) +
-    # geom_line(aes(y = fit, group = q)) +
-    geom_hline(yintercept = 30, linetype = 2) +
-    # bnssgtheme() +
-    theme_minimal() +
-    scale_shape_manual(values = c(21, 24, 19), guide = guide_legend(override.aes = list(size = 3,
-                                                                                      alpha = 1))) +
-    # scale_colour_manual(values = c("black", "black", "black"),
-    #                     guide = guide_legend(override.aes = list(size = 3,
-    #                                                              alpha = 1))) +
-    # scale_colour_manual(values = c(viridis::viridis(n = 2, end = 0.6, begin = 0.2, direction = -1), "black"),
-    #                     guide = guide_legend(override.aes = list(size = 3,
-    #                                                              alpha = 1))) +
-    labs(y = "Ambulance handover time\n(min)",
-         x = "Queue size for admission",
-         shape = "") +
-    theme(legend.position = "bottom",
-          legend.justification = "center",
-          legend.title = element_text())
-)
-
-
-ggsave("materials/dta_handover_scatter_quant_paper_all_site.png",
-       scatter_1,
-       bg = "white",
-       height = 5,
-       width = 7.5, 
-       scale = 0.7)
-
-
 # Normalisation and standardisation
 
 
@@ -603,8 +493,8 @@ handover_outputs <- ({
   
   bin_acc <- 0.1
   
-  x_lab <- "DTA Queue as a Percentage of Cubical Capacity (Majors + Resus)s"
-  y_lab <- "Ambulance Handover Time\n(min)"
+  x_lab <- "DTA Queue as a Percentage of Cubicle Capacity (Majors + Resus)"
+  y_lab <- "Model-Standardised Ambulance Handover Time\n(min)"
 
   # Non standardised plot
   p_raw <-   dta_df %>%
@@ -699,7 +589,7 @@ mod_dat <- dta_df %>%
     select(-dt, -maj, -resus, -total) %>%
     ungroup() 
 
-handover_mod <- lm(handover_time ~ . -n_dta -n_dta_norm -n_ed -n_ed_norm -site, data = mod_dat)
+handover_mod <- lm(handover_time ~ . -n_dta -n_dta_norm -n_ed -site, data = mod_dat)
 handover_pred <- predict(handover_mod, mod_dat)
 
 std_mod <- handover_mod
@@ -787,13 +677,15 @@ p_std <- plot_df %>%
   scale_shape_manual(values = c(19, 17),
                      guide = guide_legend(override.aes = list(size = 3,
                                                               alpha = 1))) +
-  labs(title = "Standardised outcome, normalised dependant",
+  labs(title = "",
        y = y_lab,
        x = x_lab,
-       shape = "") +
+       shape = "",
+       colour = "") +
   theme(legend.position = "bottom",
         legend.justification = "center",
-        legend.title = element_text())
+        legend.title = element_blank(),
+        legend.spacing.x = unit(0, "cm"))
 
 plot_df <- mod_dat %>%
   # filter(n_dta <= 35) 
@@ -853,403 +745,6 @@ list(
 
 saveRDS(handover_outputs, "data/handover_outputs.RDS")
 
-patchwork::wrap_plots(handover_boxplot$p_raw,
-                      handover_boxplot$p_std,
-                      ncol = 1, axes = "collect", guides = "collect") &
-  theme(legend.position = "bottom")
-
-
-ggsave("materials/dta_handover_box_paper.png",
-       last_plot(),
-       bg = "white",
-       height = 7.5,
-       width = 7.5, 
-       scale = 0.8)
-
-ggsave("materials/dta_handover_box_paper.png",
-       handover_boxplot$p_raw,
-       bg = "white",
-       height = 5,
-       width = 7.5, 
-       scale = 0.7)
-
-
-# handover time for patients 65+
-dta_df %>% 
-        left_join(handover_df) %>% 
-        # left_join(minor_time_in_ed_df) %>%
-        filter(site == "SOUTHMEAD HOSPITAL") %>%
-    mutate(age_flag = if_else(
-      age %in% c(
-        "65-69 Years Old",
-        "70-74 Years Old",
-        "75-79 Years Old",
-        "80-84 Years Old",
-        "85-89 Years Old",
-        "90-94 Years Old",
-        "95-99 Years Old",
-        "100 Years Old Or Over"
-      ), "65+", "under 65")
-    ) %>%
-        mutate(handover_time = handover_time/60) %>%
-        na.omit() %>%
-  ggplot(aes(x = n_dta, y = handover_time, col = age_flag)) +
-    geom_point(alpha = 0.015) +
-    geom_smooth(method = "lm") +
-    scale_y_continuous(limits = c(0, 90), breaks = seq(0, 180, 30)) +
-    bnssgtheme()
-
-
-
-# time seen for treatment vs dta
-
-(scatter_2 <- dta_df %>%
-  left_join(trt_df) %>%
-  filter(site == "SOUTHMEAD HOSPITAL") %>%
-  na.omit() %>%
-  group_by(n_dta) %>%
-  ggplot(aes(x = n_dta, y = trt_time)) + 
-  geom_point(alpha = 0.015) +
-  geom_smooth(data = {dta_df %>%
-      left_join(trt_df) %>%
-      filter(site == "SOUTHMEAD HOSPITAL") %>%
-      na.omit() %>%
-      group_by(n_dta) %>%
-      summarise(trt_time = quantile(trt_time, 0.9))},
-      col = bnssgcols[4],
-      method = "lm") +
-  geom_smooth(data = {dta_df %>%
-      left_join(trt_df) %>%
-      filter(site == "SOUTHMEAD HOSPITAL") %>%
-      na.omit() %>%
-      group_by(n_dta) %>%
-      summarise(trt_time = quantile(trt_time, 0.5))},
-      col = bnssgcols[7],
-      method = "lm") +
-  geom_point(data = {dta_df %>%
-      left_join(trt_df) %>%
-      filter(site == "SOUTHMEAD HOSPITAL") %>%
-      na.omit() %>%
-      group_by(n_dta) %>%
-      summarise(trt_time = quantile(trt_time, 0.5))},
-      aes(col = "Median"),
-      size = 2.5) +
-  geom_point(data = {dta_df %>%
-      left_join(trt_df) %>%
-      filter(site == "SOUTHMEAD HOSPITAL") %>%
-      na.omit() %>%
-      group_by(n_dta) %>%
-      summarise(trt_time = quantile(trt_time, 0.9))},
-      aes(col = "90%"),
-      size = 2.5) +
-    scale_colour_manual(values = c(unname(bnssgcols[c(4, 7)])),
-                        guide = guide_legend(override.aes = list(size = 3,
-                                                                 alpha = 1))) +
-  scale_y_continuous(limits = c(NA, 600), breaks = seq(0, 600, 60)) +
-  bnssgtheme() +
-  theme(legend.position = "bottom",
-        legend.justification = "center",
-        legend.title = element_text()) +
-  labs(y = "Time to be seen for treatment\n(min)",
-       x = "DTA queue",
-       col = "Time to be seen for treatment quantile")) 
-
-
-
-ggsave("materials/treat_time_scatter_quant.png",
-       scatter_2,
-       height = 5,
-       width = 7.5, 
-       scale = 0.9)
-
-dta_df %>%
-  left_join(trt_df) %>%
-  filter(site == "SOUTHMEAD HOSPITAL") %>%
-  na.omit() %>%
-  group_by(n_dta) %>%
-  summarise(trt_time = quantile(trt_time, 0.9)) %>%
-  lm(trt_time ~ n_dta, data = .) %>%
-  summary()
-
-
-dta_df %>%
-  left_join(trt_df) %>%
-  filter(site == "SOUTHMEAD HOSPITAL") %>%
-  na.omit() %>%
-  group_by(n_dta) %>%
-  summarise(trt_time = quantile(trt_time, 0.9)) %>%
-  lm(trt_time ~ n_dta, data = .) %>%
-  summary()
-
-
-
-model_spec <- linear_reg() %>%
-  set_engine("lm")
-
-dta_mod <- dta_df %>% 
-  left_join(handover_df) %>% 
-  left_join(ed_df) %>%
-  # left_join(resp_time_df) %>%
-  mutate(n_ed = n_ed - n_dta) %>%
-  ungroup() %>%
-  na.omit() %>%
-  # filter(site == "SOUTHMEAD HOSPITAL") %>%
-  filter(!between(dt, ymd("2022-04-01"), ymd("2022-07-10"))) %>%
-  filter(handover_time > 0) %>%
-  mutate(wkend = factor(ifelse(wday(dt, week_start = 1) < 6, "yes", "no")),
-         hour = factor(cut(hour(dt), breaks = seq(0, 24, 6), include.lowest = TRUE), ordered = FALSE)) %>% 
-  mutate(hour = fct_relevel(hour, "(12,18]", after = 0)) %>%
-  group_by(site) %>%
-  nest() %>%
-  mutate(splits = map(data, initial_split)) %>%
-  mutate(
-    rec = map(splits, ~recipe(formula = handover_time ~ n_dta + n_ed + wkend + hour, data = training(.x)) %>%
-                step_interact(~n_dta:n_ed)),
-    rec_trans = map(splits, ~recipe(formula = handover_time ~ n_dta + n_ed + wkend + hour, data = training(.x)) %>%
-                      step_interact(~n_dta:n_ed) %>%
-                      step_log(all_outcomes()))) %>%
-  mutate(wf = map(rec, ~workflow() %>% add_recipe(.x) %>% add_model(model_spec))) %>%
-  # mutate(wf_trans = map(rec_trans, ~workflow() %>% add_recipe(.x) %>% add_model(model_spec))) %>%
-  mutate(fit = map2(wf, splits, ~last_fit(.x, split = .y))) 
-
-
-dta_handover_lm <- lm(handover_time/60 ~ n_dta * n_ed + wkend + hour, data = dta_mod$data[[1]])
-summary(dta_handover_lm)
-
-jtools::summ(dta_handover_lm)
-
-jtools::export_summs(dta_handover_lm, coefs = c("(Intercept)",
-                                                "DTA Queue" = "n_dta",
-                                                "Patients in ED (non-DTA)" = "n_ed",
-                                                "Weekend" = "wkendyes",
-                                                "00:00-06:00" = "hour[0,6]",
-                                                "06:00-12:00" = "hour(6,12]",
-                                                "18:00-24:00" = "hour(18,24]",
-                                                "Interaction: DTA queue-Patients in ED" = "n_dta:n_ed"
-),
-error_pos = "right"#,
-# to.file = huxtable::quick_html(),
-# file.name = "materials/handover_reg.html"
-)
-
-
-
-
-dta_mod_age <- dta_df %>% 
-  left_join(handover_df) %>% 
-  left_join(ed_df) %>%
-  # left_join(resp_time_df) %>%
-  mutate(n_ed = n_ed - n_dta) %>%
-  ungroup() %>%
-  na.omit() %>%
-  filter(site == "SOUTHMEAD HOSPITAL") %>%
-  filter(
-    age %in% c(
-      "65-69 Years Old",
-      "70-74 Years Old",
-      "75-79 Years Old",
-      "80-84 Years Old",
-      "85-89 Years Old",
-      "90-94 Years Old",
-      "95-99 Years Old",
-      "100 Years Old Or Over"
-    )
-  ) %>%
-  filter(handover_time > 0) %>%
-  mutate(wkend = factor(ifelse(wday(dt, week_start = 1) < 6, "yes", "no")),
-         hour = factor(cut(hour(dt), breaks = seq(0, 24, 6), include.lowest = TRUE), ordered = FALSE)) %>% 
-  mutate(hour = fct_relevel(hour, "(12,18]", after = 0)) %>%
-  group_by(site) %>%
-  nest() %>%
-  mutate(splits = map(data, initial_split)) %>%
-  mutate(
-    rec = map(splits, ~recipe(formula = handover_time ~ n_dta + n_ed + wkend + hour, data = training(.x)) %>%
-                step_interact(~n_dta:n_ed)),
-    rec_trans = map(splits, ~recipe(formula = handover_time ~ n_dta + n_ed + wkend + hour, data = training(.x)) %>%
-                      step_interact(~n_dta:n_ed) %>%
-                      step_log(all_outcomes()))) %>%
-  mutate(wf = map(rec, ~workflow() %>% add_recipe(.x) %>% add_model(model_spec))) %>%
-  # mutate(wf_trans = map(rec_trans, ~workflow() %>% add_recipe(.x) %>% add_model(model_spec))) %>%
-  mutate(fit = map2(wf, splits, ~last_fit(.x, split = .y))) 
-
-
-dta_handover_age_lm <- lm(handover_time/60 ~ n_dta * n_ed + wkend + hour, data = dta_mod_age$data[[1]])
-summary(dta_handover_age_lm)
-
-dta_mod_age_2 <- dta_df %>% 
-  left_join(handover_df) %>% 
-  left_join(ed_df) %>%
-  # left_join(resp_time_df) %>%
-  mutate(n_ed = n_ed - n_dta) %>%
-  ungroup() %>%
-  na.omit() %>%
-  filter(site == "SOUTHMEAD HOSPITAL") %>%
-  filter(
-    !age %in% c(
-      "65-69 Years Old",
-      "70-74 Years Old",
-      "75-79 Years Old",
-      "80-84 Years Old",
-      "85-89 Years Old",
-      "90-94 Years Old",
-      "95-99 Years Old",
-      "100 Years Old Or Over"
-    )
-  ) %>%
-  filter(handover_time > 0) %>%
-  mutate(wkend = factor(ifelse(wday(dt, week_start = 1) < 6, "yes", "no")),
-         hour = factor(cut(hour(dt), breaks = seq(0, 24, 6), include.lowest = TRUE), ordered = FALSE)) %>% 
-  mutate(hour = fct_relevel(hour, "(12,18]", after = 0)) %>%
-  group_by(site) %>%
-  nest() %>%
-  mutate(splits = map(data, initial_split)) %>%
-  mutate(
-    rec = map(splits, ~recipe(formula = handover_time ~ n_dta + n_ed + wkend + hour, data = training(.x)) %>%
-                step_interact(~n_dta:n_ed)),
-    rec_trans = map(splits, ~recipe(formula = handover_time ~ n_dta + n_ed + wkend + hour, data = training(.x)) %>%
-                      step_interact(~n_dta:n_ed) %>%
-                      step_log(all_outcomes()))) %>%
-  mutate(wf = map(rec, ~workflow() %>% add_recipe(.x) %>% add_model(model_spec))) %>%
-  # mutate(wf_trans = map(rec_trans, ~workflow() %>% add_recipe(.x) %>% add_model(model_spec))) %>%
-  mutate(fit = map2(wf, splits, ~last_fit(.x, split = .y))) 
-
-
-dta_handover_age_lm_2 <- lm(handover_time/60 ~ n_dta * n_ed + wkend + hour, data = dta_mod_age_2$data[[1]])
-summary(dta_handover_age_lm_2)
-
-huxtable::quick_pptx(jtools::export_summs(
-                     dta_handover_age_lm_2,
-                     dta_handover_age_lm,
-                     coefs = c("(Intercept)",
-                                                "DTA Queue" = "n_dta",
-                                                "Patients in ED (non-DTA)" = "n_ed",
-                                                "Weekend" = "wkendyes",
-                                                "00:00-06:00" = "hour[0,6]",
-                                                "06:00-12:00" = "hour(6,12]",
-                                                "18:00-24:00" = "hour(18,24]",
-                                                "Interaction: DTA queue-Patients in ED" = "n_dta:n_ed"
-),
-error_pos = "right",
-model.names = c("Under 65", "65+"),
-file.name = "materials/handover_reg.pptx"
-))
-
-jtools::effect_plot(dta_handover_age_lm_2,
-                    pred = "n_dta",
-                    interval = TRUE)
-
-
-dta_mod_age_3 <- dta_df %>% 
-  left_join(handover_df) %>% 
-  left_join(ed_df) %>%
-  # left_join(resp_time_df) %>%
-  mutate(n_ed = n_ed - n_dta) %>%
-  ungroup() %>%
-  na.omit() %>%
-  filter(site == "SOUTHMEAD HOSPITAL") %>%
-  mutate(age_flag = if_else(
-    age %in% c(
-      "65-69 Years Old",
-      "70-74 Years Old",
-      "75-79 Years Old",
-      "80-84 Years Old",
-      "85-89 Years Old",
-      "90-94 Years Old",
-      "95-99 Years Old",
-      "100 Years Old Or Over"
-    ), "65+", "under 65")
-  ) %>%
-  filter(handover_time > 0) %>%
-  mutate(wkend = factor(ifelse(wday(dt, week_start = 1) < 6, "yes", "no")),
-         hour = factor(cut(hour(dt), breaks = seq(0, 24, 6), include.lowest = TRUE), ordered = FALSE)) %>% 
-  mutate(hour = fct_relevel(hour, "(12,18]", after = 0)) %>%
-  group_by(site) %>%
-  nest() %>%
-  mutate(splits = map(data, initial_split)) %>%
-  mutate(
-    rec = map(splits, ~recipe(formula = handover_time ~ n_dta + n_ed + wkend + hour, data = training(.x)) %>%
-                step_interact(~n_dta:n_ed)),
-    rec_trans = map(splits, ~recipe(formula = handover_time ~ n_dta + n_ed + wkend + hour, data = training(.x)) %>%
-                      step_interact(~n_dta:n_ed) %>%
-                      step_log(all_outcomes()))) %>%
-  mutate(wf = map(rec, ~workflow() %>% add_recipe(.x) %>% add_model(model_spec))) %>%
-  # mutate(wf_trans = map(rec_trans, ~workflow() %>% add_recipe(.x) %>% add_model(model_spec))) %>%
-  mutate(fit = map2(wf, splits, ~last_fit(.x, split = .y))) 
-
-
-dta_handover_age_lm_3 <- lm(handover_time/60 ~ n_dta * n_ed + n_dta*age_flag + wkend + hour, data = dta_mod_age_3$data[[1]])
-summary(dta_handover_age_lm_3)
-
-
-
-# resp_plot_df <- dta_df %>%
-#   left_join(filter(resp_time_df, call_category == "cat3")) %>%
-#   # filter(site == "SOUTHMEAD HOSPITAL") %>%
-#   filter(!between(dt, ymd("2022-04-01"), ymd("2022-07-10"))) %>%
-#   na.omit()
-# 
-# saveRDS(resp_plot_df, "data/dta_resp_plot_df_all_site.RDS")
-# 
-# 
-#   (scatter_3 <- resp_plot_df %>%
-#       ungroup() %>%
-#       nest() %>%
-#       expand_grid(q = c(0.5, 0.9)) %>%
-#       mutate(data = map2(data, q,
-#                          ~.x %>% group_by(n_dta) %>% summarise(response = quantile(response, .y))
-#       )) %>%
-#       unnest(cols = c(data)) %>%
-#   ggplot(aes(x = n_dta, y = response, col = factor(q))) +
-#   geom_point(data = resp_plot_df, aes(col = "All data"), alpha = 0.01) +
-#   geom_point(size = 2.5) +
-#   geom_smooth(method = "lm", se = FALSE, show.legend = FALSE)  +
-#   scale_y_continuous(limits = c(0, 900), breaks = seq(0, 900, 60)) +
-#   scale_x_continuous(limits = c(0, 35)) +
-#   bnssgtheme() +
-#   scale_colour_manual(values = c(unname(bnssgcols[c(7, 4)]), "black"),
-#                       guide = guide_legend(override.aes = list(size = 3,
-#                                                                alpha = 1))) +
-#   guides(alpha = "none") +
-#   labs(y = "Category 3 response time\n(min)",
-#        x = "DTA queue",
-#        colour = "Category 3 response time:") +
-#   theme(legend.position = "bottom",
-#         legend.justification = "center",
-#         legend.title = element_text()))
-# 
-# 
-# ggsave("materials/resptime_scatter_quant_all_site.png",
-#        scatter_3,
-#        height = 5,
-#        width = 7.5, 
-#        scale = 0.9)  
-
-
-
-
-dta_df %>%
-  left_join(filter(resp_time_df, call_category == "cat3")) %>%
-  # filter(site == "SOUTHMEAD HOSPITAL") %>%
-  filter(!between(dt, ymd("2022-04-01"), ymd("2022-07-10"))) %>%
-  na.omit() %>%
-  ungroup() %>%
-  nest() %>%
-  expand_grid(q = c(0.5, 0.9)) %>%
-  mutate(data = map2(data, q,
-                     ~.x %>% group_by(n_dta) %>% summarise(response = quantile(response, .y))
-  )) %>%
-  unnest(cols = c(data)) %>%
-  group_by(q) %>%
-  nest() %>%
-  mutate(mod = map(data, ~lm(response ~ n_dta, data = .x))) %>%
-  mutate(stats = map(mod, broom::tidy)) %>%
-  unnest(stats)
-
-
-# q = 0.5, coeff = 6.01
-# q = 0.9, coeff = 14.4
-
-
 resp_outputs <- local({
   
   bin_acc <- 0.1
@@ -1257,9 +752,9 @@ resp_outputs <- local({
   x_lab <- "DTA Queue as a Percentage of Cubical Capacity (Majors + Resus)"
   y_lab <- "Ambulance Response Time\n(min)"
   
-  labels <- c(cat1 = "Category 1",
-              cat2 = "Category 2",
-              cat3 = "Category 3")
+  labels <- c(cat1 = "999 Category 1",
+              cat2 = "999 Category 2",
+              cat3 = "999 Category 3")
   
   time_std <- tibble(call_category = c("cat1", "cat2", "cat3"),
                      std = c(15, 40, 120))
@@ -1390,6 +885,7 @@ resp_outputs <- local({
   
   mod_dat <- dta_df %>%
     ungroup() %>%
+    filter(!between(dt, ymd("2022-04-01"), ymd("2022-07-10"))) %>%
     left_join(site_resus_maj) %>%
     left_join(ed_df) %>%
     # filter(n_dta <= 35) %>%
@@ -1433,7 +929,6 @@ resp_outputs <- local({
     ) %>%
     mutate(age = fct_relevel(age, "100 Years Old Or Over", after = 10)) %>%
     ungroup() %>%
-    filter(!between(dt, ymd("2022-04-01"), ymd("2022-07-10"))) %>%
     mutate(wkend = factor(ifelse(wday(dt, week_start = 1) < 6, "Yes", "No")),
            hour = factor(cut(
              hour(dt),
@@ -1457,7 +952,7 @@ resp_outputs <- local({
     mod_dat %>%
       group_by(call_category) %>%
       nest() %>%
-      mutate(mod = map(data, ~ lm(response ~ . - n_dta_norm -n_ed_norm - outcome, data = .x))) %>%
+      mutate(mod = map(data, ~ lm(response ~ . -n_dta_norm - outcome, data = .x))) %>%
       mutate(mod_full = map(data, ~ lm(response ~ . - outcome, data = .x))) %>%
       mutate(pred = map2(mod, data, predict)) %>%
       mutate(data = pmap(list(data, call_category, pred), ~bind_cols(..1, call_category = ..2, response_pred = ..3)))
@@ -1506,40 +1001,6 @@ resp_outputs <- local({
     select(call_category, tab) %>%
     as.list() 
   
-  
-  # std_mod_tab <- gtsummary::tbl_regression(
-  #   resp_mod,
-  #   label = list(
-  #     call_category = "Call category",
-  #     age = "Age",
-  #     wkend = "Weekend",
-  #     hour = "Time of day"
-  #   )
-  # ) %>%
-  #   gtsummary::add_glance_table(include = c(nobs, r.squared)) |>
-  #   gtsummary::as_gt() %>%
-  #   gt::tab_header(title = gt::md(glue::glue('**Ambulance response time**')))
-  
-  
-  # full_mod_tab <- lm(response ~ . - outcome, data = mod_dat) %>%
-  #   gtsummary::tbl_regression(
-  #     label = list(
-  #       n_dta_norm = x_lab,
-  #       call_category = "Call Category",
-  #       age = "Age",
-  #       wkend = "Weekend",
-  #       hour = "Time of day"
-  #     )
-  #   ) %>%
-  #   gtsummary::add_glance_table(include = c(nobs, r.squared)) |>
-  #   gtsummary::as_gt() %>%
-  #   gt::tab_header(title = gt::md(glue::glue('**Ambulance response time**')))
-  
-    # mod_dat <- mod_dat %>%
-    # mutate(resp_standard = resp_pred,
-    #        resp_adj = response - resp_standard)
-  
-
    
  plot_dat <- resp_mods %>% 
     pull(data) %>%

@@ -23,7 +23,7 @@ n_fun <- function(x){
   return(data.frame(y = x/2, label = paste0(scales::number(x, big.mark = ","))))
 }
 
-mod_df <- readRDS("data/smr_mod_df_new.RDS")
+mod_df <- readRDS("data/mort_mod_df_final.RDS")
 
 
 p_demog_downstr_1 <- mod_df %>%
