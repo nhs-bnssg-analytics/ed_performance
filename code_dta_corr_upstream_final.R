@@ -282,24 +282,6 @@ Conveyed_To_Ward_Type = 'A&E' AND
   
   
   
-  
-  # max_dt <- ceiling_date(max(actv_swafst$handover_time, na.rm = TRUE), "4 hours")
-  # handover_seq <- seq.POSIXt(from = as.POSIXct(lubridate::ymd(report_start)), to = max_dt, by = glue::glue("{n_hour} hours"))
-  # handover_int <- map(handover_seq, ~lubridate::interval(.x, .x+dhours(n_hour)))
-  
-  
-  
-  # handover_df <- actv_swafst %>%
-  #   group_by(site = Site_Name) %>%
-  #   nest() %>%
-  #   mutate(handover_time = list(map2_dbl(snapshot_int, data, ~filter(.y, handover_time %within% .x) %>%
-  #                                          pull(Handover_Duration__seconds_) %>%
-  #                                          median(na.rm = TRUE)
-  #                                        ))) %>%
-  #   mutate(handover_df = map(handover_time, function(handover_time) map2_df(handover_time, snapshot_seq, ~tibble(dt = .y, handover_time = .x)))) %>%
-  #   select(site, handover_df) %>%
-  #   unnest(handover_df)
-
   handover_df <- actv_swafst %>%
     group_by(site = Site_Name) %>%
     nest() %>%
@@ -307,7 +289,7 @@ Conveyed_To_Ward_Type = 'A&E' AND
       snapshot_int,
       data,
       ~ filter(.y, handover_time %within% .x) %>%
-        select(age = Age_Bracket, handover_time = Handover_Duration__seconds_)
+        select(nhs_number = Derived_Pseudo_NHSNumber, age = Age_Bracket, handover_time = Handover_Duration__seconds_)
     ))) %>%
     mutate(handover_df = map(handover_time, function(handover_time)
       map2_df(handover_time, snapshot_seq, ~ bind_cols(tibble(dt = .y), .x)))) %>%
@@ -465,7 +447,7 @@ CCG = '15C' AND
                                   "Category 3"= "cat3",
                                   "Category 2"= "cat2",
                                   "Category 1"= "cat1")) %>%
-    select(dt, age = Age_Bracket, outcome = Outcome, call_category, response) 
+    select(nhs_number = Derived_Pseudo_NHSNumber, dt, age = Age_Bracket, outcome = Outcome, call_category, response) 
   
   response_time
 })
@@ -490,6 +472,8 @@ dta_df <- dta_df %>%
 
 
 handover_outputs <- ({
+  
+  handover_df <- handover_df %>% select(-nhs_number)
   
   bin_acc <- 0.1
   
@@ -747,6 +731,8 @@ saveRDS(handover_outputs, "data/handover_outputs.RDS")
 
 resp_outputs <- local({
   
+  resp_time_df <- dplyr::select(resp_time_df, -nhs_number)
+  
   bin_acc <- 0.1
   
   x_lab <- "DTA Queue as a Percentage of Cubical Capacity (Majors + Resus)"
@@ -815,16 +801,18 @@ resp_outputs <- local({
       legend.spacing.x = unit(0, "cm")
 )
 
+  
   p_norm_raw <- dta_df %>%
     ungroup() %>%
     # filter(n_dta <= 35) %>%
     # na.omit() %>%
     left_join(site_resus_maj) %>%
+    summarise(n_dta = sum(n_dta), total = sum(total), .by = dt) %>%
     mutate(n_dta_norm = n_dta / total) %>%
-    group_by(dt) %>%
-    summarise(n_dta_norm = mean(n_dta_norm, na.rm = TRUE)) %>%
+    # group_by(dt) %>%
+    # summarise(n_dta_norm = mean(n_dta_norm, na.rm = TRUE)) %>%
     mutate(n_dta_norm = plyr::round_any(n_dta_norm, accuracy = bin_acc)) %>%
-    filter(n_dta_norm <= 1.75) %>%
+    filter(n_dta_norm <= 1.75, n_dta > 5) %>%
     left_join(resp_time_df)  %>%
     filter(!between(dt, ymd("2022-04-01"), ymd("2022-07-10"))) %>%
     na.omit() %>%
@@ -880,7 +868,6 @@ resp_outputs <- local({
       legend.title = element_text()
     )
   
-  
   # y standardisation
   
   mod_dat <- dta_df %>%
@@ -889,17 +876,13 @@ resp_outputs <- local({
     left_join(site_resus_maj) %>%
     left_join(ed_df) %>%
     # filter(n_dta <= 35) %>%
-    mutate(n_ed_norm = (n_ed - n_dta)/total,
-           n_dta_norm = n_dta / total
-           ) %>%
-    group_by(dt) %>%
-    summarise(
-             n_dta_norm = mean(n_dta_norm, na.rm = TRUE),
-             n_ed_norm = mean(n_ed_norm, na.rm = TRUE),
-              ) %>%
+    summarise(n_dta = sum(n_dta), n_ed = sum(n_ed), total = sum(total), .by = dt) %>%
+    mutate(n_dta_norm = n_dta / total, n_ed_norm = n_ed / total) %>%
+    # group_by(dt) %>%
+    # summarise(n_dta_norm = mean(n_dta_norm, na.rm = TRUE)) %>%
     left_join(resp_time_df) %>%
     na.omit() %>%
-    filter(n_dta_norm <= 1.75) %>%
+    filter(n_dta_norm <= 1.75, n_dta > 5) %>%
     distinct() %>%
     mutate(age = factor(age)) %>%
     mutate(
