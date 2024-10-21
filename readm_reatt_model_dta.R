@@ -539,6 +539,7 @@ mod_df <-  dat_adm %>%
 
 saveRDS(mod_df, "data/readm_reatt_mod_df_final.RDS")
 
+mod_df <- readRDS("data/readm_reatt_mod_df_final.RDS")
 
 library(tidyverse)
 library(tidymodels)
@@ -552,7 +553,7 @@ mod_df <- mod_df %>%
 
 mod_raw <- glm(
   formula = reatt ~ . 
-  -n_ed
+  # -n_ed
   + I(age ^ 2)
   + I(perf ^ 2)
   + I(n_ed ^ 2)
@@ -575,8 +576,7 @@ yardstick::roc_auc_vec(mod_df$reatt, estimate = raw_pred, event_level = "second"
 mod_raw %>%
   jtools::effect_plot(pred = "dta_time", interval = TRUE) +
   # scale_x_continuous(limits = c(0, NA), breaks = scales::breaks_width(width = 120), labels = \(x) x/60, , expand = c(0, 1)) +
-  # scale_y_continuous(labels = function(x) x * 100, breaks = seq(0, .5, .05)) +
-  scale_y_continuous(labels = \(x) scales::percent(x, accuracy = 1), breaks = scales::breaks_width(width = 0.01)) +
+  scale_y_continuous(labels = \(x) scales::percent(x, accuracy = 1), breaks = scales::breaks_width(width = 0.02)) +
   labs(x = "Time spent DTA (hours)",
        # y = str_wrap("Out of 100 patients, the number who die within 30 days due to delay related harm", 50)) +
        y = str_wrap("Model estimated 30-day mortality rate.", 50)) +
@@ -585,7 +585,7 @@ mod_raw %>%
 
 mod_raw <- glm(
   formula = readm ~ . 
-  -n_ed
+  # -n_ed
   + I(age ^ 2)
   + I(perf ^ 2)
   + I(n_ed ^ 2)
@@ -605,12 +605,22 @@ raw_pred = predict(mod_raw, mod_df, type = "response")
 yardstick::roc_auc_vec(mod_df$readm, estimate = raw_pred, event_level = "second")
 
 
-mod_raw %>%
+readm_effects_plot <- mod_raw %>%
   jtools::effect_plot(pred = "dta_time", interval = TRUE) +
-  # scale_x_continuous(limits = c(0, NA), breaks = scales::breaks_width(width = 120), labels = \(x) x/60, , expand = c(0, 1)) +
+  scale_x_continuous(limits = c(0, NA), breaks = scales::breaks_width(width = 120), labels = \(x) x/60, , expand = c(0, 1)) +
   # scale_y_continuous(labels = function(x) x * 100, breaks = seq(0, .5, .05)) +
-  scale_y_continuous(labels = \(x) scales::percent(x, accuracy = 1), breaks = scales::breaks_width(width = 0.01)) +
+  scale_y_continuous(labels = \(x) scales::percent(x, accuracy = 1), breaks = scales::breaks_width(width = 0.02)) +
   labs(x = "Time spent DTA (hours)",
        # y = str_wrap("Out of 100 patients, the number who die within 30 days due to delay related harm", 50)) +
-       y = str_wrap("Model estimated 30-day mortality rate.", 50)) +
+       y = str_wrap("Model Estimated 30-day Readmission Rate.", 50)) +
   theme_minimal()
+
+
+ggplot2::ggsave("materials/readm_model_effects_plot.png",
+                readm_effects_plot,
+                bg = "white",
+                height = 7.5,
+                width = 10,
+                scale = 0.5)
+
+saveRDS(readm_effects_plot, "data/readm_effects_plot.RDS")

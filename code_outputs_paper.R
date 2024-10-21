@@ -8,8 +8,8 @@ resp_outputs <- readRDS("data/resp_outputs.RDS")
 
 bin_acc <- 0.1
 
-x_lab <- "DTA Queue as a Percentage of Cubicle Capacity (Majors + Resus)"
-y_lab <- "Model-Standardised Ambulance Handover Time\n(min)"
+x_lab <- "DTA Queue as a Percentage of Cubicle Capacity (Majors + Resus)."
+y_lab <- "Model-Standardised Ambulance Handover Time\n(min)."
 
 handover_outputs$p_std +
   labs(x = x_lab,
@@ -28,8 +28,8 @@ ggplot2::ggsave("materials/handover_standard.png",
                 width = 10, 
                 scale = 0.6)
 
-x_lab <- "DTA Queue as a Percentage of Cubicle Capacity (Majors + Resus)"
-y_lab <- "Model-Standardised Ambulance Response Time\n(min)"
+x_lab <- "DTA Queue as a Percentage of Cubicle Capacity (Majors + Resus)."
+y_lab <- "Model-Standardised Ambulance Response Time\n(min)."
 
 resp_outputs$p_norm_std +
   labs(x = x_lab,
@@ -44,7 +44,7 @@ resp_outputs$p_norm_std +
 ggplot2::ggsave("materials/response_standard.png",
                 ggplot2::last_plot(),
                 bg = "white",
-                height = 10,
+                height = 12.5,
                 width = 10, 
                 scale = 0.6)
 

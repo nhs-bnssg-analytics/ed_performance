@@ -499,9 +499,9 @@ handover_outputs <- ({
     scale_y_continuous(limits = c(0, 300), breaks = seq(0, 300, 30)) +
     # geom_ribbon(aes(ymin = lwr, ymax = upr, fill = q), col = NA, alpha = 0.25) +
     # geom_line(aes(y = fit, group = q)) +
+    geom_point(aes(y = standard, col = "National target")) +
     stat_summary(fun = ~mean(.x), geom = "point", col = "black", aes(col = "Mean", shape = "Mean")) +
     stat_summary(fun = ~quantile(.x, 0.95), geom = "point", col = "black", aes(col = "95th percentile", shape = "95th percentile")) +
-    geom_point(aes(y = standard, col = "National target")) +
     # bnssgtheme() +
     theme_minimal() +
     scale_shape_manual(values = c(21, 24, 19), guide = guide_legend(override.aes = list(size = 3,
@@ -643,6 +643,7 @@ plot_df <- mod_dat %>%
 p_std <- plot_df %>%
   mutate(n_dta_norm = plyr::round_any(n_dta_norm, accuracy = bin_acc)) %>%
   mutate(standard = 30) %>%
+  filter(n_dta_norm >= 0.1) %>%
   ggplot(aes(x = n_dta_norm, y = handover_adj_inv/60, group = cut_width(n_dta_norm, width = bin_acc))) +
   # geom_boxplot(outliers = FALSE) +
   geom_boxplot(outliers = FALSE, fatten = NULL) +
@@ -658,6 +659,7 @@ p_std <- plot_df %>%
   scale_colour_manual(values = c("red", "black"), guide = guide_legend(override.aes = list(size = 3,
                                                                                            alpha = 1))) +
   scale_x_continuous(labels = scales::percent) +
+  coord_cartesian(xlim = c(0.1, NA)) +
   scale_shape_manual(values = c(19, 17),
                      guide = guide_legend(override.aes = list(size = 3,
                                                               alpha = 1))) +
@@ -731,16 +733,16 @@ saveRDS(handover_outputs, "data/handover_outputs.RDS")
 
 resp_outputs <- local({
   
-  resp_time_df <- dplyr::select(resp_time_df, -nhs_number)
+  resp_time_df <- resp_time_df %>% select(-nhs_number)
   
   bin_acc <- 0.1
   
   x_lab <- "DTA Queue as a Percentage of Cubical Capacity (Majors + Resus)"
   y_lab <- "Ambulance Response Time\n(min)"
   
-  labels <- c(cat1 = "999 Category 1",
-              cat2 = "999 Category 2",
-              cat3 = "999 Category 3")
+  labels <- c(cat1 = "999 Call Category 1",
+              cat2 = "999 Call Category 2",
+              cat3 = "999 Call Category 3")
   
   time_std <- tibble(call_category = c("cat1", "cat2", "cat3"),
                      std = c(15, 40, 120))
@@ -799,20 +801,18 @@ resp_outputs <- local({
       legend.justification = "center",
       legend.title = element_blank(),
       legend.spacing.x = unit(0, "cm")
-)
-
+    )
   
   p_norm_raw <- dta_df %>%
     ungroup() %>%
     # filter(n_dta <= 35) %>%
     # na.omit() %>%
     left_join(site_resus_maj) %>%
-    summarise(n_dta = sum(n_dta), total = sum(total), .by = dt) %>%
     mutate(n_dta_norm = n_dta / total) %>%
-    # group_by(dt) %>%
-    # summarise(n_dta_norm = mean(n_dta_norm, na.rm = TRUE)) %>%
+    group_by(dt) %>%
+    summarise(n_dta_norm = mean(n_dta_norm, na.rm = TRUE)) %>%
     mutate(n_dta_norm = plyr::round_any(n_dta_norm, accuracy = bin_acc)) %>%
-    filter(n_dta_norm <= 1.75, n_dta > 5) %>%
+    filter(n_dta_norm <= 1.75) %>%
     left_join(resp_time_df)  %>%
     filter(!between(dt, ymd("2022-04-01"), ymd("2022-07-10"))) %>%
     na.omit() %>%
@@ -868,6 +868,7 @@ resp_outputs <- local({
       legend.title = element_text()
     )
   
+  
   # y standardisation
   
   mod_dat <- dta_df %>%
@@ -876,13 +877,17 @@ resp_outputs <- local({
     left_join(site_resus_maj) %>%
     left_join(ed_df) %>%
     # filter(n_dta <= 35) %>%
-    summarise(n_dta = sum(n_dta), n_ed = sum(n_ed), total = sum(total), .by = dt) %>%
-    mutate(n_dta_norm = n_dta / total, n_ed_norm = n_ed / total) %>%
-    # group_by(dt) %>%
-    # summarise(n_dta_norm = mean(n_dta_norm, na.rm = TRUE)) %>%
+    mutate(n_ed_norm = (n_ed - n_dta)/total,
+           n_dta_norm = n_dta / total
+    ) %>%
+    group_by(dt) %>%
+    summarise(
+      n_dta_norm = mean(n_dta_norm, na.rm = TRUE),
+      n_ed_norm = mean(n_ed_norm, na.rm = TRUE),
+    ) %>%
     left_join(resp_time_df) %>%
     na.omit() %>%
-    filter(n_dta_norm <= 1.75, n_dta > 5) %>%
+    filter(n_dta_norm <= 1.75) %>%
     distinct() %>%
     mutate(age = factor(age)) %>%
     mutate(
@@ -933,18 +938,18 @@ resp_outputs <- local({
   
   resp_mods <- 
     mod_dat %>%
-      group_by(call_category) %>%
-      nest() %>%
-      mutate(mod = map(data, ~ lm(response ~ . -n_dta_norm - outcome, data = .x))) %>%
-      mutate(mod_full = map(data, ~ lm(response ~ . - outcome, data = .x))) %>%
-      mutate(pred = map2(mod, data, predict)) %>%
-      mutate(data = pmap(list(data, call_category, pred), ~bind_cols(..1, call_category = ..2, response_pred = ..3)))
+    group_by(call_category) %>%
+    nest() %>%
+    mutate(mod = map(data, ~ lm(response ~ . -n_dta_norm - outcome, data = .x))) %>%
+    mutate(mod_full = map(data, ~ lm(response ~ . - outcome, data = .x))) %>%
+    mutate(pred = map2(mod, data, predict)) %>%
+    mutate(data = pmap(list(data, call_category, pred), ~bind_cols(..1, call_category = ..2, response_pred = ..3)))
   
   # resp_mod <- lm(response ~ . - n_dta_norm - outcome, data = mod_dat)
   # resp_pred <- predict(resp_mod, mod_dat)
   
   
-    std_mod_tabs <- resp_mods %>%
+  std_mod_tabs <- resp_mods %>%
     ungroup() %>%
     mutate(call_category = recode(call_category, cat1 = "Category 1", cat2 = "Category 2", cat3 = "Category 3")) %>%
     select(call_category, mod) %>%
@@ -963,7 +968,7 @@ resp_outputs <- local({
     select(call_category, tab) %>%
     as.list() 
   
-    full_mod_tabs <- resp_mods %>%
+  full_mod_tabs <- resp_mods %>%
     ungroup() %>%
     mutate(call_category = recode(call_category, cat1 = "Category 1", cat2 = "Category 2", cat3 = "Category 3")) %>%
     select(call_category, mod_full) %>%
@@ -984,16 +989,17 @@ resp_outputs <- local({
     select(call_category, tab) %>%
     as.list() 
   
-   
- plot_dat <- resp_mods %>% 
+  
+  plot_dat <- resp_mods %>% 
     pull(data) %>%
     bind_rows() %>%
     mutate(response_adj = response - response_pred) %>%
     mutate(response_adj_inv = response_adj + mean(response), .by = call_category)
-    
- 
+  
+  
   p_norm_std <- plot_dat %>%
     mutate(n_dta_norm = plyr::round_any(n_dta_norm, accuracy = bin_acc)) %>%
+    filter(n_dta_norm >= 0.1) %>%
     ggplot(aes(x = n_dta_norm, y = response_adj_inv)) +
     # geom_boxplot(outliers = FALSE) +
     geom_boxplot(
@@ -1010,7 +1016,7 @@ resp_outputs <- local({
     #   aes(ymax = ..y.., ymin = ..y..)
     # ) +
     geom_point(
-      data = {time_std %>% expand_grid(n_dta_norm = seq(0, 1.75, bin_acc))},
+      data = {time_std %>% expand_grid(n_dta_norm = seq(bin_acc, 1.75, bin_acc))},
       aes(y = std, col = "National target"),
     ) +
     stat_summary(
@@ -1032,6 +1038,7 @@ resp_outputs <- local({
       labeller = as_labeller(labels)
     ) +
     scale_x_continuous(labels = scales::percent) +
+    coord_cartesian(xlim = c(0.1, NA)) +
     theme_minimal()  +
     scale_colour_manual(values = c("red", "black"), guide = guide_legend(override.aes = list(size = 3,
                                                                                              alpha = 1))) +

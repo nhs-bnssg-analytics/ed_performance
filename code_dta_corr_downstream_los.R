@@ -1416,3 +1416,16 @@ ggsave("materials/dta_los_plot_paper.png",
        width = 7.5, 
        scale = 0.8) 
 
+
+los_effect_plot <- jtools::effect_plot(los_outputs$mod_full, "dta_time", interval = TRUE) +
+  scale_x_continuous(limits = c(0, 24), breaks = scales::breaks_width(width = 2), expand = c(0, 0)) +
+  # scale_y_continuous(labels = function(x) x * 100, breaks = seq(0, .5, .05)) +
+  # scale_y_continuous(labels = \(x) scales::percent(x, accuracy = 1), breaks = scales::breaks_width(width = 0.1)) +
+  labs(x = "Time spent DTA (hours)",
+       # y = str_wrap("Out of 100 patients, the number who die within 30 days due to delay related harm", 50)) +
+       y = str_wrap("Model Estimated In-Hospital Length of Stay (day)", 50)) +
+  theme_minimal()
+
+
+saveRDS(los_effect_plot, "data/los_effect_plot.RDS")
+
