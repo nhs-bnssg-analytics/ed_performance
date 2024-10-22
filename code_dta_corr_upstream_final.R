@@ -812,7 +812,7 @@ resp_outputs <- local({
     group_by(dt) %>%
     summarise(n_dta_norm = mean(n_dta_norm, na.rm = TRUE)) %>%
     mutate(n_dta_norm = plyr::round_any(n_dta_norm, accuracy = bin_acc)) %>%
-    filter(n_dta_norm <= 1.75) %>%
+    filter(n_dta_norm > 0, n_dta_norm <= 1.75) %>%
     left_join(resp_time_df)  %>%
     filter(!between(dt, ymd("2022-04-01"), ymd("2022-07-10"))) %>%
     na.omit() %>%
@@ -887,7 +887,7 @@ resp_outputs <- local({
     ) %>%
     left_join(resp_time_df) %>%
     na.omit() %>%
-    filter(n_dta_norm <= 1.75) %>%
+    filter(n_dta_norm > 0, n_dta_norm <= 1.75) %>%
     distinct() %>%
     mutate(age = factor(age)) %>%
     mutate(

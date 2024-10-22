@@ -3,7 +3,8 @@ library(tidymodels)
 
 mod_df <- readRDS("data/mort_mod_df_final.RDS")
 mod_df <- mod_df %>%
-  filter(ed_time < 60*30) 
+  filter(ed_time < 60*30) %>%
+  na.omit()
 
 split_mort <- initial_split(mod_df, strata = mort_30) 
 glm_spec <- logistic_reg(penalty = 0) %>% 
@@ -128,9 +129,17 @@ mod_raw <- glm(
 
 
 
+lvl_props <- mod_df %>%
+  select(arrival_time, arrival_month, arrival_year, sex, imd) %>%
+  map(table) %>%
+  map(proportions) %>%
+  map(\(x) x[-1]) %>%
+  imap(\(x, idx) set_names(x, str_c(idx, names(x)))) %>%
+  reduce(c)
+  
 
-mod_eff <- effects::predictorEffect("dta_time", mod_raw)
 
+mod_eff <- effects::predictorEffect("dta_time", mod_raw, fixed.predictors = list(given.values = lvl_props))
 
 plot(mod_eff)
 
@@ -171,8 +180,8 @@ saveRDS(mort_effect_plot, "data/mort_effect_plot.RDS")
 
 mod_raw <- glm(
   formula = mort_30 ~ . 
-  -dta_time
-  + poly(dta_time, 2)
+  # -dta_time
+  # + poly(dta_time, 2)
   # + I(dta_time ^ 2)
   + I(age ^ 2)
   + I(perf ^ 2)
@@ -202,33 +211,78 @@ mod_raw %>%
   theme_minimal()
 
 
+
+
+sum_fn <- function(data_points, standard_errors) {
+  # Calculate weights
+  weights <- 1 / standard_errors^2
+  
+  # Calculate weighted mean
+  weighted_mean <- weighted.mean(data_points, standard_errors, na.rm = TRUE)
+  
+  # Calculate SEM
+  sem <- sqrt(1 / sum(weights, na.rm = TRUE))
+  
+  # Calculate 95% confidence interval
+  lower_bound <- weighted_mean - 1.96 * sem
+  upper_bound <- weighted_mean + 1.96 * sem
+  c(mean = weighted_mean, l95 = lower_bound, u95 = upper_bound)
+}
+
+pred <- predict(mod_raw, newdata = mutate(mod_df, dta_time = 0*60), type = "link", se.fit = TRUE)
+
+critval <- 1.96 ## approx 95% CI
+upr <- pred$fit + (critval * pred$se.fit)
+lwr <- pred$fit - (critval * pred$se.fit)
+fit <- pred$fit
+
+fit2 <- mod_raw$family$linkinv(fit)
+upr2 <- mod_raw$family$linkinv(upr)
+lwr2 <- mod_raw$family$linkinv(lwr)
+
+
 map_dfr(
-  60 * seq(0, 24, 0.25),
-  \(x)
-  mod_df %>%
+  60 * seq(0, 24, 1),
+  \(x){
+  pred <- mod_df %>%
     mutate(dta_time = x) %>%
     predict(
       mod_raw,
       newdata = .,
-      type = "response",
+      type = "link",
       se.fit = TRUE
-    ) %>%
-    as_tibble() %>%
-    select(fit, se.fit) %>%
-    summarise(
-      u = quantile(fit, 0.975, na.rm = TRUE),
-      l = quantile(fit, 0.025, na.rm = TRUE),
-      fit = mean(fit, na.rm = TRUE)
-    ) %>%
-    mutate(
-      dta_time = x,
-      # u = fit + se.fit,
-      # l = fit - se.fit
-    )
+    ) 
+  critval <- 1.96 ## approx 95% CI
+  upr <- pred$fit + (critval * pred$se.fit)
+  lwr <- pred$fit - (critval * pred$se.fit)
+  fit <- pred$fit
+  # 
+  fit2 <- mod_raw$family$linkinv(fit)
+  upr2 <- mod_raw$family$linkinv(upr)
+  lwr2 <- mod_raw$family$linkinv(lwr)
+  
+  list(dta_time = x, fit = fit2, u95 = upr2, l95 = lwr2)
+  
+  # c(dta_time = x, sum_fn(data_points = pred[["fit"]], standard_errors = pred[["se.fit"]]))
+  }
+  
+  # %>%
+  #   summarise(
+  #     # u = quantile(fit, 0.975, na.rm = TRUE),
+  #     # l = quantile(fit, 0.025, na.rm = TRUE),
+  #     fit = mean(fit, na.rm = TRUE)
+  #   ) %>%
+  #   mutate(
+  #     dta_time = x,
+  #     # u = fit + se.fit,
+  #     # l = fit - se.fit
+  #   )
 ) %>%
   ggplot(aes(x = dta_time, y = fit)) +
-  geom_ribbon(aes(ymin = l, ymax = u), alpha = 0.25) + geom_line() +
-  scale_x_continuous(limits = c(0, NA), breaks = scales::breaks_width(width = 120), labels = \(x) x/60, , expand = c(0, 1)) +
+  geom_boxplot(aes(group = cut_width(dta_time, 60))) +
+  # geom_ribbon(aes(ymin = l95, ymax = u95), alpha = 0.25) +
+  # geom_line() +
+  scale_x_continuous(breaks = scales::breaks_width(width = 120), labels = \(x) x/60) +
   # scale_y_continuous(labels = function(x) x * 100, breaks = seq(0, .5, .05)) +
   scale_y_continuous(labels = \(x) scales::percent(x, accuracy = 1), breaks = scales::breaks_width(width = 0.01)) +
   labs(x = "Time spent DTA (hours)",
