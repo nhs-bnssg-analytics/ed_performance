@@ -87,6 +87,25 @@ dta_df <- local({
   dat_dtas
 })
 
+imd_df <- local({
+  
+  string_ecds<-glue::glue("select Arrival_Date,
+                        Arrival_Time,
+                        NHS_Number,
+                        Index_Of_Multiple_Deprivation
+      FROM Analyst_SQL_Area.dbo.tbl_BNSSG_ECDS
+      where Site_Name in ('BRISTOL ROYAL INFIRMARY', 'SOUTHMEAD HOSPITAL', 'WESTON GENERAL HOSPITAL')
+      and Arrival_Date >= '{report_start}'
+      ")
+  dat_ecds_raw<-sqlQuery(con,string_ecds)
+  dat_ecds_raw %>%
+  group_by(nhs_number = NHS_Number) %>%
+  arrange(desc(Arrival_Time)) %>%
+  slice(1) %>%
+  select(nhs_number, imd = Index_Of_Multiple_Deprivation)
+  }) %>%
+  na.omit()
+
 # treatment time
 trt_df <- local({
   string_ecds<-glue::glue("select Arrival_Date,
@@ -281,15 +300,18 @@ Conveyed_To_Ward_Type = 'A&E' AND
     mutate(handover_time = lubridate::parse_date_time(Time_of_Patient_Handover, orders = "dmy HMS"))
   
   
-  
   handover_df <- actv_swafst %>%
+    left_join(imd_df, by = join_by(Derived_Pseudo_NHSNumber == nhs_number)) %>%
     group_by(site = Site_Name) %>%
     nest() %>%
     mutate(handover_time = list(map2(
       snapshot_int,
       data,
       ~ filter(.y, handover_time %within% .x) %>%
-        select(nhs_number = Derived_Pseudo_NHSNumber, age = Age_Bracket, handover_time = Handover_Duration__seconds_)
+        select(nhs_number = Derived_Pseudo_NHSNumber,
+               age = Age_Bracket, 
+               imd,
+               handover_time = Handover_Duration__seconds_)
     ))) %>%
     mutate(handover_df = map(handover_time, function(handover_time)
       map2_df(handover_time, snapshot_seq, ~ bind_cols(tibble(dt = .y), .x)))) %>%
@@ -299,21 +321,6 @@ Conveyed_To_Ward_Type = 'A&E' AND
   
   handover_df
 })
-
-# handover_df %>%
-#   filter(site == "SOUTHMEAD HOSPITAL") %>%
-#   filter(dt %within% interval(ymd("2024-02-15"), ymd("2024-02-15")+dweeks(4))) %>%
-#   ggplot(aes(x = dt, y = handover_time/60)) +
-#   geom_line() + 
-#   bnssgtheme() +
-#   labs(x = "Date", y = "Median ambulance handover time\n(mins)") 
-# 
-# ggsave("materials/handover_plot.png",
-#        last_plot(),
-#        height = 5,
-#        width = 7.5, 
-#        scale = 0.9)
-
 
 
 minor_time_in_ed_df <- local({
@@ -447,18 +454,21 @@ CCG = '15C' AND
                                   "Category 3"= "cat3",
                                   "Category 2"= "cat2",
                                   "Category 1"= "cat1")) %>%
-    select(nhs_number = Derived_Pseudo_NHSNumber, dt, age = Age_Bracket, outcome = Outcome, call_category, response) 
+    select(nhs_number = Derived_Pseudo_NHSNumber, dt, age = Age_Bracket, outcome = Outcome, call_category, response) %>%
+    left_join(imd_df)
   
   response_time
 })
 
 # saveRDS(dta_df, "data/upstream_dta_df.RDS")
+# saveRDS(imd_df, "data/upstream_imd_df.RDS")
 # saveRDS(ed_df, "data/upstream_ed_df.RDS")
 # saveRDS(handover_df, "data/upstream_handover_df.RDS")
 # saveRDS(resp_time_df, "data/upstream_resp_time_df.RDS")
 
 
 dta_df <-  readRDS("data/upstream_dta_df.RDS")
+imd_df <- readRDS("data/upstream_imd_df.RDS")
 ed_df <-  readRDS("data/upstream_ed_df.RDS")
 handover_df <-  readRDS("data/upstream_handover_df.RDS")
 resp_time_df <-  readRDS("data/upstream_resp_time_df.RDS")
@@ -467,11 +477,40 @@ resp_time_df <-  readRDS("data/upstream_resp_time_df.RDS")
 dta_df <- dta_df %>%
   filter(!(site == "WESTON GENERAL HOSPITAL" & hour(dt) %in% c(10:12, 1:7))) 
 
+handover_df <- handover_df %>%
+  mutate(imd = factor(imd, levels = 1:10, labels = c("1 (least deprived)",
+                                                     "2",
+                                                     "3",
+                                                     "4",
+                                                     "5",
+                                                     "6",
+                                                     "7",
+                                                     "8",
+                                                     "9",
+                                                     "10 (most deprived)"))
+  ) %>%
+  mutate(imd = fct_na_value_to_level(imd, level = "(Missing)"))
+
+resp_time_df <- resp_time_df %>%
+  mutate(imd = factor(imd, levels = 1:10, labels = c("1 (least deprived)",
+                                                     "2",
+                                                     "3",
+                                                     "4",
+                                                     "5",
+                                                     "6",
+                                                     "7",
+                                                     "8",
+                                                     "9",
+                                                     "10 (most deprived)"))
+  ) %>%
+  mutate(imd = fct_na_value_to_level(imd, level = "(Missing)"))
+
+
 
 # Normalisation and standardisation
 
 
-handover_outputs <- ({
+handover_outputs <- local({
   
   handover_df <- handover_df %>% select(-nhs_number)
   
@@ -526,7 +565,6 @@ handover_outputs <- ({
 
   
 # Standardised plot  
-  
 mod_dat <- dta_df %>% 
   left_join(handover_df) %>%
   left_join(site_resus_maj) %>%
@@ -570,6 +608,8 @@ mod_dat <- dta_df %>%
                              "06:00-12:00" = "(6,12]",
                              "12:00-18:00" = "(12,18]",
                              "18:00-24:00" = "(18,24]")) %>%
+  mutate(arrival_month = factor(month(dt))) %>%
+  # mutate(arrival_year = factor(year(dt))) %>%
     select(-dt, -maj, -resus, -total) %>%
     ungroup() 
 
@@ -582,15 +622,18 @@ std_mod_tab <- gtsummary::tbl_regression(
   std_mod,
   label = list(
     age = "Age",
+    imd = "Index of Multiple Deprivation Decile",
     wkend = "Weekend",
-    hour = "Time of day"
+    hour = "Time of Arrival",
+    arrival_month = "Month of Arrival"#,
+    # arrival_year = "Year of Arrival"
   )
 ) %>%
   gtsummary::add_glance_table(include = c(nobs, r.squared)) |>
   gtsummary::as_gt() %>%
   gt::tab_header(title = gt::md(glue::glue('**Ambulance Handover Time (min)**')))#,
 
-full_mod <- lm(handover_time/60 ~ age + n_ed_norm + n_dta_norm + wkend + hour -site, data = mod_dat)
+full_mod <- lm(handover_time/60 ~ age + imd + n_ed_norm + n_dta_norm + wkend + hour + arrival_month -site, data = mod_dat)
 
 # This code assesses which transform is best?
 
@@ -619,8 +662,11 @@ full_mod_tab <-  full_mod %>%
       n_dta_norm = x_lab,
       n_ed_norm = "Number in ED (excluding DTA) as a Percentage of Majors & Resus Cubicles",
       age = "Age",
+      imd = "Index of Multiple Deprivation Decile",
       wkend = "Weekend",
-      hour = "Time of day"
+      hour = "Time of Arrival",
+      arrival_month = "Month of Arrival"#,
+      # arrival_year = "Year of Arrival"
     )
   ) %>%
   gtsummary::add_glance_table(include = c(nobs, r.squared)) |>
@@ -649,9 +695,10 @@ p_std <- plot_df %>%
   geom_boxplot(outliers = FALSE, fatten = NULL) +
   # scale_y_continuous(limits = c(0, 300), breaks = seq(0, 300, 30)) +
   # geom_point(aes(y = standard), col = "red") +
+  geom_hline(aes(yintercept = standard), col = "red", linetype = 2) +
+  geom_point(aes(y = standard, col = "National target")) +
   stat_summary(fun = ~mean(.x), geom = "point", col = "black", aes(col = "Mean", shape = "Mean")) +
   stat_summary(fun = ~quantile(.x, 0.95), geom = "point", col = "black", aes(col = "95th percentile", shape = "95th percentile")) +
-  geom_point(aes(y = standard, col = "National target")) +
   # bnssgtheme() +
   theme_minimal() +
   scale_shape_manual(values = c(21, 24, 19), guide = guide_legend(override.aes = list(size = 3,
@@ -933,6 +980,8 @@ resp_outputs <- local({
         "18:00-24:00" = "(18,24]"
       )
     ) %>%
+    mutate(arrival_month = factor(month(dt))) %>%
+    # mutate(arrival_year = factor(year(dt))) %>%
     select(-dt) %>%
     ungroup()
   
@@ -940,8 +989,8 @@ resp_outputs <- local({
     mod_dat %>%
     group_by(call_category) %>%
     nest() %>%
-    mutate(mod = map(data, ~ lm(response ~ . -n_dta_norm - outcome, data = .x))) %>%
-    mutate(mod_full = map(data, ~ lm(response ~ . - outcome, data = .x))) %>%
+    mutate(mod = map(data, ~ lm(response ~ . -n_dta_norm -outcome,  data = .x))) %>%
+    mutate(mod_full = map(data, ~ lm(response ~ . -outcome, data = .x))) %>%
     mutate(pred = map2(mod, data, predict)) %>%
     mutate(data = pmap(list(data, call_category, pred), ~bind_cols(..1, call_category = ..2, response_pred = ..3)))
   
@@ -957,8 +1006,10 @@ resp_outputs <- local({
       gtsummary::tbl_regression(.x,
                                 label = list(
                                   age = "Age",
+                                  imd = "Index of Multiple Deprivation Decile",
                                   wkend = "Weekend",
-                                  hour = "Time of day"
+                                  hour = "Time of Arrival",
+                                  arrival_month = "Month of Arrival"
                                 )) %>%
         gtsummary::add_glance_table(include = c(nobs, r.squared)) |>
         gtsummary::as_gt() %>%
@@ -978,8 +1029,10 @@ resp_outputs <- local({
                                   n_dta_norm = x_lab,
                                   n_ed_norm = "Number in ED (excluding DTA) as a Percentage of Majors & Resus Cubicles",
                                   age = "Age",
+                                  imd = "Index of Multiple Deprivation Decile",
                                   wkend = "Weekend",
-                                  hour = "Time of day"
+                                  hour = "Time of Arrival",
+                                  arrival_month = "Month of Arrival"
                                 )) %>%
         gtsummary::add_glance_table(include = c(nobs, r.squared)) |>
         gtsummary::as_gt() %>%
@@ -996,7 +1049,6 @@ resp_outputs <- local({
     mutate(response_adj = response - response_pred) %>%
     mutate(response_adj_inv = response_adj + mean(response), .by = call_category)
   
-  
   p_norm_std <- plot_dat %>%
     mutate(n_dta_norm = plyr::round_any(n_dta_norm, accuracy = bin_acc)) %>%
     filter(n_dta_norm >= 0.1) %>%
@@ -1007,7 +1059,7 @@ resp_outputs <- local({
       outliers = FALSE,
       fatten = NULL
     ) +
-    # geom_hline(data = time_std, aes(yintercept = std), linetype = 2, col = "red") +
+    geom_hline(data = time_std, aes(yintercept = std), linetype = 2, col = "red") +
     # stat_summary(
     #   fun = ~ mean(.x),
     #   geom = "errorbar",
