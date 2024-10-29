@@ -6,82 +6,7 @@ mod_df <- mod_df %>%
   filter(ed_time < 60*30) %>%
   na.omit()
 
-split_mort <- initial_split(mod_df, strata = mort_30) 
-glm_spec <- logistic_reg(penalty = 0) %>% 
-  set_engine("glm", model = TRUE) %>% 
-  translate()
-
-rec_mort <- recipe(mort_30 ~ ., data = mod_df) %>%
-  # step_interact(terms = ~ dta_time:ed_time) %>%
-  update_role(ed_time, new_role = "not for prediction") %>%
-  update_role(Acuity_Desc, arrival_mode, arrival_cat, new_role = "not for prediction") %>%
-  # step_novel(all_nominal_predictors(), new_level = "novel") %>%
-  # step_other(all_nominal_predictors(), -matches("arrival_month"), threshold = 0.01) %>%
-  # step_dummy(all_nominal_predictors()) %>%
-  step_nzv()
-
-wf_mort <- workflow() %>%
-  add_recipe(rec_mort) %>%
-  add_model(glm_spec)  
-
-
-fit_mort <- last_fit(wf_mort, split_mort)
-
-augment(fit_mort) %>%
-  roc_curve(mort_30,
-            .pred_yes,
-            event_level = "second") %>%
-  autoplot()
-
-
-full_fit <- fit(wf_mort, mod_df)
-
-full_fit %>%
-  extract_fit_engine() %>%
-  broom::tidy() %>% 
-  filter(term == "dta_time")
-
-
-full_fit %>%
-  extract_fit_engine() %>%
-  broom::tidy() %>% 
-  arrange(desc(abs(estimate)))
-
-full_pred = predict(full_fit, mod_df, type = "prob")
-
-yardstick::roc_auc_vec(mod_df$mort_30, estimate = full_pred$.pred_no)
-# 
-foo <- map_dbl(60 * seq(0, 24, 0.25),
-        \(x) mod_df %>%
-          mutate(dta_time = x) %>%
-          predict(full_fit, new_data = ., type = "prob") %>%
-          pull(.pred_yes) %>%
-          mean(na.rm = TRUE))
-
-
-
-plot(foo)
-
-full_fit %>%
-  extract_fit_engine() %>%
-  jtools::effect_plot(pred = dta_time, interval = TRUE) +
-  scale_x_continuous(limits = c(0, NA), breaks = scales::breaks_width(width = 120), labels = \(x) x/60, , expand = c(0, 1)) +
-  # scale_y_continuous(labels = function(x) x * 100, breaks = seq(0, .5, .05)) +
-  scale_y_continuous(labels = \(x) scales::percent(x, accuracy = 1), breaks = scales::breaks_width(width = 0.01)) +
-  labs(x = "Time spent DTA (hours)",
-       # y = str_wrap("Out of 100 patients, the number who die within 30 days due to delay related harm", 50)) +
-       y = str_wrap("Model estimated 30-day mortality rate.", 50)) +
-  theme_minimal()
-
-
-ggplot2::ggsave("materials/mort_model_effects_plot.png",
-                last_plot(),
-                bg = "white",
-                height = 7.5,
-                width = 10,
-                scale = 0.5)
-
-mod_df_raw <- select(mod_df, -ed_time, -Acuity_Desc, -arrival_mode, -arrival_cat)
+mod_df_raw <- select(mod_df, -readm, -los, -ed_time, -Acuity_Desc, -arrival_mode, -arrival_cat)
 
 mod_folds <- vfold_cv(mod_df_raw, v = 25)
 
@@ -160,7 +85,9 @@ mort_effects_plot <- mod_eff[c("x", "fit", "upper", "lower")] %>%
   geom_text(data = tibble(), aes(label = mort_roc_lab, x = 0, y = Inf), vjust = +3, hjust = -0.1)
   
 
-saveRDS(list(mort_mod_raw = mod_raw, mort_effects_plot = mort_effects_plot, mort_roc_lab = mort_roc_lab), "data/mort_effects_output.RDS")
+saveRDS(list(mort_mod_raw = mod_raw,
+             mort_effects_plot = mort_effects_plot,
+             mort_roc_lab = mort_roc_lab), "data/mort_effects_output.RDS")
 
 
 mod_raw %>%

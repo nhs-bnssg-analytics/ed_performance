@@ -348,33 +348,62 @@ dat_los <- arrivals %>%
   ungroup() %>%
   select(nhs_number, arr_id, los) 
 
-# dat_disch <- arrivals %>%
-#   left_join(
-#     dat_apc %>%
-#       select(AIMTC_Pseudo_NHS, MainSpecialtyCode, StartDate_HospitalProviderSpell, DischargeDate_FromHospitalProviderSpell) %>%
-#       mutate(AIMTC_Pseudo_NHS = as.character(AIMTC_Pseudo_NHS)) %>%
-#       filter(!is.na(AIMTC_Pseudo_NHS)),
-#     by = join_by(nhs_number == AIMTC_Pseudo_NHS)) %>% 
-#   mutate(diff = abs(interval(departure_dt, StartDate_HospitalProviderSpell)/ddays(1))) %>%
-#   group_by(arr_id) %>%
-#   filter(between(diff, 0, 2)) %>%
-#   filter(diff == min(diff)) %>%
-#   # filter(diff <= 2) %>%
-#   select(nhs_number, arr_id, discharge_date = DischargeDate_FromHospitalProviderSpell) %>%
-#   distinct()
+dat_disch <- arrivals %>%
+  left_join(
+    dat_apc %>%
+      select(AIMTC_Pseudo_NHS, MainSpecialtyCode, StartDate_HospitalProviderSpell, DischargeDate_FromHospitalProviderSpell) %>%
+      mutate(AIMTC_Pseudo_NHS = as.character(AIMTC_Pseudo_NHS)) %>%
+      filter(!is.na(AIMTC_Pseudo_NHS)),
+    by = join_by(nhs_number == AIMTC_Pseudo_NHS)) %>%
+  mutate(diff = abs(interval(departure_dt, StartDate_HospitalProviderSpell)/ddays(1))) %>%
+  filter(between(diff, 0, 2)) %>%
+  filter(diff == min(diff)) %>% 
+  arrange(diff) %>%
+  slice(1) %>%
+  select(nhs_number, arr_id, discharge_date = DischargeDate_FromHospitalProviderSpell) %>%
+  distinct()
 
 
 # reattendance/readmissions outcomes
 
-# arrivals_full <- dat_ecds %>%
-#   select(nhs_number, arrival_dt) %>%
-#   distinct()
-# 
-# admissions_full <- dat_ecds %>%
-#   select(nhs_number, arrival_dt, dta_dt) %>%
-#   filter(!is.na(dta_dt)) %>%
-#   distinct()
+arrivals_full <- dat_ecds %>%
+  select(nhs_number, arrival_dt) %>%
+  distinct()
 
+admissions_full <- dat_ecds %>%
+  select(nhs_number, arrival_dt, dta_dt) %>%
+  filter(!is.na(dta_dt)) %>%
+  distinct()
+
+# dat_reatt <- arrivals %>%
+#   left_join(dat_disch, by = join_by(nhs_number == nhs_number, arr_id == arr_id)) %>%
+#   left_join(arrivals_full, by = join_by(nhs_number == nhs_number)) %>%
+#   mutate(discharge_date = discharge_date %>% ymd()) %>%
+#   mutate(discharge_date = if_else(is.na(discharge_date), departure_dt, discharge_date)) %>%
+#   mutate(reatt = interval(discharge_date, arrival_dt)/ddays(1) <= days_outcome_window & # reatt within limit
+#            as.Date(arrival_dt) > discharge_date # 'new' admission is new (not prior)
+#          # |
+#          #   interval(departure_dt, arrival_dt)/ddays(1) <= days_outcome_window &
+#          #   as.Date(arrival_dt) > discharge_date
+#   ) %>% 
+#   group_by(arr_id) %>%
+#   slice_max(reatt, n = 1, with_ties = FALSE) %>%
+#   select(nhs_number, arr_id, reatt_dt = arrival_dt, reatt)
+
+dat_readm <- arrivals %>%
+  left_join(dat_disch, , by = join_by(nhs_number == nhs_number, arr_id == arr_id)) %>%
+  left_join(admissions_full, by = join_by(nhs_number == nhs_number)) %>%
+  mutate(discharge_date = discharge_date %>% ymd()) %>%
+  mutate(discharge_date = if_else(is.na(discharge_date), departure_dt, discharge_date)) %>%
+  mutate(readm = interval(discharge_date, arrival_dt)/ddays(1) <= days_outcome_window & # reaadm within limit
+           as.Date(arrival_dt) > discharge_date 
+         # |
+         #   interval(departure_dt, arrival_dt)/ddays(1) <= days_outcome_window &
+         #   as.Date(arrival_dt) > discharge_date
+  ) %>% # 'new' admission is new (not prior) 
+  group_by(arr_id) %>%
+  slice_max(readm, n = 1, with_ties = FALSE) %>%
+  select(nhs_number, arr_id, readm_dt = arrival_dt, readm)
 
 mortality_df <- local({
   string_mortality <- glue::glue("SELECT
@@ -445,28 +474,45 @@ dat_adm <- dat_ecds %>%
 saveRDS(dat_adm, "data/dat_adm_final.RDS")
 dat_adm <- readRDS("data/dat_adm_final.RDS")
 
-
-
 # imputing missings
 
-dat_adm <- dat_adm %>%
-recipe() %>%
-  update_role(everything(), new_role = "predictor") %>%
-  step_impute_knn(imd, vw_score, Acuity_Desc) %>%
-  prep() %>%
-  juice() 
+# dat_adm <- dat_adm %>%
+# recipe() %>%
+#   update_role(everything(), new_role = "predictor") %>%
+#   step_impute_knn(imd, vw_score, Acuity_Desc) %>%
+#   prep() %>%
+#   juice()
+
+dat_adm <- na.omit(dat_adm)
 
 
 t_max <- 24*60
 
 mod_df <- dat_adm %>%
   left_join(mortality_df) %>%
+  left_join(dat_readm) %>%
   # filter(site == "SOUTHMEAD HOSPITAL") %>%
   filter(!between(dta_dt, ymd("2022-04-01"), ymd("2022-07-10"))) %>% # filter bad DQ period for NBT
   filter(dta_time <= t_max) %>%
   filter(dta_time > 0) %>%
   filter(sex %in% 1:2) %>%
   mutate(sex = factor(sex, labels = c("Male", "Female"))) %>%
+  mutate(imd = factor(
+    imd,
+    levels = 1:10,
+    labels = c(
+      "1 (least deprived)",
+      "2",
+      "3",
+      "4",
+      "5",
+      "6",
+      "7",
+      "8",
+      "9",
+      "10 (most deprived)"
+    )
+  )) %>%
   # mutate(age_sq = age^2) %>%
   # mutate(perf_sq = perf^2) %>%
   # mutate(n_ed_sq = n_ed^2) %>%
@@ -487,27 +533,21 @@ mod_df <- dat_adm %>%
   mutate(arrival_year = factor(year(arrival_dt))) %>%
   select(
     nhs_number,
+    los,
     arrival_time,
     arrival_month,
     arrival_year,
     perf,
     age,
     n_ed,
-    # perf_sq,
-    # age_sq,
-    # n_ed_sq,
     Acuity_Desc,
     arrival_mode,
     arrival_cat,
-    # diagnoses,
-    # investigation,
-    # n_adm,    # bring these back in when they aren't all
-    # n_adm_sq,
     sex,
     imd,
     vw_score,
-    # vw_score_sq,
     mort_30,
+    readm,
     dta_time,
     ed_time
   ) %>%
@@ -515,5 +555,4 @@ mod_df <- dat_adm %>%
   distinct() %>%
   select(-nhs_number)
   
-
 saveRDS(mod_df, "data/mort_mod_df_final.RDS")

@@ -1211,7 +1211,7 @@ dat_adm <- dat_ecds %>%
 
 saveRDS(dat_adm, "data/dat_adm_los.RDS")
 
-dat_adm <- readRDS("data/dat_adm_los.RDS")
+dat_adm <- readRDS("data/dat_adm_final.RDS")
 
 (los_plot <- local({
     
@@ -1262,14 +1262,22 @@ dat_adm %>%
   summary()
 
 
+
+mod_df <- readRDS("data/mort_mod_df_final.RDS")
+
+
 los_outputs <- local({
   
-  plot_df <- dat_adm %>%
-    # filter(site == "SOUTHMEAD HOSPITAL") %>%
-    distinct() %>%
-    filter(between(dta_time, 0, 60 * 25),
-           sex %in% 1:2) %>%
-    mutate(sex = factor(sex, labels = c("Male", "Female")))
+  plot_df <- mod_df 
+    # # filter(site == "SOUTHMEAD HOSPITAL") %>%
+    # distinct() %>%
+    # filter(between(dta_time, 0, 60 * 25),
+    #        sex %in% 1:2) %>%
+    # mutate(sex = factor(sex, labels = c("Male", "Female"))) %>%
+    # mutate(arrival_time = factor(hms::as_hms(floor_date(arrival_dt, "6 hour")))) %>%
+    # mutate(arrival_month = factor(month(arrival_dt))) %>%
+    # select(-nhs_number)
+    
   
   p_raw <- plot_df %>%
     mutate(dta_time = factor(dta_time %/% 60, levels = 0:24)) %>%
@@ -1302,16 +1310,9 @@ los_outputs <- local({
                  + I(n_ed^2)
                  + I(perf^2)
                  + I(vw_score^2)
-                 -arrival_year
-                 -nhs_number
-                 -site
-                 -arrival_dt
-                 -dta_dt
-                 -departure_dt
                  -dta_time
-                 -arrival_hour
                  -ed_time
-                 -n_adm
+                 -arrival_year
                  -Acuity_Desc
                  -arrival_mode
                  -arrival_cat
@@ -1321,7 +1322,7 @@ los_outputs <- local({
                                         label = list(
      arrival_time = "Time of arrival",
      arrival_month = "Month of arrival",
-     arrival_year = "Year of arrival",
+     # arrival_year = "Year of arrival",
      perf = "4-hour ED performance",
      `I(perf^2)` = "4-hour ED performance (squared)",
      age = "Age",
@@ -1349,15 +1350,7 @@ los_outputs <- local({
                   + I(perf^2)
                   + I(vw_score^2)
                   -arrival_year
-                  -nhs_number
-                  -site
-                  -arrival_dt
-                  -dta_dt
-                  -departure_dt
-                  -dta_time
-                  -arrival_hour
                   -ed_time
-                  -n_adm
                   -Acuity_Desc
                   -arrival_mode
                   -arrival_cat
@@ -1369,7 +1362,7 @@ los_outputs <- local({
      dta_time = "Hours waiting for admission",                                    
      arrival_time = "Time of arrival",
      arrival_month = "Month of arrival",
-     arrival_year = "Year of arrival",
+     # arrival_year = "Year of arrival",
      perf = "4-hour ED performance",
      `I(perf^2)` = "4-hour ED performance (squared)",
      age = "Age",
@@ -1419,6 +1412,7 @@ los_outputs <- local({
    
    list(p_raw = p_raw, 
         p_std = p_std,
+        mod_df = plot_df,
         mod_std = mod_std,
         mod_full = mod_full,
         reg_tab_std = reg_tab_std,
@@ -1436,19 +1430,34 @@ ggsave("materials/dta_los_plot_paper.png",
        scale = 0.8) 
 
 
+lvl_props <- los_outputs$mod_df %>%
+  select(arrival_time, arrival_month, sex, imd) %>%
+  map(table) %>%
+  map(proportions) %>%
+  map(\(x) x[-1]) %>%
+  imap(\(x, idx) set_names(x, str_c(idx, names(x)))) %>%
+  reduce(c)
 
 
-los_effect_plot <- jtools::effect_plot(los_outputs$mod_full, "dta_time", interval = TRUE) +
-  scale_x_continuous(limits = c(0, 24), breaks = scales::breaks_width(width = 2), expand = c(0, 0)) +
-  # scale_y_continuous(labels = function(x) x * 100, breaks = seq(0, .5, .05)) +
-  # scale_y_continuous(labels = \(x) scales::percent(x, accuracy = 1), breaks = scales::breaks_width(width = 0.1)) +
+mod_eff <- effects::predictorEffect("dta_time", los_outputs$mod_full, fixed.predictors = list(given.values = lvl_props))
+
+
+los_effects_plot <- mod_eff[c("x", "fit", "upper", "lower")] %>%
+  as.data.frame() %>%
+  mutate(across(-dta_time, \(x) mod_eff$link$linkinv(x))) %>%
+  ggplot(aes(x = dta_time, y = fit)) +
+  geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.25) +
+  geom_line() +
+  scale_x_continuous(limits = c(0, 24), breaks = scales::breaks_width(width = 2),  expand = c(0, 0)) +
+  scale_y_continuous(breaks = scales::breaks_width(1)) +
   labs(x = "Time spent DTA (hours)",
        # y = str_wrap("Out of 100 patients, the number who die within 30 days due to delay related harm", 50)) +
-       y = str_wrap("Model Estimated In-Hospital Length of Stay (day)", 50)) +
-  theme_minimal()
+       y = str_wrap("Model-Estimated In-Hospital Length of Stay", 50)) +
+  theme_minimal() 
 
 
-saveRDS(los_effect_plot, "data/los_effect_plot.RDS")
+
+saveRDS(list(los_mod = los_outputs$mod_full, los_effect_plot = los_effect_plot), "data/los_effect_output.RDS")
 
 
 los_outputs <- readRDS("data/los_outputs.RDS")

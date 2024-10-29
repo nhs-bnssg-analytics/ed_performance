@@ -509,6 +509,7 @@ resp_time_df <- resp_time_df %>%
 
 # Normalisation and standardisation
 
+n_dta_cutoff <- 1.5
 
 handover_outputs <- local({
   
@@ -528,9 +529,9 @@ handover_outputs <- local({
     na.omit() %>%
     mutate(n_dta_norm = n_dta/total,
            standard = 30) %>%
-    filter(n_dta_norm <= 1.75) %>%
+    filter(n_dta_norm <= n_dta_cutoff) %>%
     # distinct() %>%
-    mutate(n_dta_norm = plyr::round_any(n_dta_norm, accuracy = bin_acc)) %>%
+    mutate(n_dta_norm = plyr::round_any(n_dta_norm, accuracy = bin_acc, f = ceiling)) %>%
     ggplot(aes(x = n_dta_norm, y = handover_time/60)) +
     # geom_boxplot(outliers = FALSE) +
     geom_boxplot(mapping = aes(group = cut_width(n_dta_norm, width = bin_acc)), outliers = FALSE, fatten = NULL) +
@@ -600,7 +601,7 @@ mod_dat <- dta_df %>%
     na.omit() %>%
     filter(!between(dt, ymd("2022-04-01"), ymd("2022-07-10"))) %>%
     filter(handover_time > 0) %>%
-    filter(n_dta_norm <= 1.75) %>%
+    filter(n_dta_norm <= n_dta_cutoff) %>%
     mutate(wkend = factor(ifelse(wday(dt, week_start = 1) < 6, "Yes", "No")),
            hour = factor(cut(hour(dt), breaks = seq(0, 24, 6), include.lowest = TRUE), ordered = FALSE)) %>% 
     mutate(hour = fct_relevel(hour, "(12,18]", after = 0)) %>%
@@ -682,12 +683,12 @@ mod_dat <- mod_dat %>%
 
 plot_df <- mod_dat %>%
   # filter(n_dta <= 35) 
-  filter(n_dta_norm <= 1.75)
+  filter(n_dta_norm <= n_dta_cutoff)
 
 
 
 p_std <- plot_df %>%
-  mutate(n_dta_norm = plyr::round_any(n_dta_norm, accuracy = bin_acc)) %>%
+  mutate(n_dta_norm = plyr::round_any(n_dta_norm, accuracy = bin_acc, f = ceiling)) %>%
   mutate(standard = 30) %>%
   filter(n_dta_norm >= 0.1) %>%
   ggplot(aes(x = n_dta_norm, y = handover_adj_inv/60, group = cut_width(n_dta_norm, width = bin_acc))) +
@@ -705,7 +706,7 @@ p_std <- plot_df %>%
                                                                                       alpha = 1))) +
   scale_colour_manual(values = c("red", "black"), guide = guide_legend(override.aes = list(size = 3,
                                                                                            alpha = 1))) +
-  scale_x_continuous(labels = scales::percent) +
+  scale_x_continuous(labels = scales::percent, breaks = scales::breaks_width(0.5)) +
   coord_cartesian(xlim = c(0.1, NA)) +
   scale_shape_manual(values = c(19, 17),
                      guide = guide_legend(override.aes = list(size = 3,
@@ -722,11 +723,11 @@ p_std <- plot_df %>%
 
 plot_df <- mod_dat %>%
   # filter(n_dta <= 35) 
-  filter(n_dta_norm <= 1.75)
+  filter(n_dta_norm <= n_dta_cutoff)
 
 dta_range <- range(plot_df$n_dta_norm)^pow
 dta_seq <- seq(from = dta_range[1], to = dta_range[2], length.out = 21)^(1/pow)
-dta_seq[length(dta_seq)] <- 1.75
+dta_seq[length(dta_seq)] <- n_dta_cutoff
 
 p_std_trans <- plot_df %>%
   mutate(x_bin = cut(n_dta_norm, breaks = dta_seq, include.lowest = TRUE, right = FALSE),
@@ -858,8 +859,8 @@ resp_outputs <- local({
     mutate(n_dta_norm = n_dta / total) %>%
     group_by(dt) %>%
     summarise(n_dta_norm = mean(n_dta_norm, na.rm = TRUE)) %>%
-    mutate(n_dta_norm = plyr::round_any(n_dta_norm, accuracy = bin_acc)) %>%
-    filter(n_dta_norm > 0, n_dta_norm <= 1.75) %>%
+    mutate(n_dta_norm = plyr::round_any(n_dta_norm, accuracy = bin_acc, f = ceiling)) %>%
+    filter(n_dta_norm > 0, n_dta_norm <= n_dta_cutoff) %>%
     left_join(resp_time_df)  %>%
     filter(!between(dt, ymd("2022-04-01"), ymd("2022-07-10"))) %>%
     na.omit() %>%
@@ -934,7 +935,7 @@ resp_outputs <- local({
     ) %>%
     left_join(resp_time_df) %>%
     na.omit() %>%
-    filter(n_dta_norm > 0, n_dta_norm <= 1.75) %>%
+    filter(n_dta_norm > 0, n_dta_norm <= n_dta_cutoff) %>%
     distinct() %>%
     mutate(age = factor(age)) %>%
     mutate(
@@ -1050,7 +1051,7 @@ resp_outputs <- local({
     mutate(response_adj_inv = response_adj + mean(response), .by = call_category)
   
   p_norm_std <- plot_dat %>%
-    mutate(n_dta_norm = plyr::round_any(n_dta_norm, accuracy = bin_acc)) %>%
+    mutate(n_dta_norm = plyr::round_any(n_dta_norm, accuracy = bin_acc, f = ceiling)) %>%
     filter(n_dta_norm >= 0.1) %>%
     ggplot(aes(x = n_dta_norm, y = response_adj_inv)) +
     # geom_boxplot(outliers = FALSE) +
@@ -1068,7 +1069,7 @@ resp_outputs <- local({
     #   aes(ymax = ..y.., ymin = ..y..)
     # ) +
     geom_point(
-      data = {time_std %>% expand_grid(n_dta_norm = seq(bin_acc, 1.75, bin_acc))},
+      data = {time_std %>% expand_grid(n_dta_norm = seq(bin_acc, n_dta_cutoff, bin_acc))},
       aes(y = std, col = "National target"),
     ) +
     stat_summary(
@@ -1089,7 +1090,7 @@ resp_outputs <- local({
       scales = "free",
       labeller = as_labeller(labels)
     ) +
-    scale_x_continuous(labels = scales::percent) +
+    scale_x_continuous(labels = scales::percent, breaks = scales::breaks_width(0.5)) +
     coord_cartesian(xlim = c(0.1, NA)) +
     theme_minimal()  +
     scale_colour_manual(values = c("red", "black"), guide = guide_legend(override.aes = list(size = 3,
@@ -1133,7 +1134,6 @@ ggsave("materials/dta_amb_resp_paper.png",
        height = 10,
        width = 7.5, 
        scale = 0.7)
-
 
 
 
