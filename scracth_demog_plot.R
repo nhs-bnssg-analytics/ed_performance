@@ -25,6 +25,8 @@ n_fun <- function(x){
 
 mod_df <- readRDS("data/mort_mod_df_final.RDS")
 
+mod_df <- mod_df %>% select(-arrival_year)
+
 
 p_demog_downstr_1 <- mod_df %>%
 # mutate(imd = fct_recode(imd,
@@ -34,8 +36,9 @@ p_demog_downstr_1 <- mod_df %>%
 select(Sex = sex,
        "Index of Multiple Deprivation\n(IMD) Decile" = imd,
        `Arrival Time` = arrival_time,
-       `Arrival Month` = arrival_month, 
-       `Arrival Year` = arrival_year) %>%
+       `Arrival Month` = arrival_month#, 
+       # `Arrival Year` = arrival_year
+       ) %>%
   pivot_longer(everything()) %>%
   group_by(name, value) %>%
   count() %>%
@@ -88,6 +91,8 @@ p_demog_downstr_2 <- mod_df %>%
        y = "")))
 
 
+library(patchwork)
+
 bind_rows(p_demog_downstr_1, p_demog_downstr_2) %>%
   mutate(name = factor(
     name,
@@ -105,9 +110,18 @@ bind_rows(p_demog_downstr_1, p_demog_downstr_2) %>%
   )) %>% 
 arrange(name) %>%
 pull(plot) %>%
-patchwork::wrap_plots() & patchwork::plot_annotation(title = "Demographics for Downstream Patients",
-                                                    subtitle = "Patients included in mortality, re-attendance, & re-admission analysis") 
+patchwork::wrap_plots(nrow = 2) & patchwork::plot_annotation(title = "Demographics for Downstream Patients",
+                                                    subtitle = "Patients included in mortality & readmission analysis") 
 
+
+
+
+ptc <- wrap_plots(p_demog_downstr_1$plot) |
+  patchwork::wrap_plots(p_demog_downstr_2$plot, ncol = 1) 
+
+
+ptc &
+  patchwork::plot_annotation(title = "Demographics for Downstream Patients", subtitle = "Patients included in mortality & readmission analysis")
 
 ggsave("materials/demog_downstream_smr.png",
        last_plot(),

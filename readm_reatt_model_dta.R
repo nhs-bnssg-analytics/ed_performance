@@ -539,16 +539,16 @@ mod_df <-  dat_adm %>%
 
 saveRDS(mod_df, "data/readm_reatt_mod_df_final.RDS")
 
-mod_df <- readRDS("data/readm_reatt_mod_df_final.RDS")
+mod_df <- readRDS("data/mort_mod_df_final.RDS")
 
 library(tidyverse)
 library(tidymodels)
 
 mod_df <- mod_df %>%
-  filter(ed_time < 60*30) %>%
-  mutate(reatt = factor(ifelse(reatt, "yes", "no"))) %>%
+  mutate(dta_time = dta_time/60) %>%
+  # filter(ed_time < 60*30) %>%
   mutate(readm = factor(ifelse(readm, "yes", "no"))) %>%
-  select(-reatt, -ed_time, -Acuity_Desc, -arrival_mode, -arrival_cat, -arrival_year)
+  dplyr::select(-ed_time, -los, -mort_30, -Acuity_Desc, -arrival_mode, -arrival_cat, -arrival_year)
 
 mod_folds <- vfold_cv(mod_df, v = 25)
 
@@ -613,8 +613,8 @@ readm_effects_plot <- mod_eff[c("x", "fit", "upper", "lower")] %>%
   mutate(across(-dta_time, \(x) mod_eff$link$linkinv(x))) %>%
   ggplot(aes(x = dta_time, y = fit)) +
   geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.25) +
-  geom_line() +
-  scale_x_continuous(limits = c(0, NA), breaks = scales::breaks_width(width = 120), labels = \(x) x/60, , expand = c(0, 1)) +
+  geom_line(linewidth = 1) +
+  scale_x_continuous(limits = c(0, 24), breaks = scales::breaks_width(width = 2),  expand = c(0, 0)) +
   # scale_y_continuous(labels = function(x) x * 100, breaks = seq(0, .5, .05)) +
   scale_y_continuous(labels = \(x) scales::percent(x, accuracy = 1), breaks = scales::breaks_width(width = 0.01)) +
   labs(x = "Time spent DTA (hours)",

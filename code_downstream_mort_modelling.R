@@ -3,10 +3,11 @@ library(tidymodels)
 
 mod_df <- readRDS("data/mort_mod_df_final.RDS")
 mod_df <- mod_df %>%
-  filter(ed_time < 60*30) %>%
+  mutate(dta_time = dta_time/60) %>% # convert minutes to hours
+  # filter(ed_time < 60*30) %>%
   na.omit()
 
-mod_df_raw <- select(mod_df, -readm, -los, -ed_time, -Acuity_Desc, -arrival_mode, -arrival_cat)
+mod_df_raw <- select(mod_df, -readm, -los, -ed_time, -Acuity_Desc, -arrival_mode, -arrival_cat, -arrival_year)
 
 mod_folds <- vfold_cv(mod_df_raw, v = 25)
 
@@ -50,11 +51,9 @@ mod_raw <- glm(
   + I(perf ^ 2)
   + I(n_ed ^ 2)
   + I(vw_score ^2),
-  data = select(mod_df_raw, -arrival_year),
+  data = mod_df_raw,
   family = binomial(link = "logit")
 ) 
-
-
 
 lvl_props <- mod_df %>%
   select(arrival_time, arrival_month, sex, imd) %>%
@@ -67,6 +66,7 @@ lvl_props <- mod_df %>%
 
 mod_eff <- effects::predictorEffect("dta_time", mod_raw, fixed.predictors = list(given.values = lvl_props))
 
+
 mort_roc_lab <- str_c("ROC: ", round(roc_stab[1], 2), " [", round(as.numeric(roc_stab[2]), 2), ", ", round(as.numeric(roc_stab[3]), 2), "]")
 
 mort_effects_plot <- mod_eff[c("x", "fit", "upper", "lower")] %>%
@@ -74,8 +74,8 @@ mort_effects_plot <- mod_eff[c("x", "fit", "upper", "lower")] %>%
   mutate(across(-dta_time, \(x) mod_eff$link$linkinv(x))) %>%
   ggplot(aes(x = dta_time, y = fit)) +
   geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.25) +
-  geom_line() +
-  scale_x_continuous(limits = c(0, NA), breaks = scales::breaks_width(width = 120), labels = \(x) x/60, , expand = c(0, 1)) +
+  geom_line(linewidth = 1) +
+  scale_x_continuous(limits = c(0, 24), breaks = scales::breaks_width(width = 2),  expand = c(0, 0)) +
   # scale_y_continuous(labels = function(x) x * 100, breaks = seq(0, .5, .05)) +
   scale_y_continuous(labels = \(x) scales::percent(x, accuracy = 1), breaks = scales::breaks_width(width = 0.01)) +
   labs(x = "Time spent DTA (hours)",
@@ -236,6 +236,32 @@ map_dfr(
        y = str_wrap("Model estimated 30-day mortality rate.", 50)) +
   theme_minimal()
 
+
+map_dfr(
+  seq(0, 24, 1),
+  \(x){
+    pred <- mod_df %>%
+      mutate(dta_time = x) %>%
+      predict(
+        mod_raw,
+        newdata = .,
+        type = "response",
+      ) 
+    fit <- pred
+
+    tibble(dta_time = x, fit)
+    
+  }
+  
+) %>%
+    summarise(
+       u = quantile(fit, 0.975, na.rm = TRUE),
+       l = quantile(fit, 0.025, na.rm = TRUE),
+      fit = mean(fit, na.rm = TRUE),
+    .by = dta_time) %>%
+  ggplot(aes(x = dta_time, y = fit)) +
+  geom_ribbon(aes(ymin = l, ymax = u), alpha = 0.25) +
+  geom_line() 
 
 
 effect_plot_fn <- function(fit, var) {

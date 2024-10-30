@@ -4,6 +4,7 @@ require(lubridate)
 library(feasts)
 library(tidymodels)
 
+
 source("theme.R")
 source("colour_functions.R")
 
@@ -108,8 +109,12 @@ imd_df <- local({
 
 # treatment time
 trt_df <- local({
+  
+  browser()
   string_ecds<-glue::glue("select Arrival_Date,
                         Arrival_Time,
+                        Index_of_multiple_deprivation,
+                        Hes_age_at_arrival,
                         Initial_Assessment_Date,
                         Initial_Assessment_Time,
                         Seen_For_Treatment_Date,
@@ -148,9 +153,11 @@ trt_df <- local({
   # max_dt <- max(dat_ecds$dta_dt, na.rm = TRUE)
   # dta_seq <- seq.POSIXt(from = as.POSIXct(lubridate::ymd(report_start)), to = max_dt, by = glue::glue("{n_hour} hours"))
   
+  
   dat_trt <- dat_ecds %>%
     mutate(dt = floor_date(arrival_dt, unit = glue::glue("{n_hour} hours"))) %>%
-    select(dt, site = Site_Name, trt_time) %>%
+    select(dt, site = Site_Name, imd = Index_of_multiple_deprivation,
+           age = Hes_age_at_arrival, trt_time) %>%
     na.omit()
   
   dat_trt
@@ -766,7 +773,7 @@ list(
   p_raw = p_raw,
   p_std = p_std,
   p_std_trans = p_std_trans,
-  mod_dat_row = mod_dat[1, ],
+  mod_dat = mod_dat,
   std_mod = std_mod,
   full_mod = full_mod,
   full_mod_trans = full_mod_trans,
@@ -1119,7 +1126,7 @@ resp_outputs <- local({
     p_norm_std = p_norm_std,
     std_mod = set_names(resp_mods$mod, resp_mods$call_category),
     full_mod = set_names(resp_mods$mod_full, resp_mods$call_category),
-    mod_dat_row = mod_dat[1, ],
+    mod_dat = mod_dat,
     std_mod_tabs = std_mod_tabs,
     full_mod_tabs = full_mod_tabs
   )

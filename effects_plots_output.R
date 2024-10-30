@@ -6,8 +6,9 @@ mort_effect_plot <- mort_effect_output$mort_effects_plot
 readm_effect_plot <- readm_effect_output$readm_effects_plot
 mort_roc_lab <- mort_effect_output$mort_roc_lab
 readm_roc_lab <- readm_effect_output$readm_roc_lab
-
 los_effect_output <- readRDS("data/los_effect_output.RDS")
+plot_df <- los_effect_output$los_mod_df
+
 
 wrap <- 30
 
@@ -29,13 +30,13 @@ ggsave("materials/effects_plot_patch.png",
        width = 10, 
        scale = 0.5)
 
-mort_effect_output$mort_mod_raw %>%
-  tidy() %>%
-  View()
+# mort_effect_output$mort_mod_raw %>%
+#   tidy() %>%
+#   View()
 
 
 mort_effect_output$mort_mod_raw %>% gtsummary::tbl_regression(exponentiate = TRUE,
-                                                              estimate_fun = purrr::partial(gtsummary::style_ratio, digits = 4),
+                                                              estimate_fun = purrr::partial(gtsummary::style_ratio, digits = 3),
   label = list(
     dta_time = "Hours waiting for admission",
     arrival_time = "Time of arrival",
@@ -58,10 +59,11 @@ mort_effect_output$mort_mod_raw %>% gtsummary::tbl_regression(exponentiate = TRU
 gtsummary::add_glance_table(include = c(nobs)) %>%
 gtsummary::as_gt() %>%
 gt::tab_header(
-title = gt::md("**30-day Mortality**"))
+title = gt::md("**30-day Mortality**")) %>%
+  gt::gtsave("materials/mort_reg_table.html")
 
 readm_effect_output$readm_mod_raw %>% gtsummary::tbl_regression(exponentiate = TRUE,
-                                                              estimate_fun = purrr::partial(gtsummary::style_ratio, digits = 4),
+                                                              estimate_fun = purrr::partial(gtsummary::style_ratio, digits = 3),
   label = list(
     dta_time = "Hours waiting for admission",
     arrival_time = "Time of arrival",
@@ -84,7 +86,8 @@ readm_effect_output$readm_mod_raw %>% gtsummary::tbl_regression(exponentiate = T
 gtsummary::add_glance_table(include = c(nobs)) %>%
 gtsummary::as_gt() %>%
 gt::tab_header(
-title = gt::md("**30-day Readmission**"))
+title = gt::md("**30-day Readmission**"))  %>%
+  gt::gtsave("materials/readm_reg_table.html")
 
 los_effect_output$los_mod %>% gtsummary::tbl_regression(estimate_fun = purrr::partial(gtsummary::style_ratio, digits = 2),
   label = list(
@@ -109,5 +112,40 @@ los_effect_output$los_mod %>% gtsummary::tbl_regression(estimate_fun = purrr::pa
 gtsummary::add_glance_table(include = c(nobs)) %>%
 gtsummary::as_gt() %>%
 gt::tab_header(
-title = gt::md("**In-Hospital Length of Stay (days)**"))
+title = gt::md("**In-Hospital Length of Stay (days)**"))   %>%
+  gt::gtsave("materials/los_reg_table.html")
 
+
+
+rr_fn <- function(or, p0) {
+  or / ((1-p0)+(p0*or))
+}
+
+mort_or <- mort_effect_output$mort_mod_raw %>%
+  update(. ~ . -dta_time + I(dta_time/(4))) %>%
+  tidy(conf.int = TRUE) %>%
+  filter(str_detect(term, "dta_time"))%>%
+  select(estimate, conf.low, conf.high, p.value)
+  
+readm_or <- readm_effect_output$readm_mod_raw %>%
+  update(. ~ . -dta_time + I(dta_time/(4))) %>%
+  tidy(conf.int = TRUE) %>%
+  filter(str_detect(term, "dta_time"))%>%
+  select(estimate, conf.low, conf.high, p.value)
+
+    
+mort_or %>%
+  mutate(across(-p.value, exp)) %>%
+  mutate(across(-p.value, \(x) 100*(rr_fn(x, 0.04)-1), .names = "rr_{.col}"))
+
+readm_or %>%
+  mutate(across(-p.value, exp)) %>%
+  mutate(across(-p.value, \(x) 100*(rr_fn(x, 0.1)-1), .names = "rr_{.col}"))
+
+
+los_effect_output$los_mod %>%
+  update(. - los + I(24*los) ~ . -dta_time + I(dta_time/(4))) %>%
+  tidy(conf.int = TRUE) %>%
+  filter(str_detect(term, "dta_time"))
+
+  

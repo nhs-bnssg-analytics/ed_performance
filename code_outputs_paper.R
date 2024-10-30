@@ -48,6 +48,18 @@ ggplot2::ggsave("materials/response_standard.png",
                 scale = 0.6)
 
 
+handover_outputs$full_mod %>%
+  tidy(conf.int = TRUE) %>%
+  filter(term == "n_dta_norm")
+
+resp_outputs$full_mod %>% map(\(x) {
+  tidy(x, conf.int = TRUE) %>%
+  filter(term == "n_dta_norm") %>%
+  dplyr::select(estimate, conf.low, conf.high, p.value) %>%
+  mutate(across(-p.value, \(x) x/10))
+  }
+)
+
 # Downstream outputs
 
 los_outputs <- readRDS("data/los_outputs.RDS")

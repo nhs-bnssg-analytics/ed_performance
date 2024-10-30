@@ -1447,7 +1447,7 @@ los_effects_plot <- mod_eff[c("x", "fit", "upper", "lower")] %>%
   mutate(across(-dta_time, \(x) mod_eff$link$linkinv(x))) %>%
   ggplot(aes(x = dta_time, y = fit)) +
   geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.25) +
-  geom_line() +
+  geom_line(linewidth = 1) +
   scale_x_continuous(limits = c(0, 24), breaks = scales::breaks_width(width = 2),  expand = c(0, 0)) +
   scale_y_continuous(breaks = scales::breaks_width(1)) +
   labs(x = "Time spent DTA (hours)",
@@ -1457,7 +1457,7 @@ los_effects_plot <- mod_eff[c("x", "fit", "upper", "lower")] %>%
 
 
 
-saveRDS(list(los_mod = los_outputs$mod_full, los_effect_plot = los_effect_plot), "data/los_effect_output.RDS")
+saveRDS(list(los_mod = los_outputs$mod_full, los_mod_df = los_outputs$mod_df, los_effect_plot = los_effects_plot), "data/los_effect_output.RDS")
 
 
 los_outputs <- readRDS("data/los_outputs.RDS")
