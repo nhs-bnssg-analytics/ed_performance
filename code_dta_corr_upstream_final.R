@@ -103,18 +103,23 @@ imd_df <- local({
   group_by(nhs_number = NHS_Number) %>%
   arrange(desc(Arrival_Time)) %>%
   slice(1) %>%
+  mutate(nhs_number = as.character(nhs_number)) %>%
   select(nhs_number, imd = Index_Of_Multiple_Deprivation)
   }) %>%
   na.omit()
 
+sex_df <- readRDS("data/dat_attr_demog.RDS") %>%
+  select(nhs_number, sex) %>%
+  distinct()
+
 # treatment time
 trt_df <- local({
   
-  browser()
   string_ecds<-glue::glue("select Arrival_Date,
                         Arrival_Time,
                         Index_of_multiple_deprivation,
                         Hes_age_at_arrival,
+                        Stated_Gender,
                         Initial_Assessment_Date,
                         Initial_Assessment_Time,
                         Seen_For_Treatment_Date,
@@ -138,7 +143,7 @@ trt_df <- local({
     mutate(dta_dt=paste0(Decision_To_Admit_Date," ",substr(Decision_To_Admit_Time,1,8))) %>%
     mutate(dta_dt=as.POSIXct(ifelse(grepl("NA",dta_dt),NA,dta_dt),format="%Y-%m-%d %H:%M:%S")) %>%
     mutate(departure_dt=as.POSIXct(paste0(Departure_Date," ",substr(Departure_Time,1,8)),format="%Y-%m-%d %H:%M:%S")) %>%
-    select(arrival_dt,initial_dt,treatment_dt,dta_dt,departure_dt,Site_Name, Acuity_Desc) %>%
+    select(arrival_dt,initial_dt,treatment_dt,dta_dt,departure_dt,Site_Name, Acuity_Desc, sex = Stated_Gender, imd = Index_of_multiple_deprivation, age = Hes_age_at_arrival) %>%
     rowwise() %>%
     mutate(departure_dt=max(dta_dt,departure_dt,na.rm=TRUE)) %>%
     ungroup() %>%
@@ -153,16 +158,14 @@ trt_df <- local({
   # max_dt <- max(dat_ecds$dta_dt, na.rm = TRUE)
   # dta_seq <- seq.POSIXt(from = as.POSIXct(lubridate::ymd(report_start)), to = max_dt, by = glue::glue("{n_hour} hours"))
   
-  
   dat_trt <- dat_ecds %>%
     mutate(dt = floor_date(arrival_dt, unit = glue::glue("{n_hour} hours"))) %>%
-    select(dt, site = Site_Name, imd = Index_of_multiple_deprivation,
-           age = Hes_age_at_arrival, trt_time) %>%
+    select(dt, site = Site_Name, imd,
+           age, trt_time) %>%
     na.omit()
   
   dat_trt
 })
-
 
 
 dta_df %>%
@@ -273,6 +276,7 @@ handover_df <- local({
     ,[Booked_Destination_Ward]
     ,[Local_Authority]
     ,[Ward]
+    ,c.[Patient_Gender]
     ,c.[Handover_Duration__seconds_]
     ,[T0_Time_of_Call]
     ,[T1_Time_Call_answered]
@@ -308,6 +312,7 @@ Conveyed_To_Ward_Type = 'A&E' AND
   
   
   handover_df <- actv_swafst %>%
+    mutate(Derived_Pseudo_NHSNumber = as.character(Derived_Pseudo_NHSNumber)) %>%
     left_join(imd_df, by = join_by(Derived_Pseudo_NHSNumber == nhs_number)) %>%
     group_by(site = Site_Name) %>%
     nest() %>%
@@ -316,7 +321,8 @@ Conveyed_To_Ward_Type = 'A&E' AND
       data,
       ~ filter(.y, handover_time %within% .x) %>%
         select(nhs_number = Derived_Pseudo_NHSNumber,
-               age = Age_Bracket, 
+               age = Age_Bracket,
+               sex = Patient_Gender,
                imd,
                handover_time = Handover_Duration__seconds_)
     ))) %>%
@@ -324,9 +330,11 @@ Conveyed_To_Ward_Type = 'A&E' AND
       map2_df(handover_time, snapshot_seq, ~ bind_cols(tibble(dt = .y), .x)))) %>%
     select(site, handover_df) %>%
     unnest(handover_df) %>%
-    arrange(dt)
+    arrange(dt) 
   
-  handover_df
+  handover_df%>%
+    filter(sex %in% c("F", "M")) %>%
+    mutate(sex = factor(ifelse(sex == "F", "Female", "Male")))
 })
 
 
@@ -395,6 +403,7 @@ resp_time_df <- local({
     "SELECT DISTINCT
     [ID]
     ,[Derived_Pseudo_NHSNumber]
+    ,c.[Patient_Gender]
     ,[Incident_Number]
     ,[Time_Of_Incident]
     ,[CCG]
@@ -440,12 +449,14 @@ resp_time_df <- local({
     ,[High_Intensity_User_Call_Indicator]
     ,[SourceFileID]
 FROM [ABI].[dbo].[vw_UrgentCare_Ambulance_SWASFT] a
+LEFT JOIN [Analyst_SQL_Area].[dbo].[tbl_BNSSG_Datasets_SWAST_AR119] c on a.Incident_Number=c.Call_Number
 where Outcome in ('See & Convey', 'See & Treat') AND
 CCG = '15C' AND
   CONVERT(DATE, [T0_Time_of_Call]) > '{report_start}'"
   )
   
   actv_swafst <- RODBC::sqlQuery(con, string_actv_swafst)
+  
   
    response_time <- actv_swafst %>%
     mutate(across(matches("Time|Clock"),
@@ -461,8 +472,10 @@ CCG = '15C' AND
                                   "Category 3"= "cat3",
                                   "Category 2"= "cat2",
                                   "Category 1"= "cat1")) %>%
-    select(nhs_number = Derived_Pseudo_NHSNumber, dt, age = Age_Bracket, outcome = Outcome, call_category, response) %>%
-    left_join(imd_df)
+    mutate(nhs_number = as.character(Derived_Pseudo_NHSNumber)) %>%
+    select(nhs_number, dt, age = Age_Bracket, outcome = Outcome, call_category, response) %>%
+    left_join(imd_df) %>%
+    left_join(sex_df)
   
   response_time
 })
@@ -485,6 +498,7 @@ dta_df <- dta_df %>%
   filter(!(site == "WESTON GENERAL HOSPITAL" & hour(dt) %in% c(10:12, 1:7))) 
 
 handover_df <- handover_df %>%
+  ungroup() %>%
   mutate(imd = factor(imd, levels = 1:10, labels = c("1 (least deprived)",
                                                      "2",
                                                      "3",
@@ -496,7 +510,8 @@ handover_df <- handover_df %>%
                                                      "9",
                                                      "10 (most deprived)"))
   ) %>%
-  mutate(imd = fct_na_value_to_level(imd, level = "(Missing)"))
+  mutate(imd = fct_na_value_to_level(imd, level = "(Missing)")) %>%
+  mutate(imd = fct_relevel(imd, "(Missing)", after = Inf))
 
 resp_time_df <- resp_time_df %>%
   mutate(imd = factor(imd, levels = 1:10, labels = c("1 (least deprived)",
@@ -510,7 +525,7 @@ resp_time_df <- resp_time_df %>%
                                                      "9",
                                                      "10 (most deprived)"))
   ) %>%
-  mutate(imd = fct_na_value_to_level(imd, level = "(Missing)"))
+  mutate(imd = fct_na_value_to_level(imd, level = "(Missing)")) 
 
 
 
@@ -538,7 +553,8 @@ handover_outputs <- local({
            standard = 30) %>%
     filter(n_dta_norm <= n_dta_cutoff) %>%
     # distinct() %>%
-    mutate(n_dta_norm = plyr::round_any(n_dta_norm, accuracy = bin_acc, f = ceiling)) %>%
+    mutate(n_dta_norm = plyr::round_any(n_dta_norm, accuracy = bin_acc, f = \(x) floor(0.5 + x))) %>%
+    # mutate(n_dta_norm = plyr::round_any(n_dta_norm, accuracy = bin_acc, f = ceiling)) %>%
     ggplot(aes(x = n_dta_norm, y = handover_time/60)) +
     # geom_boxplot(outliers = FALSE) +
     geom_boxplot(mapping = aes(group = cut_width(n_dta_norm, width = bin_acc)), outliers = FALSE, fatten = NULL) +
@@ -610,13 +626,13 @@ mod_dat <- dta_df %>%
     filter(handover_time > 0) %>%
     filter(n_dta_norm <= n_dta_cutoff) %>%
     mutate(wkend = factor(ifelse(wday(dt, week_start = 1) < 6, "Yes", "No")),
-           hour = factor(cut(hour(dt), breaks = seq(0, 24, 6), include.lowest = TRUE), ordered = FALSE)) %>% 
-    mutate(hour = fct_relevel(hour, "(12,18]", after = 0)) %>%
-    mutate(hour = fct_recode(hour, "00:00-06:00" = "[0,6]",
-                             "06:00-12:00" = "(6,12]",
-                             "12:00-18:00" = "(12,18]",
-                             "18:00-24:00" = "(18,24]")) %>%
-  mutate(arrival_month = factor(month(dt))) %>%
+           hour = factor(hms::as_hms(floor_date(dt, "6 hour")))) %>% 
+    # mutate(hour = fct_relevel(hour, "(12,18]", after = 0)) %>%
+    # mutate(hour = fct_recode(hour, "00:00-06:00" = "[0,6]",
+    #                          "06:00-12:00" = "(6,12]",
+    #                          "12:00-18:00" = "(12,18]",
+    #                          "18:00-24:00" = "(18,24]")) %>%
+  mutate(arrival_month = factor(month(dt), labels = month.name)) %>%
   # mutate(arrival_year = factor(year(dt))) %>%
     select(-dt, -maj, -resus, -total) %>%
     ungroup() 
@@ -641,7 +657,7 @@ std_mod_tab <- gtsummary::tbl_regression(
   gtsummary::as_gt() %>%
   gt::tab_header(title = gt::md(glue::glue('**Ambulance Handover Time (min)**')))#,
 
-full_mod <- lm(handover_time/60 ~ age + imd + n_ed_norm + n_dta_norm + wkend + hour + arrival_month -site, data = mod_dat)
+full_mod <- lm(handover_time/60 ~ age + sex + imd + n_ed_norm + n_dta_norm + wkend + hour + arrival_month -site, data = mod_dat)
 
 # This code assesses which transform is best?
 
@@ -695,7 +711,8 @@ plot_df <- mod_dat %>%
 
 
 p_std <- plot_df %>%
-  mutate(n_dta_norm = plyr::round_any(n_dta_norm, accuracy = bin_acc, f = ceiling)) %>%
+  # mutate(n_dta_norm = plyr::round_any(n_dta_norm, accuracy = bin_acc, f = ceiling)) %>%
+  mutate(n_dta_norm = plyr::round_any(n_dta_norm, accuracy = bin_acc, f = \(x) floor(0.5 + x))) %>%
   mutate(standard = 30) %>%
   filter(n_dta_norm >= 0.1) %>%
   ggplot(aes(x = n_dta_norm, y = handover_adj_inv/60, group = cut_width(n_dta_norm, width = bin_acc))) +
@@ -866,7 +883,8 @@ resp_outputs <- local({
     mutate(n_dta_norm = n_dta / total) %>%
     group_by(dt) %>%
     summarise(n_dta_norm = mean(n_dta_norm, na.rm = TRUE)) %>%
-    mutate(n_dta_norm = plyr::round_any(n_dta_norm, accuracy = bin_acc, f = ceiling)) %>%
+    # mutate(n_dta_norm = plyr::round_any(n_dta_norm, accuracy = bin_acc, f = ceiling)) %>%
+    mutate(n_dta_norm = plyr::round_any(n_dta_norm, accuracy = bin_acc, f = \(x) floor(0.5 + x))) %>%
     filter(n_dta_norm > 0, n_dta_norm <= n_dta_cutoff) %>%
     left_join(resp_time_df)  %>%
     filter(!between(dt, ymd("2022-04-01"), ymd("2022-07-10"))) %>%
@@ -973,22 +991,8 @@ resp_outputs <- local({
     mutate(age = fct_relevel(age, "100 Years Old Or Over", after = 10)) %>%
     ungroup() %>%
     mutate(wkend = factor(ifelse(wday(dt, week_start = 1) < 6, "Yes", "No")),
-           hour = factor(cut(
-             hour(dt),
-             breaks = seq(0, 24, 6),
-             include.lowest = TRUE
-           ), ordered = FALSE)) %>%
-    mutate(hour = fct_relevel(hour, "(12,18]", after = 0)) %>%
-    mutate(
-      hour = fct_recode(
-        hour,
-        "00:00-06:00" = "[0,6]",
-        "06:00-12:00" = "(6,12]",
-        "12:00-18:00" = "(12,18]",
-        "18:00-24:00" = "(18,24]"
-      )
-    ) %>%
-    mutate(arrival_month = factor(month(dt))) %>%
+           hour = factor(hms::as_hms(floor_date(dt, "6 hour")))) %>%
+    mutate(arrival_month = factor(month(dt), labels = month.name)) %>%
     # mutate(arrival_year = factor(year(dt))) %>%
     select(-dt) %>%
     ungroup()
@@ -1014,6 +1018,7 @@ resp_outputs <- local({
       gtsummary::tbl_regression(.x,
                                 label = list(
                                   age = "Age",
+                                  sex = "Sex",
                                   imd = "Index of Multiple Deprivation Decile",
                                   wkend = "Weekend",
                                   hour = "Time of Arrival",
@@ -1037,6 +1042,7 @@ resp_outputs <- local({
                                   n_dta_norm = x_lab,
                                   n_ed_norm = "Number in ED (excluding DTA) as a Percentage of Majors & Resus Cubicles",
                                   age = "Age",
+                                  sex = "Sex",
                                   imd = "Index of Multiple Deprivation Decile",
                                   wkend = "Weekend",
                                   hour = "Time of Arrival",
