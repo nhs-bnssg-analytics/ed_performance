@@ -158,11 +158,35 @@ trt_df <- local({
   # max_dt <- max(dat_ecds$dta_dt, na.rm = TRUE)
   # dta_seq <- seq.POSIXt(from = as.POSIXct(lubridate::ymd(report_start)), to = max_dt, by = glue::glue("{n_hour} hours"))
   
+  
   dat_trt <- dat_ecds %>%
-    mutate(dt = floor_date(arrival_dt, unit = glue::glue("{n_hour} hours"))) %>%
-    select(dt, site = Site_Name, imd,
-           age, trt_time) %>%
-    na.omit()
+    group_by(site = Site_Name) %>%
+    nest() %>%
+    mutate(trt_time = list(map2(
+      snapshot_int,
+      data,
+      ~ filter(.y, treatment_dt %within% .x) %>%
+        select(age = age,
+               sex = sex,
+               imd,
+               trt_time = trt_time)
+    ))) %>%
+    mutate(trt_df = map(trt_time, function(trt_time)
+      map2_df(trt_time, snapshot_seq, ~ bind_cols(tibble(dt = .y), .x)))) %>%
+    select(site, trt_df) %>%
+    unnest(trt_df) %>%
+    arrange(dt) 
+  
+  # 
+  # dat_trt <- dat_ecds %>%
+  #   mutate(dt = floor_date(arrival_dt, unit = glue::glue("{n_hour} hours"))) %>%
+  #   select(dt,
+  #          site = Site_Name,
+  #          imd,
+  #          sex,
+  #          age,
+  #          trt_time) %>%
+  #   na.omit()
   
   dat_trt
 })
@@ -483,6 +507,7 @@ CCG = '15C' AND
 # saveRDS(dta_df, "data/upstream_dta_df.RDS")
 # saveRDS(imd_df, "data/upstream_imd_df.RDS")
 # saveRDS(ed_df, "data/upstream_ed_df.RDS")
+# saveRDS(trt_df, "data/upstream_trt_df.RDS")
 # saveRDS(handover_df, "data/upstream_handover_df.RDS")
 # saveRDS(resp_time_df, "data/upstream_resp_time_df.RDS")
 
@@ -490,6 +515,7 @@ CCG = '15C' AND
 dta_df <-  readRDS("data/upstream_dta_df.RDS")
 imd_df <- readRDS("data/upstream_imd_df.RDS")
 ed_df <-  readRDS("data/upstream_ed_df.RDS")
+trt_df <-  readRDS("data/upstream_trt_df.RDS")
 handover_df <-  readRDS("data/upstream_handover_df.RDS")
 resp_time_df <-  readRDS("data/upstream_resp_time_df.RDS")
 
@@ -528,6 +554,36 @@ resp_time_df <- resp_time_df %>%
   mutate(imd = fct_na_value_to_level(imd, level = "(Missing)")) 
 
 
+trt_df <- trt_df %>% mutate(imd = factor(imd, levels = 1:10, labels = c("1 (least deprived)",
+                                                          "2",
+                                                          "3",
+                                                          "4",
+                                                          "5",
+                                                          "6",
+                                                          "7",
+                                                          "8",
+                                                          "9",
+                                                          "10 (most deprived)"))
+) %>%
+  mutate(imd = fct_na_value_to_level(imd, level = "(Missing)"))  %>%
+  mutate(sex = factor(ifelse(sex == "1", "Male", "Female"))) %>%
+  filter(age < 120) %>%
+  mutate(age = cut(age, breaks = seq(0, 120, 10), right = FALSE, labels = c(
+                   "0-9 Years Old",
+                   "10-19 Years Old" ,
+                   "20-29 Years Old" ,
+                   "30-39 Years Old" ,
+                   "40-49 Years Old" ,
+                   "50-59 Years Old" ,
+                   "60-69 Years Old" ,
+                   "70-79 Years Old" ,
+                   "80-89 Years Old" ,
+                   "90-99 Years Old" ,
+                   "100-109 Years Old" ,
+                   "109-119 Years Old" 
+                   )))
+  
+
 
 # Normalisation and standardisation
 
@@ -539,8 +595,8 @@ handover_outputs <- local({
   
   bin_acc <- 0.1
   
-  x_lab <- "DTA Queue as a Percentage of Cubicle Capacity (Majors + Resus)"
-  y_lab <- "Model-Standardised Ambulance Handover Time\n(min)"
+  x_lab <- "DTA queue as a percentage of cubicle capacity (Majors + Resus)"
+  y_lab <- "Standardised ambulance handover\ntime (min)"
 
   # Non standardised plot
   p_raw <-   dta_df %>%
@@ -575,7 +631,7 @@ handover_outputs <- local({
     scale_shape_manual(values = c(19, 17),
                        guide = guide_legend(override.aes = list(size = 3,
                                                                 alpha = 1))) +
-    labs(title = "Raw outcome, normalised dependant",
+    labs(title = "",
          y = y_lab,
          x = x_lab,
          shape = "",
@@ -646,10 +702,10 @@ std_mod_tab <- gtsummary::tbl_regression(
   std_mod,
   label = list(
     age = "Age",
-    imd = "Index of Multiple Deprivation Decile",
+    imd = "Index of multiple deprivation decile",
     wkend = "Weekend",
-    hour = "Time of Arrival",
-    arrival_month = "Month of Arrival"#,
+    hour = "Time of arrival",
+    arrival_month = "Month of arrival"#,
     # arrival_year = "Year of Arrival"
   )
 ) %>%
@@ -662,40 +718,22 @@ full_mod <- lm(handover_time/60 ~ age + sex + imd + n_ed_norm + n_dta_norm + wke
 # This code assesses which transform is best?
 
 
-pow <- mod_dat %>%
-  nest() %>%
-  expand_grid(pow = seq(0.1, 4, 0.01)) %>%
-  mutate(data = map2(data, pow, ~
-                       mutate(.x, n_dta_norm = n_dta_norm ^ .y))) %>% mutate(lm = map(
-                         data,
-                         ~ lm(handover_time / 60 ~ age + n_ed_norm + n_dta_norm + wkend + hour, data = .x)
-                       )) %>%
-  mutate(stats = map(lm, broom::glance)) %>%
-  unnest(stats) %>% 
-  slice_min(AIC, n = 1) %>%
-  pull(pow)
-
-mod_dat_trans = mutate(mod_dat, n_dta_norm_trans = n_dta_norm^pow)
-full_mod_trans <- lm(handover_time/60 ~ age + n_dta_norm_trans + n_ed_norm + wkend + hour, data = mod_dat_trans)
-
-
-
 full_mod_tab <-  full_mod %>%
   gtsummary::tbl_regression(
     label = list(
       n_dta_norm = x_lab,
-      n_ed_norm = "Number in ED (excluding DTA) as a Percentage of Majors & Resus Cubicles",
+      n_ed_norm = "Number in ED (excluding DTA) as a percentage of cubicle capactiy (Majors + Resus)",
       age = "Age",
-      imd = "Index of Multiple Deprivation Decile",
+      imd = "Index of multiple deprivation decile",
       wkend = "Weekend",
-      hour = "Time of Arrival",
-      arrival_month = "Month of Arrival"#,
+      hour = "Time of arrival",
+      arrival_month = "Month of arrival"#,
       # arrival_year = "Year of Arrival"
     )
   ) %>%
   gtsummary::add_glance_table(include = c(nobs, r.squared)) |>
   gtsummary::as_gt() %>%
-  gt::tab_header(title = gt::md(glue::glue('**Ambulance Handover Time (min)**')))
+  gt::tab_header(title = gt::md(glue::glue('**Ambulance handover time (min)**')))
 
 
 
@@ -709,92 +747,71 @@ plot_df <- mod_dat %>%
   filter(n_dta_norm <= n_dta_cutoff)
 
 
-
 p_std <- plot_df %>%
   # mutate(n_dta_norm = plyr::round_any(n_dta_norm, accuracy = bin_acc, f = ceiling)) %>%
   mutate(n_dta_norm = plyr::round_any(n_dta_norm, accuracy = bin_acc, f = \(x) floor(0.5 + x))) %>%
   mutate(standard = 30) %>%
   filter(n_dta_norm >= 0.1) %>%
-  ggplot(aes(x = n_dta_norm, y = handover_adj_inv/60, group = cut_width(n_dta_norm, width = bin_acc))) +
+  ggplot(aes(
+    x = n_dta_norm,
+    y = handover_adj_inv / 60,
+    group = cut_width(n_dta_norm, width = bin_acc)
+  )) +
   # geom_boxplot(outliers = FALSE) +
   geom_boxplot(outliers = FALSE, fatten = NULL) +
   # scale_y_continuous(limits = c(0, 300), breaks = seq(0, 300, 30)) +
   # geom_point(aes(y = standard), col = "red") +
-  geom_hline(aes(yintercept = standard), col = "red", linetype = 2) +
+  geom_hline(aes(yintercept = standard),
+             col = "red",
+             linetype = 2) +
   geom_point(aes(y = standard, col = "National target")) +
-  stat_summary(fun = ~mean(.x), geom = "point", col = "black", aes(col = "Mean", shape = "Mean")) +
-  stat_summary(fun = ~quantile(.x, 0.95), geom = "point", col = "black", aes(col = "95th percentile", shape = "95th percentile")) +
+  stat_summary(
+    fun = ~ mean(.x),
+    geom = "point",
+    col = "black",
+    aes(col = "Mean (standardised data)", shape = "Mean (standardised data)")
+  ) +
+  stat_summary(
+    fun = ~ quantile(.x, 0.95),
+    geom = "point",
+    col = "black",
+    aes(col = "Comparator quantile (standardised data)", shape = "Comparator quantile (standardised data)")
+  ) +
   # bnssgtheme() +
   theme_minimal() +
-  scale_shape_manual(values = c(21, 24, 19), guide = guide_legend(override.aes = list(size = 3,
-                                                                                      alpha = 1))) +
-  scale_colour_manual(values = c("red", "black"), guide = guide_legend(override.aes = list(size = 3,
-                                                                                           alpha = 1))) +
-  scale_x_continuous(labels = scales::percent, breaks = scales::breaks_width(0.5)) +
+  scale_colour_manual(
+    # breaks = c("Mean", "Comparator quantile (standardised data)", "National target"),
+    values = c("Mean" = "black", "Comparator quantile (standardised data)"= "black", "National target" = "red"),
+    # guide = guide_legend(override.aes = list(size = 3, alpha = 1))
+  ) +
+  scale_x_continuous(labels = scales::percent,
+                     breaks = scales::breaks_width(0.5)) +
   coord_cartesian(xlim = c(0.1, NA)) +
-  scale_shape_manual(values = c(19, 17),
-                     guide = guide_legend(override.aes = list(size = 3,
-                                                              alpha = 1))) +
-  labs(title = "",
+  scale_shape_manual(values = c(17, 19),
+                     breaks = c("Mean (standardised data)", "Comparator quantile (standardised data)"),
+                     # guide = guide_legend(override.aes = list(size = 3, alpha = 1))
+                     ) +
+  labs(title = "", 
        y = y_lab,
        x = x_lab,
        shape = "",
        colour = "") +
   theme(legend.position = "bottom",
         legend.justification = "center",
+        legend.text = element_text(size = 11),
         legend.title = element_blank(),
-        legend.spacing.x = unit(0, "cm"))
+        legend.spacing.x = unit(0, "cm")) +
+  guides(shape = guide_legend(order = 1),
+         colour = guide_legend(order = 2))
 
-plot_df <- mod_dat %>%
-  # filter(n_dta <= 35) 
-  filter(n_dta_norm <= n_dta_cutoff)
-
-dta_range <- range(plot_df$n_dta_norm)^pow
-dta_seq <- seq(from = dta_range[1], to = dta_range[2], length.out = 21)^(1/pow)
-dta_seq[length(dta_seq)] <- n_dta_cutoff
-
-p_std_trans <- plot_df %>%
-  mutate(x_bin = cut(n_dta_norm, breaks = dta_seq, include.lowest = TRUE, right = FALSE),
-         left = dta_seq[findInterval(n_dta_norm, dta_seq, all.inside = T)],
-         right = dta_seq[findInterval(n_dta_norm, dta_seq, all.inside = T)+1],
-         mids = (left + right)/2,
-         width = right - left) %>%
-  ggplot(aes(x = mids, y = handover_adj_inv/60, group = x_bin)) +
-  # geom_boxplot(outliers = FALSE) +
-  geom_boxplot(outliers = FALSE, fatten = NULL) +
-  # scale_y_continuous(limits = c(0, 300), breaks = seq(0, 300, 30)) +
-  # geom_point(aes(y = standard), col = "red") +
-  stat_summary(fun = ~mean(.x), geom = "point", col = "black", aes(shape = "Mean")) +
-  stat_summary(fun = ~quantile(.x, 0.95), geom = "point", col = "black", aes(shape = "95th percentile")) +
-  # bnssgtheme() +
-  theme_minimal() +
-  scale_shape_manual(values = c(21, 24, 19), guide = guide_legend(override.aes = list(size = 3,
-                                                                                      alpha = 1))) +
-  scale_x_continuous(labels = scales::percent, transform = ggforce::power_trans(pow)) +
-  scale_shape_manual(values = c(19, 17),
-                     guide = guide_legend(override.aes = list(size = 3,
-                                                              alpha = 1))) +
-  # scale_colour_manual(values = c(viridis::viridis(n = 2, end = 0.6, begin = 0.2, direction = -1), "black"),
-  #                     guide = guide_legend(override.aes = list(size = 3,
-  #                                                              alpha = 1))) +
-  labs(title = "Standardised outcome, normalised dependant",
-       y = y_lab,
-       x = x_lab,
-       shape = "") +
-  theme(legend.position = "bottom",
-        legend.justification = "center",
-        legend.title = element_text())
 
 
 list(
   p_raw = p_raw,
   p_std = p_std,
-  p_std_trans = p_std_trans,
   mod_dat = mod_dat,
   std_mod = std_mod,
   full_mod = full_mod,
-  full_mod_trans = full_mod_trans,
-  trans_pow = pow,
   std_mod_tab = std_mod_tab,
   full_mod_tab = full_mod_tab
 )
@@ -809,8 +826,8 @@ resp_outputs <- local({
   
   bin_acc <- 0.1
   
-  x_lab <- "DTA Queue as a Percentage of Cubical Capacity (Majors + Resus)"
-  y_lab <- "Ambulance Response Time\n(min)"
+  x_lab <- "DTA queue as a percentage of cubicle capacity (Majors + Resus)"
+  y_lab <- "Standardised ambulance response time\n(min)"
   
   labels <- c(cat1 = "999 Call Category 1",
               cat2 = "999 Call Category 2",
@@ -1019,10 +1036,10 @@ resp_outputs <- local({
                                 label = list(
                                   age = "Age",
                                   sex = "Sex",
-                                  imd = "Index of Multiple Deprivation Decile",
+                                  imd = "Index of multiple deprivation decile",
                                   wkend = "Weekend",
-                                  hour = "Time of Arrival",
-                                  arrival_month = "Month of Arrival"
+                                  hour = "Time of arrival",
+                                  arrival_month = "Month of arrival"
                                 )) %>%
         gtsummary::add_glance_table(include = c(nobs, r.squared)) |>
         gtsummary::as_gt() %>%
@@ -1040,13 +1057,13 @@ resp_outputs <- local({
       gtsummary::tbl_regression(.x,
                                 label = list(
                                   n_dta_norm = x_lab,
-                                  n_ed_norm = "Number in ED (excluding DTA) as a Percentage of Majors & Resus Cubicles",
+                                  n_ed_norm = "Number in ED (excluding DTA) as a percentage of cubicles capacity (Majors + Resus)",
                                   age = "Age",
                                   sex = "Sex",
-                                  imd = "Index of Multiple Deprivation Decile",
+                                  imd = "Index of multiple deprivation decile",
                                   wkend = "Weekend",
-                                  hour = "Time of Arrival",
-                                  arrival_month = "Month of Arrival"
+                                  hour = "Time of arrival",
+                                  arrival_month = "Month of arrival"
                                 )) %>%
         gtsummary::add_glance_table(include = c(nobs, r.squared)) |>
         gtsummary::as_gt() %>%
@@ -1064,8 +1081,12 @@ resp_outputs <- local({
     mutate(response_adj_inv = response_adj + mean(response), .by = call_category)
   
   p_norm_std <- plot_dat %>%
-    mutate(n_dta_norm = plyr::round_any(n_dta_norm, accuracy = bin_acc, f = ceiling)) %>%
+    # mutate(n_dta_norm = plyr::round_any(n_dta_norm, accuracy = bin_acc, f = ceiling)) %>%
+    mutate(n_dta_norm = plyr::round_any(n_dta_norm, accuracy = bin_acc, f = \(x) floor(0.5 + x))) %>%
     filter(n_dta_norm >= 0.1) %>%
+    group_by(call_category) %>%
+    nest() %>%
+    mutate(plot = map2(data, call_category, \(x, y) {x %>%
     ggplot(aes(x = n_dta_norm, y = response_adj_inv)) +
     # geom_boxplot(outliers = FALSE) +
     geom_boxplot(
@@ -1073,7 +1094,7 @@ resp_outputs <- local({
       outliers = FALSE,
       fatten = NULL
     ) +
-    geom_hline(data = time_std, aes(yintercept = std), linetype = 2, col = "red") +
+    geom_hline(data = filter(time_std, call_category == y), aes(yintercept = std), linetype = 2, col = "red") +
     # stat_summary(
     #   fun = ~ mean(.x),
     #   geom = "errorbar",
@@ -1082,38 +1103,41 @@ resp_outputs <- local({
     #   aes(ymax = ..y.., ymin = ..y..)
     # ) +
     geom_point(
-      data = {time_std %>% expand_grid(n_dta_norm = seq(bin_acc, n_dta_cutoff, bin_acc))},
+      data = {filter(time_std, call_category == y) %>% expand_grid(n_dta_norm = seq(bin_acc, n_dta_cutoff, bin_acc))},
       aes(y = std, col = "National target"),
     ) +
     stat_summary(
       fun = ~ mean(.x),
       geom = "point",
       col = "black",
-      aes(shape = "Mean")
+      aes(shape = "Mean (standardised data)")
     ) +
     stat_summary(
       fun = ~ quantile(.x, 0.9),
       geom = "point",
       col = "black",
-      aes(shape = "90th percentile")
+      aes(shape = "Comparator quantile (standardised data)")
     ) +
-    facet_wrap(
-      vars(call_category),
-      ncol = 1,
-      scales = "free",
-      labeller = as_labeller(labels)
-    ) +
+    # facet_wrap(
+    #   vars(call_category),
+    #   ncol = 1,
+    #   scales = "free",
+    #   labeller = as_labeller(labels)
+    # ) +
     scale_x_continuous(labels = scales::percent, breaks = scales::breaks_width(0.5)) +
     coord_cartesian(xlim = c(0.1, NA)) +
     theme_minimal()  +
-    scale_colour_manual(values = c("red", "black"), guide = guide_legend(override.aes = list(size = 3,
-                                                                                             alpha = 1))) +
-    scale_shape_manual(values = c(19, 17),
-                       guide = guide_legend(override.aes = list(size = 3,
-                                                                alpha = 1))) +
+    scale_colour_manual(values = c("red", "black"),
+                        # guide = guide_legend(override.aes = list(size = 3,alpha = 1))
+                        ) +
+    scale_shape_manual(breaks = c("Mean (standardised data)", "Comparator quantile (standardised data)"),
+                       values = c(17, 19),
+                       # guide = guide_legend(override.aes = list(size = 3, alpha = 1))
+                       ) +
+    facet_grid(str_c("999 Category ", str_replace(y, "cat", ""), " call")~.) +
     guides(alpha = "none") +
     labs(
-      title = "Raw outcome, normalised dependant",
+      title = "",
       y = y_lab,
       x = x_lab,
       shape = "",
@@ -1122,8 +1146,11 @@ resp_outputs <- local({
     theme(
       legend.position = "bottom",
       legend.justification = "center",
-      legend.title = element_text()
+      legend.text = element_text(size = 11),
+      legend.title = element_blank()
     )
+    })) %>%
+    pull(plot)
   
   
   list(

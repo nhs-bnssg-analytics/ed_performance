@@ -7,6 +7,25 @@ resp_outputs <- readRDS("data/resp_outputs.RDS")
 
 bin_acc <- 0.1
 
+patchwork::wrap_plots(handover_outputs$p_std,
+                      resp_outputs$p_norm_std[[3]],
+                      resp_outputs$p_norm_std[[1]],
+                      resp_outputs$p_norm_std[[2]],
+                      ncol = 1,
+                      axes = "collect",
+                      guides = "collect"
+                      ) &
+  theme(legend.position = "bottom")
+
+ggplot2::ggsave("materials/upstream_standard.png",
+                ggplot2::last_plot(),
+                bg = "white",
+                height = 15.0,
+                width = 12.5, 
+                scale = 0.65)
+
+
+
 x_lab <- "DTA Queue as a Percentage of Cubicle Capacity (Majors + Resus)."
 y_lab <- "Model-Standardised Ambulance Handover Time\n(min)."
 
