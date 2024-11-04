@@ -116,12 +116,12 @@ patchwork::wrap_plots(nrow = 2) & patchwork::plot_annotation(title = "Demographi
 
 
 
-ptc <- wrap_plots(p_demog_downstr_1$plot) |
-  patchwork::wrap_plots(p_demog_downstr_2$plot, ncol = 1) 
+ptc <- free(wrap_plots(p_demog_downstr_1$plot)) |
+  patchwork::wrap_plots(p_demog_downstr_2$plot, ncol = 1)
 
 
-ptc &
-  patchwork::plot_annotation(title = "Demographics for Downstream Patients", subtitle = "Patients included in mortality & readmission analysis")
+ptc & 
+  plot_layout(widths = c(2/3, 1/3))
 
 ggsave("materials/demog_downstream_smr.png",
        last_plot(),

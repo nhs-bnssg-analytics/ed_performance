@@ -32,6 +32,30 @@ snapshot_int <- map(snapshot_seq, ~lubridate::interval(.x - dminutes((60*n_hour)
                                                        .x + dminutes((60*n_hour)/2)))
 
 
+sex_df <- readRDS("data/dat_attr_demog.RDS") %>%
+  select(nhs_number, sex) %>%
+  distinct()
+
+imd_df <- local({
+  
+  string_ecds<-glue::glue("select Arrival_Date,
+                        Arrival_Time,
+                        NHS_Number,
+                        Index_Of_Multiple_Deprivation
+      FROM Analyst_SQL_Area.dbo.tbl_BNSSG_ECDS
+      where Site_Name in ('BRISTOL ROYAL INFIRMARY', 'SOUTHMEAD HOSPITAL', 'WESTON GENERAL HOSPITAL')
+      and Arrival_Date >= '{report_start}'
+      ")
+  dat_ecds_raw<-sqlQuery(con,string_ecds)
+  dat_ecds_raw %>%
+    group_by(nhs_number = NHS_Number) %>%
+    arrange(desc(Arrival_Time)) %>%
+    slice(1) %>%
+    mutate(nhs_number = as.character(nhs_number)) %>%
+    select(nhs_number, imd = Index_Of_Multiple_Deprivation)
+}) %>%
+  na.omit()
+
 
 dta_df <- local({
   string_ecds<-glue::glue("select Arrival_Date,
@@ -88,25 +112,7 @@ dta_df <- local({
   dat_dtas
 })
 
-imd_df <- local({
-  
-  string_ecds<-glue::glue("select Arrival_Date,
-                        Arrival_Time,
-                        NHS_Number,
-                        Index_Of_Multiple_Deprivation
-      FROM Analyst_SQL_Area.dbo.tbl_BNSSG_ECDS
-      where Site_Name in ('BRISTOL ROYAL INFIRMARY', 'SOUTHMEAD HOSPITAL', 'WESTON GENERAL HOSPITAL')
-      and Arrival_Date >= '{report_start}'
-      ")
-  dat_ecds_raw<-sqlQuery(con,string_ecds)
-  dat_ecds_raw %>%
-  group_by(nhs_number = NHS_Number) %>%
-  arrange(desc(Arrival_Time)) %>%
-  slice(1) %>%
-  mutate(nhs_number = as.character(nhs_number)) %>%
-  select(nhs_number, imd = Index_Of_Multiple_Deprivation)
-  }) %>%
-  na.omit()
+
 
 sex_df <- readRDS("data/dat_attr_demog.RDS") %>%
   select(nhs_number, sex) %>%
@@ -147,7 +153,7 @@ trt_df <- local({
     rowwise() %>%
     mutate(departure_dt=max(dta_dt,departure_dt,na.rm=TRUE)) %>%
     ungroup() %>%
-    mutate(dta_int = interval(dta_dt, departure_dt)) %>%
+    mutate(departure_int = interval(arrival_dt, departure_dt)/dminutes(1)) %>%
     mutate(trt_time = interval(arrival_dt, treatment_dt)/dminutes(1)) %>%
     mutate(date=floor_date(departure_dt,"day")) %>%
     mutate(ed_category=case_when(Acuity_Desc %in% c("Non-urgent level emergency care","Standard level emergency care") ~ "minor",
@@ -162,19 +168,19 @@ trt_df <- local({
   dat_trt <- dat_ecds %>%
     group_by(site = Site_Name) %>%
     nest() %>%
-    mutate(trt_time = list(map2(
+    mutate(departure_time = list(map2(
       snapshot_int,
       data,
-      ~ filter(.y, treatment_dt %within% .x) %>%
+      ~ filter(.y, arrival_dt %within% .x) %>%
         select(age = age,
                sex = sex,
                imd,
-               trt_time = trt_time)
-    ))) %>%
-    mutate(trt_df = map(trt_time, function(trt_time)
-      map2_df(trt_time, snapshot_seq, ~ bind_cols(tibble(dt = .y), .x)))) %>%
-    select(site, trt_df) %>%
-    unnest(trt_df) %>%
+               departure_time = departure_int)
+    )))  %>%
+    mutate(departure_df = map(departure_time, function(departure_time)
+      map2_df(departure_time, snapshot_seq, ~ bind_cols(tibble(dt = .y), .x)))) %>%
+    select(site, departure_df) %>%
+    unnest(departure_df) %>%
     arrange(dt) 
   
   # 
@@ -190,21 +196,6 @@ trt_df <- local({
   
   dat_trt
 })
-
-
-dta_df %>%
-  filter(site == "SOUTHMEAD HOSPITAL") %>%
-  filter(dt %within% interval(ymd("2024-02-15"), ymd("2024-02-15")+dweeks(4))) %>%
-  ggplot(aes(x = dt, y = n_dta)) +
-  geom_line() + 
-  bnssgtheme() +
-  labs(x = "Date", y = "DTA queue") 
-
-ggsave("materials/dta_plot.png",
-       last_plot(),
-       height = 5,
-       width = 7.5, 
-       scale = 0.9)
 
 ed_df <- local({
   string_ecds<-glue::glue("select Arrival_Date,
@@ -332,12 +323,14 @@ Conveyed_To_Ward_Type = 'A&E' AND
   )
   
   actv_swafst <- RODBC::sqlQuery(con, string_actv_swafst) %>%
-    mutate(handover_time = lubridate::parse_date_time(Time_of_Patient_Handover, orders = "dmy HMS"))
+    mutate(handover_time = lubridate::parse_date_time(Time_of_Handover_at_First_Hospital_Attended, orders = "ymd HMS")) %>%
+    filter(handover_time <= report_end)
   
   
   handover_df <- actv_swafst %>%
     mutate(Derived_Pseudo_NHSNumber = as.character(Derived_Pseudo_NHSNumber)) %>%
     left_join(imd_df, by = join_by(Derived_Pseudo_NHSNumber == nhs_number)) %>%
+    left_join(sex_df, by = join_by(Derived_Pseudo_NHSNumber == nhs_number)) %>%
     group_by(site = Site_Name) %>%
     nest() %>%
     mutate(handover_time = list(map2(
@@ -346,7 +339,7 @@ Conveyed_To_Ward_Type = 'A&E' AND
       ~ filter(.y, handover_time %within% .x) %>%
         select(nhs_number = Derived_Pseudo_NHSNumber,
                age = Age_Bracket,
-               sex = Patient_Gender,
+               sex,
                imd,
                handover_time = Handover_Duration__seconds_)
     ))) %>%
@@ -356,9 +349,8 @@ Conveyed_To_Ward_Type = 'A&E' AND
     unnest(handover_df) %>%
     arrange(dt) 
   
-  handover_df%>%
-    filter(sex %in% c("F", "M")) %>%
-    mutate(sex = factor(ifelse(sex == "F", "Female", "Male")))
+  handover_df %>%
+    filter(sex %in% c("Female", "Male")) 
 })
 
 
@@ -501,7 +493,7 @@ CCG = '15C' AND
     left_join(imd_df) %>%
     left_join(sex_df)
   
-  response_time
+  response_time 
 })
 
 # saveRDS(dta_df, "data/upstream_dta_df.RDS")
@@ -524,6 +516,7 @@ dta_df <- dta_df %>%
   filter(!(site == "WESTON GENERAL HOSPITAL" & hour(dt) %in% c(10:12, 1:7))) 
 
 handover_df <- handover_df %>%
+  na.omit() %>%
   ungroup() %>%
   mutate(imd = factor(imd, levels = 1:10, labels = c("1 (least deprived)",
                                                      "2",
@@ -540,6 +533,8 @@ handover_df <- handover_df %>%
   mutate(imd = fct_relevel(imd, "(Missing)", after = Inf))
 
 resp_time_df <- resp_time_df %>%
+  na.omit() %>%
+  filter(sex %in% c("Male", "Female")) %>%
   mutate(imd = factor(imd, levels = 1:10, labels = c("1 (least deprived)",
                                                      "2",
                                                      "3",
@@ -683,6 +678,11 @@ mod_dat <- dta_df %>%
     filter(n_dta_norm <= n_dta_cutoff) %>%
     mutate(wkend = factor(ifelse(wday(dt, week_start = 1) < 6, "Yes", "No")),
            hour = factor(hms::as_hms(floor_date(dt, "6 hour")))) %>% 
+    mutate(hour = fct_recode(hour, "00:00-06:00" = "00:00:00",
+                             "06:00-12:00" = "06:00:00",
+                             "12:00-18:00" = "12:00:00",
+                             "18:00-24:00" = "18:00:00")) %>%
+  
     # mutate(hour = fct_relevel(hour, "(12,18]", after = 0)) %>%
     # mutate(hour = fct_recode(hour, "00:00-06:00" = "[0,6]",
     #                          "06:00-12:00" = "(6,12]",
@@ -1009,6 +1009,10 @@ resp_outputs <- local({
     ungroup() %>%
     mutate(wkend = factor(ifelse(wday(dt, week_start = 1) < 6, "Yes", "No")),
            hour = factor(hms::as_hms(floor_date(dt, "6 hour")))) %>%
+    mutate(hour = fct_recode(hour, "00:00-06:00" = "00:00:00",
+                             "06:00-12:00" = "06:00:00",
+                             "12:00-18:00" = "12:00:00",
+                             "18:00-24:00" = "18:00:00")) %>%
     mutate(arrival_month = factor(month(dt), labels = month.name)) %>%
     # mutate(arrival_year = factor(year(dt))) %>%
     select(-dt) %>%
@@ -1176,6 +1180,189 @@ ggsave("materials/dta_amb_resp_paper.png",
        scale = 0.7)
 
 
+time_ed_outputs <- local({
+  
+  n_dta_cutoff <- 1.5
+  bin_acc <- 0.1
+  
+  x_lab <- "DTA queue as a percentage of cubicle capacity (Majors + Resus)"
+  y_lab <- "Standardised time in ED \n(min)"
+  
+  # Non standardised plot
+  p_raw <-   dta_df %>%
+    left_join(trt_df) %>%
+    left_join(site_resus_maj) %>%
+    # filter(site == "SOUTHMEAD HOSPITAL") %>%
+    filter(!between(dt, ymd("2022-04-01"), ymd("2022-07-10"))) %>%
+    na.omit() %>%
+    mutate(n_dta_norm = n_dta/total,
+           standard = 60) %>%
+    filter(n_dta_norm <= n_dta_cutoff) %>%
+    # distinct() %>%
+    mutate(n_dta_norm = plyr::round_any(n_dta_norm, accuracy = bin_acc, f = ceiling)) %>%
+    ggplot(aes(x = n_dta_norm, y = departure_time)) +
+    # geom_boxplot(outliers = FALSE) +
+    geom_boxplot(mapping = aes(group = cut_width(n_dta_norm, width = bin_acc)), outliers = FALSE, fatten = NULL) +
+    # geom_hline(yintercept = 30, linetype = 2) +
+    scale_y_continuous(breaks = breaks_width(60)) +
+    # geom_ribbon(aes(ymin = lwr, ymax = upr, fill = q), col = NA, alpha = 0.25) +
+    # geom_line(aes(y = fit, group = q)) +
+    geom_point(aes(y = standard, col = "National target")) +
+    stat_summary(fun = ~mean(.x), geom = "point", col = "black", aes(col = "Mean", shape = "Mean")) +
+    stat_summary(fun = ~quantile(.x, 0.95), geom = "point", col = "black", aes(col = "95th percentile", shape = "95th percentile")) +
+    # bnssgtheme() +
+    theme_minimal() +
+    scale_shape_manual(values = c(21, 24, 19), guide = guide_legend(override.aes = list(size = 3,
+                                                                                        alpha = 1))) +
+    scale_colour_manual(values = c("red", "black"), guide = guide_legend(override.aes = list(size = 3,
+                                                                                             alpha = 1))) +
+    scale_x_continuous(labels = scales::percent) +
+    scale_shape_manual(values = c(19, 17),
+                       guide = guide_legend(override.aes = list(size = 3,
+                                                                alpha = 1))) +
+    labs(title = "Raw outcome, normalised dependant",
+         y = y_lab,
+         x = x_lab,
+         shape = "",
+         col = "") +
+    theme(legend.position = "bottom",
+          legend.justification = "center",
+          legend.title = element_blank(),
+          legend.margin = margin(l = 5, unit = "pt"),
+          legend.spacing.x = unit(0, "cm"))
+  
+  
+  
+  # Standardised plot  
+  mod_dat <- dta_df %>% 
+    left_join(trt_df) %>%
+    left_join(site_resus_maj) %>%
+    left_join(ed_df) %>%
+    mutate(n_ed_norm = (n_ed - n_dta)/total,
+           n_dta_norm = n_dta / total) %>%
+    mutate(n_dta_norm = n_dta/total) %>%
+    ungroup() %>%
+    na.omit() %>%
+    filter(!between(dt, ymd("2022-04-01"), ymd("2022-07-10"))) %>%
+    filter(departure_time >= 0) %>%
+    filter(n_dta_norm <= n_dta_cutoff) %>%
+    mutate(wkend = factor(ifelse(wday(dt, week_start = 1) < 6, "Yes", "No")),
+           hour = factor(cut(hour(dt), breaks = seq(0, 24, 6), include.lowest = TRUE), ordered = FALSE)) %>% 
+    mutate(hour = fct_relevel(hour, "(12,18]", after = 0)) %>%
+    mutate(hour = fct_recode(hour, "00:00-06:00" = "[0,6]",
+                             "06:00-12:00" = "(6,12]",
+                             "12:00-18:00" = "(12,18]",
+                             "18:00-24:00" = "(18,24]")) %>%
+    mutate(arrival_month = factor(month(dt), labels = month.name)) %>%
+    # mutate(arrival_year = factor(year(dt))) %>%
+    select(-dt, -maj, -resus, -total) %>%
+    ungroup() 
+  
+  trt_mod <- lm(departure_time ~ . -n_dta -n_dta_norm -n_ed -site, data = mod_dat)
+  trt_pred <- predict(trt_mod, mod_dat)
+  
+  std_mod <- trt_mod
+  
+  std_mod_tab <- gtsummary::tbl_regression(
+    std_mod,
+    label = list(
+      age = "Age",
+      imd = "Index of multiple deprivation decile",
+      wkend = "Weekend",
+      hour = "Time of arrival",
+      arrival_month = "Month of arrival"#,
+      # arrival_year = "Year of Arrival"
+    )
+  ) %>%
+    gtsummary::add_glance_table(include = c(nobs, r.squared)) |>
+    gtsummary::as_gt() %>%
+    gt::tab_header(title = gt::md(glue::glue('**Time in ED (min)**')))#,
+  
+  full_mod <- lm(departure_time ~ age + imd + n_ed_norm + n_dta_norm + wkend + hour + arrival_month -site, data = mod_dat)
+  
+  # This code assesses which transform is best?
+  
+  
+  
+  full_mod_tab <-  full_mod %>%
+    gtsummary::tbl_regression(
+      label = list(
+        n_dta_norm = x_lab,
+        n_ed_norm = "Number in ED (excluding DTA) as a percentage of cubicles capacity (Majors + Resus)",
+        age = "Age",
+        imd = "Index of multiple deprivation decile",
+        wkend = "Weekend",
+        hour = "Time of arrival",
+        arrival_month = "Month of arrival"#,
+        # arrival_year = "Year of Arrival"
+      )
+    ) %>%
+    gtsummary::add_glance_table(include = c(nobs, r.squared)) |>
+    gtsummary::as_gt() %>%
+    gt::tab_header(title = gt::md(glue::glue('**Time in ED (min)**')))
+  
+  
+  
+  mod_dat <- mod_dat %>%
+    mutate(trt_standard = trt_pred,
+           trt_adj = departure_time - trt_standard,
+           trt_adj_inv = trt_adj + mean(departure_time)) 
+  
+  plot_df <- mod_dat %>%
+    # filter(n_dta <= 35) 
+    filter(n_dta_norm <= n_dta_cutoff)
+  
+  
+  
+  p_std <- plot_df %>%
+    mutate(n_dta_norm = plyr::round_any(n_dta_norm, accuracy = bin_acc, f = ceiling)) %>%
+    mutate(standard = 4*60) %>%
+    filter(n_dta_norm >= 0.1) %>%
+    ggplot(aes(x = n_dta_norm, y = trt_adj_inv, group = cut_width(n_dta_norm, width = bin_acc))) +
+    # geom_boxplot(outliers = FALSE) +
+    geom_boxplot(outliers = FALSE, fatten = NULL) +
+    # scale_y_continuous(limits = c(0, 300), breaks = seq(0, 300, 30)) +
+    # geom_point(aes(y = standard), col = "red") +
+    geom_hline(aes(yintercept = standard), col = "red", linetype = 2) +
+    geom_point(aes(y = standard, col = "National target")) +
+    stat_summary(fun = ~mean(.x), geom = "point", col = "black", aes(col = "Mean", shape = "Mean")) +
+    stat_summary(fun = ~quantile(.x, 0.95), geom = "point", col = "black", aes(col = "95th percentile", shape = "95th percentile")) +
+    # bnssgtheme() +
+    theme_minimal() +
+    scale_shape_manual(values = c(21, 24, 19), guide = guide_legend(override.aes = list(size = 3,
+                                                                                        alpha = 1))) +
+    scale_colour_manual(values = c("red", "black"), guide = guide_legend(override.aes = list(size = 3,
+                                                                                             alpha = 1))) +
+    scale_y_continuous(breaks = breaks_width(120)) +
+    scale_x_continuous(labels = scales::percent, breaks = scales::breaks_width(0.5)) +
+    coord_cartesian(xlim = c(0.1, NA)) +
+    scale_shape_manual(values = c(19, 17),
+                       guide = guide_legend(override.aes = list(size = 3,
+                                                                alpha = 1))) +
+    labs(title = "",
+         y = y_lab,
+         x = x_lab,
+         shape = "",
+         colour = "") +
+    theme(legend.position = "bottom",
+          legend.justification = "center",
+          legend.title = element_blank(),
+          legend.spacing.x = unit(0, "cm"))
+  
+  
+  
+  list(
+    p_raw = p_raw,
+    p_std = p_std,
+    mod_dat = mod_dat,
+    std_mod = std_mod,
+    std_mod_tab = std_mod_tab,
+    full_mod_tab = full_mod_tab
+  )
+  
+})
+
+saveRDS(time_ed_outputs, "data/time_ed_outputs.RDS")
 
 # basic model
 dta_df %>%
