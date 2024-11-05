@@ -1268,7 +1268,19 @@ mod_df <- readRDS("data/mort_mod_df_final.RDS")
 
 los_outputs <- local({
   
-  plot_df <- mod_df 
+  plot_df <- mod_df %>%
+    mutate(age = cut(age, breaks = c(0 , seq(30, 100, 10), Inf), right = FALSE, labels = c(
+      "29 years old or under",
+      # "20-29 years old" ,
+      "30-39 years old" ,
+      "40-49 years old" ,
+      "50-59 years old" ,
+      "60-69 years old" ,
+      "70-79 years old" ,
+      "80-89 years old" ,
+      "90-99 years old" ,
+      "100 years old or over" 
+    )))
     # # filter(site == "SOUTHMEAD HOSPITAL") %>%
     # distinct() %>%
     # filter(between(dta_time, 0, 60 * 25),
@@ -1306,7 +1318,7 @@ los_outputs <- local({
     )
   
    mod_std <- lm(los ~ . 
-                 + I(age^2)
+                 # + I(age^2)
                  + I(n_ed^2)
                  + I(perf^2)
                  + I(vw_score^2)
@@ -1326,7 +1338,7 @@ los_outputs <- local({
      perf = "4-hour ED performance",
      `I(perf^2)` = "4-hour ED performance (squared)",
      age = "Age",
-     `I(age^2)` = "Age (squared)",
+     # `I(age^2)` = "Age (squared)",
      n_ed = "Number of previous ED attendances",
      `I(n_ed^2)` = "Number of previous ED attendances (squared)",
      sex = "Sex",
@@ -1345,7 +1357,7 @@ los_outputs <- local({
    
    mod_full <- lm(los ~ . 
                   + dta_time
-                  + I(age^2)
+                  # + I(age^2)
                   + I(n_ed^2)
                   + I(perf^2)
                   + I(vw_score^2)
@@ -1366,7 +1378,7 @@ los_outputs <- local({
      perf = "4-hour ED performance",
      `I(perf^2)` = "4-hour ED performance (squared)",
      age = "Age",
-     `I(age^2)` = "Age (squared)",
+     # `I(age^2)` = "Age (squared)",
      n_ed = "Number of previous ED attendances",
      `I(n_ed^2)` = "Number of previous ED attendances (squared)",
      sex = "Sex",
@@ -1431,7 +1443,7 @@ ggsave("materials/dta_los_plot_paper.png",
 
 
 lvl_props <- los_outputs$mod_df %>%
-  select(arrival_time, arrival_month, sex, imd) %>%
+  select(arrival_time, age, arrival_month, sex, imd) %>%
   map(table) %>%
   map(proportions) %>%
   map(\(x) x[-1]) %>%
@@ -1457,7 +1469,7 @@ los_effects_plot <- mod_eff[c("x", "fit", "upper", "lower")] %>%
 
 
 
-saveRDS(list(los_mod = los_outputs$mod_full, los_mod_df = los_outputs$mod_df, los_effect_plot = los_effects_plot), "data/los_effect_output.RDS")
+saveRDS(list(mod_df = los_outputs$mod_df,los_mod = los_outputs$mod_full, los_mod_df = los_outputs$mod_df, los_effect_plot = los_effects_plot), "data/los_effect_output.RDS")
 
 
 los_outputs <- readRDS("data/los_outputs.RDS")

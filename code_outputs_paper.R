@@ -1,27 +1,38 @@
 library(tidyverse)
+library(tidymodels)
 
 # UPSTREAM OUTPUTS
 
 handover_outputs <- readRDS("data/handover_outputs.RDS")
 resp_outputs <- readRDS("data/resp_outputs.RDS")
+ed_time_outputs <- readRDS("data/time_ed_outputs.RDS")
 
 bin_acc <- 0.1
 
-patchwork::wrap_plots(handover_outputs$p_std,
-                      resp_outputs$p_norm_std[[3]],
-                      resp_outputs$p_norm_std[[1]],
+
+ptc_1 <- patchwork::wrap_plots(ed_time_outputs$p_std + guides(colour = "none", shape = "none"),
+                      handover_outputs$p_std + guides(colour = "none", shape = "none"),
+                      ncol = 1,
+                      axes = "collect",
+                      guides = "collect"
+                      ) 
+
+ptc_2 <- patchwork::wrap_plots(resp_outputs$p_norm_std[[3]] + guides(colour = "none", shape = "none"),
+                      resp_outputs$p_norm_std[[1]] + guides(colour = "none", shape = "none"),
                       resp_outputs$p_norm_std[[2]],
                       ncol = 1,
                       axes = "collect",
                       guides = "collect"
-                      ) &
-  theme(legend.position = "bottom")
+                      ) 
+
+patchwork::wrap_plots(ptc_1 | ptc_2, guides = "collect") &
+  theme(legend.position = "bottom", legend.justification = "center")
 
 ggplot2::ggsave("materials/upstream_standard.png",
                 ggplot2::last_plot(),
                 bg = "white",
-                height = 15.0,
-                width = 12.5, 
+                height = 12.5,
+                width = 15.0, 
                 scale = 0.65)
 
 
@@ -66,10 +77,17 @@ ggplot2::ggsave("materials/response_standard.png",
                 width = 10, 
                 scale = 0.6)
 
+time_ed_outputs$full_mod %>%
+  tidy(conf.int = TRUE) %>%
+  filter(term == "n_dta_norm") %>%
+  dplyr::select(estimate, conf.low, conf.high, p.value) %>%
+  mutate(across(-p.value, \(x) x/10))
 
 handover_outputs$full_mod %>%
   tidy(conf.int = TRUE) %>%
-  filter(term == "n_dta_norm")
+  filter(term == "n_dta_norm") %>%
+  dplyr::select(estimate, conf.low, conf.high, p.value) %>%
+  mutate(across(-p.value, \(x) x/10))
 
 resp_outputs$full_mod %>% map(\(x) {
   tidy(x, conf.int = TRUE) %>%
@@ -78,6 +96,28 @@ resp_outputs$full_mod %>% map(\(x) {
   mutate(across(-p.value, \(x) x/10))
   }
 )
+
+handover_tab <- handover_outputs$full_mod_tab 
+ed_time_tab <- ed_time_outputs$full_mod_tab 
+resp_tab_1 <- resp_outputs$full_mod_tabs$tab[[1]] 
+resp_tab_2 <- resp_outputs$full_mod_tabs$tab[[2]] 
+resp_tab_3 <- resp_outputs$full_mod_tabs$tab[[3]]
+
+gtsummary::tbl_merge(list(
+  ed_time_tab,
+  handover_tab,
+  resp_tab_3,
+  resp_tab_2,
+  resp_tab_1
+  ), tab_spanner = c("Time spent in ED (min)",
+                     "Ambulance handover time (min)",
+                     "999 call Category 1 response time (min)",
+                     "999 call Category 2 response time (min)",
+                     "999 call Category 3 response time (min)"
+                     )) %>%
+  gtsummary::as_gt() %>%
+  gt::gtsave("materials/upstream_reg_table.html")
+
 
 # Downstream outputs
 

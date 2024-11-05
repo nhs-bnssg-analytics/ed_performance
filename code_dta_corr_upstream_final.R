@@ -530,7 +530,31 @@ handover_df <- handover_df %>%
                                                      "10 (most deprived)"))
   ) %>%
   mutate(imd = fct_na_value_to_level(imd, level = "(Missing)")) %>%
-  mutate(imd = fct_relevel(imd, "(Missing)", after = Inf))
+  mutate(imd = fct_relevel(imd, "(Missing)", after = Inf)) %>%
+  mutate(age = fct_recode(age, 
+                          "29 years old or under" = "0-4 Years Old",
+                          "29 years old or under" = "5-9 Years Old",
+                          "29 years old or under" = "10-14 Years Old",
+                          "29 years old or under" = "15-19 Years Old",
+                          "29 years old or under" = "20-24 Years Old",
+                          "29 years old or under" = "25-29 Years Old",
+                          "30-39 years old" = "30-34 Years Old",
+                          "30-39 years old" = "35-39 Years Old",
+                          "40-49 years old" = "40-44 Years Old",
+                          "40-49 years old" = "45-49 Years Old",
+                          "50-59 years old" = "50-54 Years Old",
+                          "50-59 years old" = "55-59 Years Old",
+                          "60-69 years old" = "60-64 Years Old",
+                          "60-69 years old" = "65-69 Years Old",
+                          "70-79 years old" = "70-74 Years Old",
+                          "70-79 years old" = "75-79 Years Old",
+                          "80-89 years old" = "80-84 Years Old",
+                          "80-89 years old" = "85-89 Years Old",
+                          "90-99 years old" = "90-94 Years Old",
+                          "90-99 years old" = "95-99 Years Old",
+                          "100 years old or over" = "100 Years Old Or Over"
+  )) %>%
+  mutate(age = fct_relevel(age, "100 years old or over", after = 10)) 
 
 resp_time_df <- resp_time_df %>%
   na.omit() %>%
@@ -546,36 +570,66 @@ resp_time_df <- resp_time_df %>%
                                                      "9",
                                                      "10 (most deprived)"))
   ) %>%
-  mutate(imd = fct_na_value_to_level(imd, level = "(Missing)")) 
+  mutate(imd = fct_na_value_to_level(imd, level = "(Missing)")) %>%
+  mutate(age = fct_recode(age, 
+                          "29 years old or under" = "0-4 Years Old",
+                          "29 years old or under" = "5-9 Years Old",
+                          "29 years old or under" = "10-14 Years Old",
+                          "29 years old or under" = "15-19 Years Old",
+                          "29 years old or under" = "20-24 Years Old",
+                          "29 years old or under" = "25-29 Years Old",
+                          "30-39 years old" = "30-34 Years Old",
+                          "30-39 years old" = "35-39 Years Old",
+                          "40-49 years old" = "40-44 Years Old",
+                          "40-49 years old" = "45-49 Years Old",
+                          "50-59 years old" = "50-54 Years Old",
+                          "50-59 years old" = "55-59 Years Old",
+                          "60-69 years old" = "60-64 Years Old",
+                          "60-69 years old" = "65-69 Years Old",
+                          "70-79 years old" = "70-74 Years Old",
+                          "70-79 years old" = "75-79 Years Old",
+                          "80-89 years old" = "80-84 Years Old",
+                          "80-89 years old" = "85-89 Years Old",
+                          "90-99 years old" = "90-94 Years Old",
+                          "90-99 years old" = "95-99 Years Old",
+                          "100 years old or over" = "100 Years Old Or Over"
+  )) %>%
+  mutate(age = fct_relevel(age, "100 years old or over", after = 10)) 
 
 
-trt_df <- trt_df %>% mutate(imd = factor(imd, levels = 1:10, labels = c("1 (least deprived)",
-                                                          "2",
-                                                          "3",
-                                                          "4",
-                                                          "5",
-                                                          "6",
-                                                          "7",
-                                                          "8",
-                                                          "9",
-                                                          "10 (most deprived)"))
+trt_df <- trt_df %>%
+  na.omit() %>%
+  mutate(imd = factor(
+  imd,
+  levels = 1:10,
+  labels = c(
+    "1 (least deprived)",
+    "2",
+    "3",
+    "4",
+    "5",
+    "6",
+    "7",
+    "8",
+    "9",
+    "10 (most deprived)"
+  )
+)
+
 ) %>%
   mutate(imd = fct_na_value_to_level(imd, level = "(Missing)"))  %>%
   mutate(sex = factor(ifelse(sex == "1", "Male", "Female"))) %>%
   filter(age < 120) %>%
-  mutate(age = cut(age, breaks = seq(0, 120, 10), right = FALSE, labels = c(
-                   "0-9 Years Old",
-                   "10-19 Years Old" ,
-                   "20-29 Years Old" ,
-                   "30-39 Years Old" ,
-                   "40-49 Years Old" ,
-                   "50-59 Years Old" ,
-                   "60-69 Years Old" ,
-                   "70-79 Years Old" ,
-                   "80-89 Years Old" ,
-                   "90-99 Years Old" ,
-                   "100-109 Years Old" ,
-                   "109-119 Years Old" 
+  mutate(age = cut(age, breaks = c(0, seq(30, 100, 10), Inf), right = FALSE, labels = c(
+                   "29 years old or under" ,
+                   "30-39 years old" ,
+                   "40-49 years old" ,
+                   "50-59 years old" ,
+                   "60-69 years old" ,
+                   "70-79 years old" ,
+                   "80-89 years old" ,
+                   "90-99 years old" ,
+                   "100 years old or over" 
                    )))
   
 
@@ -648,29 +702,6 @@ mod_dat <- dta_df %>%
          n_dta_norm = n_dta / total) %>%
   mutate(n_dta_norm = n_dta/total) %>%
     mutate(age = factor(age)) %>%
-    mutate(age = fct_recode(age, 
-                            "0-9 Years Old" = "0-4 Years Old",
-                            "0-9 Years Old" = "5-9 Years Old",
-                            "10-19 Years Old" = "10-14 Years Old",
-                            "10-19 Years Old" = "15-19 Years Old",
-                            "20-29 Years Old" = "20-24 Years Old",
-                            "20-29 Years Old" = "25-29 Years Old",
-                            "30-39 Years Old" = "30-34 Years Old",
-                            "30-39 Years Old" = "35-39 Years Old",
-                            "40-49 Years Old" = "40-44 Years Old",
-                            "40-49 Years Old" = "45-49 Years Old",
-                            "50-59 Years Old" = "50-54 Years Old",
-                            "50-59 Years Old" = "55-59 Years Old",
-                            "60-69 Years Old" = "60-64 Years Old",
-                            "60-69 Years Old" = "65-69 Years Old",
-                            "70-79 Years Old" = "70-74 Years Old",
-                            "70-79 Years Old" = "75-79 Years Old",
-                            "80-89 Years Old" = "80-84 Years Old",
-                            "80-89 Years Old" = "85-89 Years Old",
-                            "90-99 Years Old" = "90-94 Years Old",
-                            "90-99 Years Old" = "95-99 Years Old"
-    )) %>%
-    mutate(age = fct_relevel(age, "100 Years Old Or Over", after = 10)) %>%
     ungroup() %>%
     na.omit() %>%
     filter(!between(dt, ymd("2022-04-01"), ymd("2022-07-10"))) %>%
@@ -709,9 +740,9 @@ std_mod_tab <- gtsummary::tbl_regression(
     # arrival_year = "Year of Arrival"
   )
 ) %>%
-  gtsummary::add_glance_table(include = c(nobs, r.squared)) |>
-  gtsummary::as_gt() %>%
-  gt::tab_header(title = gt::md(glue::glue('**Ambulance Handover Time (min)**')))#,
+  gtsummary::add_glance_table(include = c(nobs, r.squared)) #|>
+  # gtsummary::as_gt() %>%
+  # gt::tab_header(title = gt::md(glue::glue('**Ambulance Handover Time (min)**')))#,
 
 full_mod <- lm(handover_time/60 ~ age + sex + imd + n_ed_norm + n_dta_norm + wkend + hour + arrival_month -site, data = mod_dat)
 
@@ -723,6 +754,7 @@ full_mod_tab <-  full_mod %>%
     label = list(
       n_dta_norm = x_lab,
       n_ed_norm = "Number in ED (excluding DTA) as a percentage of cubicle capactiy (Majors + Resus)",
+      sex = "Sex",
       age = "Age",
       imd = "Index of multiple deprivation decile",
       wkend = "Weekend",
@@ -731,9 +763,9 @@ full_mod_tab <-  full_mod %>%
       # arrival_year = "Year of Arrival"
     )
   ) %>%
-  gtsummary::add_glance_table(include = c(nobs, r.squared)) |>
-  gtsummary::as_gt() %>%
-  gt::tab_header(title = gt::md(glue::glue('**Ambulance handover time (min)**')))
+  gtsummary::add_glance_table(include = c(nobs, r.squared)) # |>
+  # gtsummary::as_gt() %>%
+  # gt::tab_header(title = gt::md(glue::glue('**Ambulance handover time (min)**')))
 
 
 
@@ -979,33 +1011,6 @@ resp_outputs <- local({
     na.omit() %>%
     filter(n_dta_norm > 0, n_dta_norm <= n_dta_cutoff) %>%
     distinct() %>%
-    mutate(age = factor(age)) %>%
-    mutate(
-      age = fct_recode(
-        age,
-        "0-9 Years Old" = "0-4 Years Old",
-        "0-9 Years Old" = "5-9 Years Old",
-        "10-19 Years Old" = "10-14 Years Old",
-        "10-19 Years Old" = "15-19 Years Old",
-        "20-29 Years Old" = "20-24 Years Old",
-        "20-29 Years Old" = "25-29 Years Old",
-        "30-39 Years Old" = "30-34 Years Old",
-        "30-39 Years Old" = "35-39 Years Old",
-        "40-49 Years Old" = "40-44 Years Old",
-        "40-49 Years Old" = "45-49 Years Old",
-        "50-59 Years Old" = "50-54 Years Old",
-        "50-59 Years Old" = "55-59 Years Old",
-        "60-69 Years Old" = "60-64 Years Old",
-        "60-69 Years Old" = "65-69 Years Old",
-        "70-79 Years Old" = "70-74 Years Old",
-        "70-79 Years Old" = "75-79 Years Old",
-        "80-89 Years Old" = "80-84 Years Old",
-        "80-89 Years Old" = "85-89 Years Old",
-        "90-99 Years Old" = "90-94 Years Old",
-        "90-99 Years Old" = "95-99 Years Old"
-      )
-    ) %>%
-    mutate(age = fct_relevel(age, "100 Years Old Or Over", after = 10)) %>%
     ungroup() %>%
     mutate(wkend = factor(ifelse(wday(dt, week_start = 1) < 6, "Yes", "No")),
            hour = factor(hms::as_hms(floor_date(dt, "6 hour")))) %>%
@@ -1045,9 +1050,9 @@ resp_outputs <- local({
                                   hour = "Time of arrival",
                                   arrival_month = "Month of arrival"
                                 )) %>%
-        gtsummary::add_glance_table(include = c(nobs, r.squared)) |>
-        gtsummary::as_gt() %>%
-        gt::tab_header(title = gt::md(glue::glue('**{.y} Ambulance response time (min)**')))
+        gtsummary::add_glance_table(include = c(nobs, r.squared)) #|>
+        # gtsummary::as_gt() %>%
+        # gt::tab_header(title = gt::md(glue::glue('**{.y} Ambulance response time (min)**')))
     })) %>%
     ungroup() %>%
     select(call_category, tab) %>%
@@ -1061,7 +1066,7 @@ resp_outputs <- local({
       gtsummary::tbl_regression(.x,
                                 label = list(
                                   n_dta_norm = x_lab,
-                                  n_ed_norm = "Number in ED (excluding DTA) as a percentage of cubicles capacity (Majors + Resus)",
+                                  n_ed_norm = "Number in ED (excluding DTA) as a percentage of cubicle capacity (Majors + Resus)",
                                   age = "Age",
                                   sex = "Sex",
                                   imd = "Index of multiple deprivation decile",
@@ -1069,9 +1074,9 @@ resp_outputs <- local({
                                   hour = "Time of arrival",
                                   arrival_month = "Month of arrival"
                                 )) %>%
-        gtsummary::add_glance_table(include = c(nobs, r.squared)) |>
-        gtsummary::as_gt() %>%
-        gt::tab_header(title = gt::md(glue::glue('**{.y} Ambulance response time (min)**')))
+        gtsummary::add_glance_table(include = c(nobs, r.squared)) #|>
+        # gtsummary::as_gt() %>%
+        # gt::tab_header(title = gt::md(glue::glue('**{.y} Ambulance response time (min)**')))
     })) %>%
     ungroup() %>%
     select(call_category, tab) %>%
@@ -1172,14 +1177,6 @@ resp_outputs <- local({
 
 saveRDS(resp_outputs, "data/resp_outputs.RDS")
 
-ggsave("materials/dta_amb_resp_paper.png",
-       last_plot(),
-       bg = "white",
-       height = 10,
-       width = 7.5, 
-       scale = 0.7)
-
-
 time_ed_outputs <- local({
   
   n_dta_cutoff <- 1.5
@@ -1267,6 +1264,7 @@ time_ed_outputs <- local({
     std_mod,
     label = list(
       age = "Age",
+      sex = "Sex",
       imd = "Index of multiple deprivation decile",
       wkend = "Weekend",
       hour = "Time of arrival",
@@ -1274,11 +1272,11 @@ time_ed_outputs <- local({
       # arrival_year = "Year of Arrival"
     )
   ) %>%
-    gtsummary::add_glance_table(include = c(nobs, r.squared)) |>
-    gtsummary::as_gt() %>%
-    gt::tab_header(title = gt::md(glue::glue('**Time in ED (min)**')))#,
+    gtsummary::add_glance_table(include = c(nobs, r.squared)) #|>
+    # gtsummary::as_gt() %>%
+    # gt::tab_header(title = gt::md(glue::glue('**Time in ED (min)**')))#,
   
-  full_mod <- lm(departure_time ~ age + imd + n_ed_norm + n_dta_norm + wkend + hour + arrival_month -site, data = mod_dat)
+  full_mod <- lm(departure_time ~ age + sex + imd + n_ed_norm + n_dta_norm + wkend + hour + arrival_month -site, data = mod_dat)
   
   # This code assesses which transform is best?
   
@@ -1288,8 +1286,9 @@ time_ed_outputs <- local({
     gtsummary::tbl_regression(
       label = list(
         n_dta_norm = x_lab,
-        n_ed_norm = "Number in ED (excluding DTA) as a percentage of cubicles capacity (Majors + Resus)",
+        n_ed_norm = "Number in ED (excluding DTA) as a percentage of cubicle capacity (Majors + Resus)",
         age = "Age",
+        sex = "Sex",
         imd = "Index of multiple deprivation decile",
         wkend = "Weekend",
         hour = "Time of arrival",
@@ -1297,9 +1296,9 @@ time_ed_outputs <- local({
         # arrival_year = "Year of Arrival"
       )
     ) %>%
-    gtsummary::add_glance_table(include = c(nobs, r.squared)) |>
-    gtsummary::as_gt() %>%
-    gt::tab_header(title = gt::md(glue::glue('**Time in ED (min)**')))
+    gtsummary::add_glance_table(include = c(nobs, r.squared)) #|>
+    # gtsummary::as_gt() %>%
+    # gt::tab_header(title = gt::md(glue::glue('**Time in ED (min)**')))
   
   
   
@@ -1354,6 +1353,7 @@ time_ed_outputs <- local({
   list(
     p_raw = p_raw,
     p_std = p_std,
+    full_mod = full_mod,
     mod_dat = mod_dat,
     std_mod = std_mod,
     std_mod_tab = std_mod_tab,

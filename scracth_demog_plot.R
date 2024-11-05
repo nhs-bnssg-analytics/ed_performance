@@ -34,9 +34,9 @@ p_demog_downstr_1 <- mod_df %>%
 #                         "10\n(least deprived)" = "10 (most deprived)"
 #                         )) %>%
 select(Sex = sex,
-       "Index of Multiple Deprivation\n(IMD) Decile" = imd,
-       `Arrival Time` = arrival_time,
-       `Arrival Month` = arrival_month#, 
+       "Index of multiple deprivation decile" = imd,
+       `Arrival time` = arrival_time,
+       `Arrival month` = arrival_month#, 
        # `Arrival Year` = arrival_year
        ) %>%
   pivot_longer(everything()) %>%
@@ -66,8 +66,8 @@ select(Sex = sex,
 
 p_demog_downstr_2 <- mod_df %>%
   select(Age = age,
-         `4-Hour ED Performance` =perf,
-         `Elixhauser Comorbidity Index (vWs)` = vw_score,
+         `4-Hour ED performance` =perf,
+         `Elixhauser comorbidity index (vWs)` = vw_score,
          `Previous ED attendances` = n_ed) %>%
   pivot_longer(everything()) %>%
   group_by(name) %>%

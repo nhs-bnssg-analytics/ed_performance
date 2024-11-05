@@ -12,9 +12,9 @@ plot_df <- los_effect_output$los_mod_df
 
 wrap <- 30
 
-ylab_mort <- str_wrap("Model-Estimated 30-day Mortality Rate.", wrap)
-ylab_readm <- str_wrap("Model-Estimated 30-day Readmission Rate.", wrap)
-ylab_los <- str_wrap("Model-Estimated In-Hospital Length of Stay (day).", wrap)
+ylab_mort <- str_wrap("Estimated 30-day mortality rate", wrap)
+ylab_readm <- str_wrap("Estimated 30-day readmission rate", wrap)
+ylab_los <- str_wrap("Estimated in-hospital length of stay (day)", wrap)
 
 
 
@@ -28,7 +28,7 @@ ggsave("materials/effects_plot_patch.png",
        bg = "white",
        height = 12.5,
        width = 10, 
-       scale = 0.5)
+       scale = 0.6)
 
 # mort_effect_output$mort_mod_raw %>%
 #   tidy() %>%
@@ -45,7 +45,6 @@ mort_effect_output$mort_mod_raw %>% gtsummary::tbl_regression(exponentiate = TRU
     perf = "4-hour ED performance",
     `I(perf^2)` = "4-hour ED performance (squared)",
     age = "Age",
-    `I(age^2)` = "Age (squared)",
     n_ed = "Number of previous ED attendances",
     `I(n_ed^2)` = "Number of previous ED attendances (squared)",
     sex = "Sex",
@@ -72,7 +71,6 @@ readm_effect_output$readm_mod_raw %>% gtsummary::tbl_regression(exponentiate = T
     perf = "4-hour ED performance",
     `I(perf^2)` = "4-hour ED performance (squared)",
     age = "Age",
-    `I(age^2)` = "Age (squared)",
     n_ed = "Number of previous ED attendances",
     `I(n_ed^2)` = "Number of previous ED attendances (squared)",
     sex = "Sex",
@@ -98,7 +96,6 @@ los_effect_output$los_mod %>% gtsummary::tbl_regression(estimate_fun = purrr::pa
     perf = "4-hour ED performance",
     `I(perf^2)` = "4-hour ED performance (squared)",
     age = "Age",
-    `I(age^2)` = "Age (squared)",
     n_ed = "Number of previous ED attendances",
     `I(n_ed^2)` = "Number of previous ED attendances (squared)",
     sex = "Sex",
@@ -121,12 +118,16 @@ rr_fn <- function(or, p0) {
   or / ((1-p0)+(p0*or))
 }
 
+mod_df_raw <- mort_effect_output$mod_df
+
 mort_or <- mort_effect_output$mort_mod_raw %>%
   update(. ~ . -dta_time + I(dta_time/(4))) %>%
   tidy(conf.int = TRUE) %>%
   filter(str_detect(term, "dta_time"))%>%
   select(estimate, conf.low, conf.high, p.value)
   
+
+mod_df <- readm_effect_output$mod_df
 readm_or <- readm_effect_output$readm_mod_raw %>%
   update(. ~ . -dta_time + I(dta_time/(4))) %>%
   tidy(conf.int = TRUE) %>%
