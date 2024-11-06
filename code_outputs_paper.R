@@ -1,5 +1,6 @@
 library(tidyverse)
 library(tidymodels)
+library(patchwork)
 
 # UPSTREAM OUTPUTS
 
@@ -8,6 +9,109 @@ resp_outputs <- readRDS("data/resp_outputs.RDS")
 ed_time_outputs <- readRDS("data/time_ed_outputs.RDS")
 
 bin_acc <- 0.1
+
+library(patchwork)
+
+bin_acc <- 0.1
+x_lab <- "DTA queue as a percentage of cubicle capacity (Majors + Resus)"
+
+targets <- tribble(~outcome, ~target, ~quantile,
+                   "Standarised time in ED (min)", 240, .95,
+                   "Standarised ambulance handover time (min)", 30, .95,
+                   "Standardised ambulance response time (min) [999 Category 1 call]", 15, .9,
+                   "Standardised ambulance response time (min) [999 Category 2 call]", 40, .9,
+                   "Standardised ambulance response time (min) [999 Category 3 call]", 120, .9
+) 
+
+upstream_plots <- resp_outputs$plot_dat %>%
+  group_by(call_category) %>%
+  nest() %>%
+  mutate(data = map2(data, call_category, \(x, y) {
+    x %>%
+      select(n_dta_norm, response = response_adj_inv) %>%
+      mutate(
+        outcome = as.character(glue::glue(
+          "Standardised ambulance response time (min) [999 Category {str_remove_all(y, 'cat')} call]"
+        )
+        ))
+  })) %>%
+  pull(data) %>%
+  bind_rows() %>%
+  bind_rows(
+    handover_outputs$plot_df %>%
+      select(n_dta_norm, response = handover_adj_inv) %>%
+      mutate(response = response/60, outcome = "Standarised ambulance handover time (min)")
+  ) %>%
+  bind_rows(
+    ed_time_outputs$plot_df %>%
+      select(n_dta_norm, response = trt_adj_inv) %>%
+      mutate(outcome = "Standarised time in ED (min)")
+  )  %>% 
+  mutate(n_dta_norm = plyr::round_any(n_dta_norm, accuracy = bin_acc, f = \(x) floor(0.5 + x))) %>%
+  filter(n_dta_norm >= 0.1) %>%
+  group_by(outcome) %>%
+  nest() %>%
+  left_join(targets) %>%
+  mutate(data = map2(data, quantile, \(x, y) mutate(x, response_q = quantile(response, y), .by = n_dta_norm))) %>%
+  mutate(plot = map2(
+    data,
+    target,
+    \(data, target)
+    ggplot(data = data, ,mapping = aes(x = n_dta_norm, y = response)) +
+      geom_boxplot(mapping = aes(group = cut_width(n_dta_norm, width = bin_acc)), outliers = FALSE, fatten = NULL) +
+      stat_summary(
+        fun = ~ mean(.x),
+        geom = "point",
+        col = "black",
+        aes(col = "Mean (standardised data)", shape = "Mean (standardised data)")
+      ) +
+      geom_hline(aes(yintercept = target), col = "red", linetype = 2) +
+      geom_point(aes(y = target, col = "National target")) +
+      geom_point(aes(y = response_q, shape = "Comparator quantile (standardised data)"), col = "black") +
+      theme_minimal() +
+      scale_colour_manual(
+        values = c("Mean" = "black", "Comparator quantile (standardised data)"= "black", "National target" = "red"),
+      ) +
+      scale_x_continuous(labels = scales::percent,
+                         breaks = scales::breaks_width(0.5)) +
+      coord_cartesian(xlim = c(0.1, NA)) +
+      scale_shape_manual(values = c(17, 19),
+                         breaks = c("Mean (standardised data)", "Comparator quantile (standardised data)"),
+                         # guide = guide_legend(override.aes = list(size = 3, alpha = 1))
+      ) 
+  )) %>%
+  mutate(plot = map(plot, \(x) x + labs(x = x_lab, colour = "", shape = "", y = str_remove_all(outcome, " \\[.*\\]$"))))
+
+
+ptc_1 <- upstream_plots %>%
+  filter(!str_detect(outcome, "999")) %>%
+  pull(plot) %>%
+  wrap_plots(axes = "collect", ncol = 1)
+
+ptc_2 <- upstream_plots %>%
+  filter(str_detect(outcome, "999")) %>%
+  mutate(plot = map2(plot, outcome, \(x, y) x + facet_grid(str_remove_all(str_extract(y, "\\[.*\\]"), "\\[|\\]")~.))) %>%
+  arrange(outcome) %>%
+  pull(plot) %>%
+  wrap_plots(axes = "collect", ncol = 1)
+
+wrap_plots(ptc_1 | ptc_2,
+           axes = "collect",
+           guides = "collect") &
+  theme(legend.position = "bottom",
+        legend.justification = "center",
+        legend.title = element_blank(),
+        legend.margin = margin(l = 5, unit = "pt"),
+        legend.spacing.x = unit(0, "cm"))
+
+
+ggplot2::ggsave("materials/upstream_standard.png",
+                ggplot2::last_plot(),
+                bg = "white",
+                height = 12.5,
+                width = 15.0, 
+                scale = 0.65)
+
 
 
 ptc_1 <- patchwork::wrap_plots(ed_time_outputs$p_std + guides(colour = "none", shape = "none"),
@@ -77,7 +181,7 @@ ggplot2::ggsave("materials/response_standard.png",
                 width = 10, 
                 scale = 0.6)
 
-time_ed_outputs$full_mod %>%
+ed_time_outputs$full_mod %>%
   tidy(conf.int = TRUE) %>%
   filter(term == "n_dta_norm") %>%
   dplyr::select(estimate, conf.low, conf.high, p.value) %>%

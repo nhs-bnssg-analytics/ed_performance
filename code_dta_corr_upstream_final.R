@@ -707,18 +707,12 @@ mod_dat <- dta_df %>%
     filter(!between(dt, ymd("2022-04-01"), ymd("2022-07-10"))) %>%
     filter(handover_time > 0) %>%
     filter(n_dta_norm <= n_dta_cutoff) %>%
-    mutate(wkend = factor(ifelse(wday(dt, week_start = 1) < 6, "Yes", "No")),
-           hour = factor(hms::as_hms(floor_date(dt, "6 hour")))) %>% 
-    mutate(hour = fct_recode(hour, "00:00-06:00" = "00:00:00",
-                             "06:00-12:00" = "06:00:00",
-                             "12:00-18:00" = "12:00:00",
-                             "18:00-24:00" = "18:00:00")) %>%
-  
-    # mutate(hour = fct_relevel(hour, "(12,18]", after = 0)) %>%
-    # mutate(hour = fct_recode(hour, "00:00-06:00" = "[0,6]",
-    #                          "06:00-12:00" = "(6,12]",
-    #                          "12:00-18:00" = "(12,18]",
-    #                          "18:00-24:00" = "(18,24]")) %>%
+    mutate(wkend = factor(ifelse(wday(dt, week_start = 1) < 6, "No", "Yes")),
+           hour = factor(hms::as_hms(floor_date(dt, "6 hour")))) %>%
+  mutate(hour = fct_recode(hour, "00:00-05:59" = "00:00:00",
+                           "06:00-11:59" = "06:00:00",
+                           "12:00-17:59" = "12:00:00",
+                           "18:00-23:59" = "18:00:00")) %>%
   mutate(arrival_month = factor(month(dt), labels = month.name)) %>%
   # mutate(arrival_year = factor(year(dt))) %>%
     select(-dt, -maj, -resus, -total) %>%
@@ -842,6 +836,7 @@ list(
   p_raw = p_raw,
   p_std = p_std,
   mod_dat = mod_dat,
+  plot_df = plot_df,
   std_mod = std_mod,
   full_mod = full_mod,
   std_mod_tab = std_mod_tab,
@@ -1012,12 +1007,12 @@ resp_outputs <- local({
     filter(n_dta_norm > 0, n_dta_norm <= n_dta_cutoff) %>%
     distinct() %>%
     ungroup() %>%
-    mutate(wkend = factor(ifelse(wday(dt, week_start = 1) < 6, "Yes", "No")),
+    mutate(wkend = factor(ifelse(wday(dt, week_start = 1) < 6, "No", "Yes")),
            hour = factor(hms::as_hms(floor_date(dt, "6 hour")))) %>%
-    mutate(hour = fct_recode(hour, "00:00-06:00" = "00:00:00",
-                             "06:00-12:00" = "06:00:00",
-                             "12:00-18:00" = "12:00:00",
-                             "18:00-24:00" = "18:00:00")) %>%
+    mutate(hour = fct_recode(hour, "00:00-05:59" = "00:00:00",
+                             "06:00-11:59" = "06:00:00",
+                             "12:00-17:59" = "12:00:00",
+                             "18:00-23:59" = "18:00:00")) %>%
     mutate(arrival_month = factor(month(dt), labels = month.name)) %>%
     # mutate(arrival_year = factor(year(dt))) %>%
     select(-dt) %>%
@@ -1166,6 +1161,7 @@ resp_outputs <- local({
     p_raw_raw = p_raw_raw,
     p_norm_raw = p_norm_raw,
     p_norm_std = p_norm_std,
+    plot_dat = plot_dat,
     std_mod = set_names(resp_mods$mod, resp_mods$call_category),
     full_mod = set_names(resp_mods$mod_full, resp_mods$call_category),
     mod_dat = mod_dat,
@@ -1229,7 +1225,6 @@ time_ed_outputs <- local({
           legend.spacing.x = unit(0, "cm"))
   
   
-  
   # Standardised plot  
   mod_dat <- dta_df %>% 
     left_join(trt_df) %>%
@@ -1243,13 +1238,12 @@ time_ed_outputs <- local({
     filter(!between(dt, ymd("2022-04-01"), ymd("2022-07-10"))) %>%
     filter(departure_time >= 0) %>%
     filter(n_dta_norm <= n_dta_cutoff) %>%
-    mutate(wkend = factor(ifelse(wday(dt, week_start = 1) < 6, "Yes", "No")),
-           hour = factor(cut(hour(dt), breaks = seq(0, 24, 6), include.lowest = TRUE), ordered = FALSE)) %>% 
-    mutate(hour = fct_relevel(hour, "(12,18]", after = 0)) %>%
-    mutate(hour = fct_recode(hour, "00:00-06:00" = "[0,6]",
-                             "06:00-12:00" = "(6,12]",
-                             "12:00-18:00" = "(12,18]",
-                             "18:00-24:00" = "(18,24]")) %>%
+    mutate(wkend = factor(ifelse(wday(dt, week_start = 1) < 6, "No", "Yes")),
+           hour = factor(hms::as_hms(floor_date(dt, "6 hour")))) %>%
+    mutate(hour = fct_recode(hour, "00:00-05:59" = "00:00:00",
+                             "06:00-11:59" = "06:00:00",
+                             "12:00-17:59" = "12:00:00",
+                             "18:00-23:59" = "18:00:00")) %>%
     mutate(arrival_month = factor(month(dt), labels = month.name)) %>%
     # mutate(arrival_year = factor(year(dt))) %>%
     select(-dt, -maj, -resus, -total) %>%
@@ -1353,6 +1347,7 @@ time_ed_outputs <- local({
   list(
     p_raw = p_raw,
     p_std = p_std,
+    plot_df = plot_df,
     full_mod = full_mod,
     mod_dat = mod_dat,
     std_mod = std_mod,
@@ -1438,7 +1433,7 @@ resp_mods <- dta_df %>%
   # filter(site == "SOUTHMEAD HOSPITAL") %>%
   filter(!between(dt, ymd("2022-04-01"), ymd("2022-07-10"))) %>%
   filter(handover_time > 0) %>%
-  mutate(wkend = factor(ifelse(wday(dt, week_start = 1) < 6, "Yes", "No")),
+  mutate(wkend = factor(ifelse(wday(dt, week_start = 1) < 6, "No", "Yes")),
          hour = factor(cut(hour(dt), breaks = seq(0, 24, 6), include.lowest = TRUE), ordered = FALSE)) %>% 
   mutate(hour = fct_relevel(hour, "(12,18]", after = 0)) %>%
   mutate(hour = fct_recode(hour, "00:00-06:00" = "[0,6]",

@@ -282,8 +282,6 @@ dat_apc$n_na_icd <- n_na_icd
 dat_apc <- dat_apc %>% 
   slice_min(n_na_icd, by = c(AIMTC_Pseudo_NHS, PBRspellID))
 
-
-
 dat_scores <- arrivals %>%
   left_join(
     dat_apc %>%
@@ -523,17 +521,19 @@ mod_df <- dat_adm %>%
   mutate(mort_30 = coalesce(mort_30, FALSE)) %>%
   mutate(mort_30 = factor(ifelse(mort_30, "yes", "no"), levels = c("no", "yes"))) %>%
   # filter(!mort_30) %>%
+  mutate(wkend = factor(ifelse(wday(arrival_dt, week_start = 1) < 6, "No", "Yes"))) %>%
   mutate(arrival_time = factor(hms::as_hms(floor_date(arrival_dt, "6 hour")))) %>%
   mutate(arrival_time = fct_recode(arrival_time,
-                                   "00:00-06:00" = "00:00:00",
-                                   "06:00-12:00" = "06:00:00",
-                                   "12:00-18:00" = "12:00:00",
-                                   "18:00-24:00" = "18:00:00")) %>%
+                                   "00:00-05:59" = "00:00:00",
+                                   "06:00-11:59" = "06:00:00",
+                                   "12:00-17:59" = "12:00:00",
+                                   "18:00-23:59" = "18:00:00")) %>%
   mutate(arrival_month = factor(month(arrival_dt), labels = month.name)) %>%
   mutate(arrival_year = factor(year(arrival_dt))) %>%
   select(
     nhs_number,
     los,
+    wkend,
     arrival_time,
     arrival_month,
     arrival_year,

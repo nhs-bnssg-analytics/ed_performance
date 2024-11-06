@@ -1373,6 +1373,7 @@ los_outputs <- local({
                                         label = list(
      dta_time = "Hours waiting for admission",                                    
      arrival_time = "Time of arrival",
+     wkend = "Weekend",
      arrival_month = "Month of arrival",
      # arrival_year = "Year of arrival",
      perf = "4-hour ED performance",
@@ -1443,13 +1444,12 @@ ggsave("materials/dta_los_plot_paper.png",
 
 
 lvl_props <- los_outputs$mod_df %>%
-  select(arrival_time, age, arrival_month, sex, imd) %>%
+  select(arrival_time, wkend, age, arrival_month, sex, imd) %>%
   map(table) %>%
   map(proportions) %>%
   map(\(x) x[-1]) %>%
   imap(\(x, idx) set_names(x, str_c(idx, names(x)))) %>%
   reduce(c)
-
 
 mod_eff <- effects::predictorEffect("dta_time", los_outputs$mod_full, fixed.predictors = list(given.values = lvl_props))
 

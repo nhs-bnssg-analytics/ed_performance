@@ -70,7 +70,7 @@ mod_raw <- glm(
 
 
 lvl_props <- mod_df %>%
-  select(arrival_time, arrival_month, sex, imd) %>%
+  select(arrival_time, wkend, arrival_month, sex, imd) %>%
   map(table) %>%
   map(proportions) %>%
   map(\(x) x[-1]) %>%
