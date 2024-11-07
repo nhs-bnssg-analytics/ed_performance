@@ -459,7 +459,7 @@ dat_adm <- dat_ecds %>%
   ) %>%
   mutate(arrival_hour = floor_date(arrival_dt, "hour")) %>%
   left_join(dat_ecds_perf) %>%
-  left_join(dat_ecds_n_ed) %>% 
+  left_join(dat_ecds_n_ed) %>%
   left_join(dat_scores) %>%
   left_join(dat_spec) %>%
   left_join(dat_los) %>%

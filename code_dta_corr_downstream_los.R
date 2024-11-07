@@ -1265,6 +1265,8 @@ dat_adm %>%
 
 mod_df <- readRDS("data/mort_mod_df_final.RDS")
 
+mod_df <- mod_df %>%
+  select(-mort_30, -readm)
 
 los_outputs <- local({
   

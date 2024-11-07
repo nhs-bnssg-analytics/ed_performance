@@ -15,12 +15,11 @@ mod_df <- mod_df %>%
     "90-99 years old" ,
     "100 years old or over" 
   ))) %>%
-  filter(ed_time < 60*30) %>%
   na.omit()
 
 mod_df <- mod_df %>%
   mutate(dta_time = dta_time/60) %>%
-  filter(ed_time < 60*30) %>%
+  # filter(ed_time < 60*30) %>%
   mutate(readm = factor(ifelse(readm, "yes", "no"))) %>%
   select(-mort_30, -los, -ed_time, -Acuity_Desc, -arrival_mode, -arrival_cat, -arrival_year)
 

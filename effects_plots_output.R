@@ -16,8 +16,6 @@ ylab_mort <- str_wrap("Estimated 30-day mortality rate", wrap)
 ylab_readm <- str_wrap("Estimated 30-day readmission rate", wrap)
 ylab_los <- str_wrap("Estimated in-hospital length of stay (day)", wrap)
 
-
-
 patchwork::wrap_plots(mort_effect_plot + labs(y = ylab_mort),
                       readm_effect_plot + labs(y = ylab_readm),
                       los_effect_output$los_effect_plot + labs(y = ylab_los),
@@ -35,82 +33,55 @@ ggsave("materials/effects_plot_patch.png",
 #   View()
 
 
-mort_effect_output$mort_mod_raw %>% gtsummary::tbl_regression(exponentiate = TRUE,
-                                                              estimate_fun = purrr::partial(gtsummary::style_ratio, digits = 3),
-  label = list(
-    dta_time = "Hours waiting for admission",
-    arrival_time = "Time of arrival",
-    arrival_month = "Month of arrival",
-    # arrival_year = "Year of arrival",
-    perf = "4-hour ED performance",
-    `I(perf^2)` = "4-hour ED performance (squared)",
-    age = "Age",
-    n_ed = "Number of previous ED attendances",
-    `I(n_ed^2)` = "Number of previous ED attendances (squared)",
-    sex = "Sex",
-    imd = "IMD",
-    vw_score = "Van Walraven score",
-    `I(vw_score^2)` = "Van Walraven score (squared)"
-    # investigation = "Investigation description (encoded)",
-    # diagnoses = "Diagnoses description (encoded)"
-  )
-) %>%
-gtsummary::add_glance_table(include = c(nobs)) %>%
-gtsummary::as_gt() %>%
-gt::tab_header(
-title = gt::md("**30-day Mortality**")) %>%
-  gt::gtsave("materials/mort_reg_table.html")
+label_list_downstream <- list(
+  dta_time = "Time waiting for admission (hours)",
+  perf = "Four-hour breach rate in ED at the patient’s time of arrival",
+  `I(perf^2)` = "Four-hour breach rate in ED at the patient’s time of arrival (squared)",
+  age = "Age",
+  sex = "Sex",
+  vw_score = "Elixhauser comorbidity index (vWs)",
+  `I(vw_score^2)` = "Elixhauser comorbidity index (vWs) (squared)",
+   n_ed = "Number of previous ED attendances",
+  `I(n_ed^2)` = "Number of previous ED attendances (squared)",
+  imd = "Index of multiple deprivation decile",
+  wkend = "Weekend",
+  arrival_time = "Time of arrival",
+  arrival_month = "Month of arrival"
+)
 
-readm_effect_output$readm_mod_raw %>% gtsummary::tbl_regression(exponentiate = TRUE,
-                                                              estimate_fun = purrr::partial(gtsummary::style_ratio, digits = 3),
-  label = list(
-    dta_time = "Hours waiting for admission",
-    arrival_time = "Time of arrival",
-    arrival_month = "Month of arrival",
-    # arrival_year = "Year of arrival",
-    perf = "4-hour ED performance",
-    `I(perf^2)` = "4-hour ED performance (squared)",
-    age = "Age",
-    n_ed = "Number of previous ED attendances",
-    `I(n_ed^2)` = "Number of previous ED attendances (squared)",
-    sex = "Sex",
-    imd = "IMD",
-    vw_score = "Van Walraven score",
-    `I(vw_score^2)` = "Van Walraven score (squared)"
-    # investigation = "Investigation description (encoded)",
-    # diagnoses = "Diagnoses description (encoded)"
-  )
-) %>%
-gtsummary::add_glance_table(include = c(nobs)) %>%
-gtsummary::as_gt() %>%
-gt::tab_header(
-title = gt::md("**30-day Readmission**"))  %>%
-  gt::gtsave("materials/readm_reg_table.html")
 
-los_effect_output$los_mod %>% gtsummary::tbl_regression(estimate_fun = purrr::partial(gtsummary::style_ratio, digits = 2),
-  label = list(
-    dta_time = "Hours waiting for admission",
-    arrival_time = "Time of arrival",
-    arrival_month = "Month of arrival",
-    # arrival_year = "Year of arrival",
-    perf = "4-hour ED performance",
-    `I(perf^2)` = "4-hour ED performance (squared)",
-    age = "Age",
-    n_ed = "Number of previous ED attendances",
-    `I(n_ed^2)` = "Number of previous ED attendances (squared)",
-    sex = "Sex",
-    imd = "IMD",
-    vw_score = "Van Walraven score",
-    `I(vw_score^2)` = "Van Walraven score (squared)"
-    # investigation = "Investigation description (encoded)",
-    # diagnoses = "Diagnoses description (encoded)"
-  )
-) %>%
-gtsummary::add_glance_table(include = c(nobs)) %>%
-gtsummary::as_gt() %>%
-gt::tab_header(
-title = gt::md("**In-Hospital Length of Stay (days)**"))   %>%
-  gt::gtsave("materials/los_reg_table.html")
+reg_table_mort <- mort_effect_output$mort_mod_raw %>% gtsummary::tbl_regression(exponentiate = TRUE,
+                                                              estimate_fun = purrr::partial(gtsummary::style_ratio, digits = 3),
+  label = label_list_downstream
+) %>% gtsummary::add_glance_table(include = c(nobs)) 
+
+# %>%
+# gtsummary::as_gt() %>%
+# gt::tab_header(
+# title = gt::md("**30-day Mortality**")) %>%
+#   gt::gtsave("materials/mort_reg_table.html")
+
+reg_table_readm <- readm_effect_output$readm_mod_raw %>% gtsummary::tbl_regression(exponentiate = TRUE,
+                                                              estimate_fun = purrr::partial(gtsummary::style_ratio, digits = 3),
+                                                              label = label_list_downstream
+  ) %>% gtsummary::add_glance_table(include = c(nobs))
+
+
+reg_table_los <- los_effect_output$los_mod %>% gtsummary::tbl_regression(estimate_fun = purrr::partial(gtsummary::style_ratio, digits = 2),
+  label = label_list_downstream
+) %>% gtsummary::add_glance_table(include = c(nobs)) 
+
+gtsummary::tbl_merge(list(reg_table_mort,
+                          reg_table_readm,
+                          reg_table_los)) %>%
+  gtsummary::as_gt() %>%
+  gt::gtsave("materials/reg_table_downstream.html")
+
+# %>%
+# gtsummary::as_gt() %>%
+# gt::tab_header(
+# title = gt::md("**In-Hospital Length of Stay (days)**"))   %>%
+#   gt::gtsave("materials/los_reg_table.html")
 
 
 
