@@ -1462,12 +1462,13 @@ los_effects_plot <- mod_eff[c("x", "fit", "upper", "lower")] %>%
   ggplot(aes(x = dta_time, y = fit)) +
   geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.25) +
   geom_line(linewidth = 1) +
-  scale_x_continuous(limits = c(0, 24), breaks = scales::breaks_width(width = 2),  expand = c(0, 0)) +
+  scale_x_continuous(limits = c(0, 24), breaks = scales::breaks_width(width = 4),  expand = c(0, 0)) +
   scale_y_continuous(breaks = scales::breaks_width(1)) +
   labs(x = "Time spent DTA (hours)",
        # y = str_wrap("Out of 100 patients, the number who die within 30 days due to delay related harm", 50)) +
        y = str_wrap("Model-Estimated In-Hospital Length of Stay", 50)) +
-  theme_minimal() 
+  theme_minimal() +
+  theme(panel.grid.major.x = element_line(color = "grey65", size = 0.3))
 
 
 

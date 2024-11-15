@@ -13,15 +13,15 @@ bin_acc <- 0.1
 library(patchwork)
 
 bin_acc <- 0.1
-x_lab <- "DTA queue as a percentage of cubicle capacity (Majors + Resus)"
+x_lab <- "DTA queue as a percentage of cubicle capacity"
 
 targets <- tribble(~outcome, ~target, ~quantile,
-                   "Standarised time in ED (min)", 240, .95,
-                   "Standarised ambulance handover time (min)", 30, .95,
-                   "Standardised ambulance response time (min) [999 Category 1 call]", 15, .9,
-                   "Standardised ambulance response time (min) [999 Category 2 call]", 40, .9,
-                   "Standardised ambulance response time (min) [999 Category 3 call]", 120, .9
-) 
+                   "Time in ED (min), standardised", 240, .95,
+                   "Ambulance handover time (min), standardised", 30, .95,
+                   "Ambulance response time (min) [999 Category 1 call], standardised", 15, .9,
+                   "Ambulance response time (min) [999 Category 2 call], standardised", 40, .9,
+                   "Ambulance response time (min) [999 Category 3 call], standardised", 120, .9
+)
 
 upstream_plots <- resp_outputs$plot_dat %>%
   group_by(call_category) %>%
@@ -31,7 +31,7 @@ upstream_plots <- resp_outputs$plot_dat %>%
       select(n_dta_norm, response = response_adj_inv) %>%
       mutate(
         outcome = as.character(glue::glue(
-          "Standardised ambulance response time (min) [999 Category {str_remove_all(y, 'cat')} call]"
+          "Ambulance response time (min) [999 Category {str_remove_all(y, 'cat')} call], standardised"
         )
         ))
   })) %>%
@@ -40,12 +40,12 @@ upstream_plots <- resp_outputs$plot_dat %>%
   bind_rows(
     handover_outputs$plot_df %>%
       select(n_dta_norm, response = handover_adj_inv) %>%
-      mutate(response = response/60, outcome = "Standarised ambulance handover time (min)")
+      mutate(response = response/60, outcome = "Ambulance handover time (min), standardised")
   ) %>%
   bind_rows(
     ed_time_outputs$plot_df %>%
       select(n_dta_norm, response = trt_adj_inv) %>%
-      mutate(outcome = "Standarised time in ED (min)")
+      mutate(outcome = "Time in ED (min), standardised")
   )  %>% 
   mutate(n_dta_norm = plyr::round_any(n_dta_norm, accuracy = bin_acc, f = \(x) floor(0.5 + x))) %>%
   filter(n_dta_norm >= 0.1) %>%
@@ -63,24 +63,28 @@ upstream_plots <- resp_outputs$plot_dat %>%
         fun = ~ mean(.x),
         geom = "point",
         col = "black",
-        aes(col = "Mean (standardised data)", shape = "Mean (standardised data)")
+        aes(col = "Mean", shape = "Mean")
       ) +
       geom_hline(aes(yintercept = target), col = "red", linetype = 2) +
       geom_point(aes(y = target, col = "National target")) +
-      geom_point(aes(y = response_q, shape = "Comparator quantile (standardised data)"), col = "black") +
+      geom_point(aes(y = response_q, shape = "Comparator quantile"), col = "black") +
       theme_minimal() +
       scale_colour_manual(
-        values = c("Mean" = "black", "Comparator quantile (standardised data)"= "black", "National target" = "red"),
+        values = c("Mean" = "black", "Comparator quantile"= "black", "National target" = "red"),
       ) +
       scale_x_continuous(labels = scales::percent,
                          breaks = scales::breaks_width(0.5)) +
-      coord_cartesian(xlim = c(0.1, NA)) +
+      coord_cartesian(xlim = c(0.05, 1.55)
+                      # , ylim = c(0, NA), expand = FALSE
+      ) +
+      scale_y_continuous(limits = c(0, NA), expand = expansion(mult = c(0, 0.05))) +
       scale_shape_manual(values = c(17, 19),
-                         breaks = c("Mean (standardised data)", "Comparator quantile (standardised data)"),
+                         breaks = c("Mean", "Comparator quantile"),
                          # guide = guide_legend(override.aes = list(size = 3, alpha = 1))
-      ) 
+      ) +
+      theme(panel.grid.major.x = element_line(color = "grey65", size = 0.3))
   )) %>%
-  mutate(plot = map(plot, \(x) x + labs(x = x_lab, colour = "", shape = "", y = str_remove_all(outcome, " \\[.*\\]$"))))
+  mutate(plot = map(plot, \(x) x + labs(x = x_lab, colour = "", shape = "", y = str_remove_all(outcome, " \\[.*\\]"))))
 
 
 ptc_1 <- upstream_plots %>%
@@ -90,23 +94,23 @@ ptc_1 <- upstream_plots %>%
 
 ptc_2 <- upstream_plots %>%
   filter(str_detect(outcome, "999")) %>%
-  mutate(plot = map2(plot, outcome, \(x, y) x + facet_grid(str_remove_all(str_extract(y, "\\[.*\\]"), "\\[|\\]")~.))) %>%
+  mutate(plot = map2(plot, outcome, \(x, y) x + facet_grid(.~str_remove_all(str_extract(y, "\\[.*\\]"), "\\[|\\]")))) %>%
   arrange(outcome) %>%
   pull(plot) %>%
   wrap_plots(axes = "collect", ncol = 1)
 
-wrap_plots(ptc_1 | ptc_2,
+upstream_out <- wrap_plots(ptc_2 | ptc_1,
            axes = "collect",
            guides = "collect") &
   theme(legend.position = "bottom",
         legend.justification = "center",
         legend.title = element_blank(),
         legend.margin = margin(l = 5, unit = "pt"),
-        legend.spacing.x = unit(0, "cm"))
+        legend.spacing.x = unit(0, "cm")) 
 
 
 ggplot2::ggsave("materials/upstream_standard.png",
-                ggplot2::last_plot(),
+                upstream_out,
                 bg = "white",
                 height = 12.5,
                 width = 15.0, 

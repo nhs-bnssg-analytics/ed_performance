@@ -142,6 +142,7 @@ dat_ecds_n_ed <-
   distinct()
 
 
+
 # get bnssg nhs nums for filtering
 # string_attr <- glue::glue("select distinct 
 #  nhs_number

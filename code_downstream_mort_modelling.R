@@ -90,13 +90,14 @@ mort_effects_plot <- mod_eff[c("x", "fit", "upper", "lower")] %>%
   ggplot(aes(x = dta_time, y = fit)) +
   geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.25) +
   geom_line(linewidth = 1) +
-  scale_x_continuous(limits = c(0, 24), breaks = scales::breaks_width(width = 2),  expand = c(0, 0)) +
+  scale_x_continuous(limits = c(0, 24), breaks = scales::breaks_width(width = 4),  expand = c(0, 0)) +
   # scale_y_continuous(labels = function(x) x * 100, breaks = seq(0, .5, .05)) +
   scale_y_continuous(labels = \(x) scales::percent(x, accuracy = 1), breaks = scales::breaks_width(width = 0.01)) +
   labs(x = "Time spent DTA (hours)",
        # y = str_wrap("Out of 100 patients, the number who die within 30 days due to delay related harm", 50)) +
        y = str_wrap("Model estimated 30-day mortality rate.", 50)) +
-  theme_minimal() #+
+  theme_minimal() +
+  theme(panel.grid.major.x = element_line(color = "grey65", size = 0.3))
   # geom_text(data = tibble(), aes(label = mort_roc_lab, x = 0, y = Inf), vjust = +3, hjust = -0.1)
   
 

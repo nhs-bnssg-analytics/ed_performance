@@ -12,21 +12,23 @@ plot_df <- los_effect_output$los_mod_df
 
 wrap <- 30
 
-ylab_mort <- str_wrap("Estimated 30-day mortality rate", wrap)
-ylab_readm <- str_wrap("Estimated 30-day readmission rate", wrap)
-ylab_los <- str_wrap("Estimated in-hospital length of stay (day)", wrap)
+ylab_mort <- str_wrap("30-day mortality rate", wrap)
+ylab_readm <- str_wrap("30-day readmission rate", wrap)
+ylab_los <- str_wrap("In-hospital length of stay (day)", wrap)
+xlab <- "Duration between DTA and admission (hours)"
 
-patchwork::wrap_plots(mort_effect_plot + labs(y = ylab_mort),
-                      readm_effect_plot + labs(y = ylab_readm),
-                      los_effect_output$los_effect_plot + labs(y = ylab_los),
-                      ncol = 1, axes = "collect")
+patchwork::wrap_plots(
+                      los_effect_output$los_effect_plot + facet_grid(.~"In-hospital length of stay (day)") + scale_y_continuous(limits = c(2, 16)) + labs(y = "", x = xlab),
+                      readm_effect_plot + facet_grid(.~"30-day readmission rate") + scale_y_continuous(limits = c(0.02, 0.16), labels = scales::percent) + labs(y = "", x = xlab),
+                      mort_effect_plot + facet_grid(.~"30-day mortality rate") + scale_y_continuous(limits = c(0.02, 0.16), labels = scales::percent) + labs(y = "", x = xlab),
+                      nrow = 1, axes = "collect_x")
 
-ggsave("materials/effects_plot_patch.png",
+ggsave("materials/effects_plot_patch_1row.png",
        last_plot(),
        bg = "white",
-       height = 12.5,
+       height = 7.5,
        width = 10, 
-       scale = 0.6)
+       scale = 0.7)
 
 # mort_effect_output$mort_mod_raw %>%
 #   tidy() %>%
