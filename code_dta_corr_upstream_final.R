@@ -121,7 +121,9 @@ sex_df <- readRDS("data/dat_attr_demog.RDS") %>%
 # treatment time
 trt_df <- local({
   
-  string_ecds<-glue::glue("select Arrival_Date,
+  string_ecds<-glue::glue("select 
+                        nhs_number,
+                        Arrival_Date,
                         Arrival_Time,
                         Index_of_multiple_deprivation,
                         Hes_age_at_arrival,
@@ -143,13 +145,14 @@ trt_df <- local({
   dat_ecds_raw<-sqlQuery(con,string_ecds)
   
   dat_ecds<-dat_ecds_raw %>%
+    filter(!is.na(Departure_Date)) %>%
     mutate(arrival_dt=as.POSIXct(paste0(Arrival_Date," ",substr(Arrival_Time,1,8)),format="%Y-%m-%d %H:%M:%S")) %>%
     mutate(initial_dt=as.POSIXct(paste0(Initial_Assessment_Date," ",substr(Initial_Assessment_Time,1,8)),format="%Y-%m-%d %H:%M:%S")) %>%
     mutate(treatment_dt=as.POSIXct(paste0(Seen_For_Treatment_Date," ",substr(Seen_For_Treatment_Time,1,8)),format="%Y-%m-%d %H:%M:%S")) %>%
     mutate(dta_dt=paste0(Decision_To_Admit_Date," ",substr(Decision_To_Admit_Time,1,8))) %>%
     mutate(dta_dt=as.POSIXct(ifelse(grepl("NA",dta_dt),NA,dta_dt),format="%Y-%m-%d %H:%M:%S")) %>%
     mutate(departure_dt=as.POSIXct(paste0(Departure_Date," ",substr(Departure_Time,1,8)),format="%Y-%m-%d %H:%M:%S")) %>%
-    select(arrival_dt,initial_dt,treatment_dt,dta_dt,departure_dt,Site_Name, Acuity_Desc, sex = Stated_Gender, imd = Index_of_multiple_deprivation, age = Hes_age_at_arrival) %>%
+    select(nhs_number, arrival_dt,initial_dt,treatment_dt,dta_dt,departure_dt,Site_Name, Acuity_Desc, sex = Stated_Gender, imd = Index_of_multiple_deprivation, age = Hes_age_at_arrival) %>%
     rowwise() %>%
     mutate(departure_dt=max(dta_dt,departure_dt,na.rm=TRUE)) %>%
     ungroup() %>%
@@ -163,9 +166,9 @@ trt_df <- local({
   
   # max_dt <- max(dat_ecds$dta_dt, na.rm = TRUE)
   # dta_seq <- seq.POSIXt(from = as.POSIXct(lubridate::ymd(report_start)), to = max_dt, by = glue::glue("{n_hour} hours"))
-  
-  
+
   dat_trt <- dat_ecds %>%
+    filter(!is.na(dta_dt), departure_int > 0) %>%
     group_by(site = Site_Name) %>%
     nest() %>%
     mutate(departure_time = list(map2(
@@ -182,6 +185,10 @@ trt_df <- local({
     select(site, departure_df) %>%
     unnest(departure_df) %>%
     arrange(dt) 
+  
+  dat_ecds %>%
+    group_by(dta = !is.na(dta_dt)) %>%
+    summarise(mean(departure_int, na.rm = TRUE))
   
   # 
   # dat_trt <- dat_ecds %>%
