@@ -87,6 +87,19 @@ upstream_plots <- resp_outputs$plot_dat %>%
   mutate(plot = map(plot, \(x) x + labs(x = x_lab, colour = "", shape = "", y = str_remove_all(outcome, " \\[.*\\]"))))
 
 
+
+upstream_plots$plot <- modify_at(upstream_plots$plot, .at = c(2), .f = \(x) x +  scale_y_continuous(limits = c(0, NA),
+                                                                 expand = expansion(mult = c(0, 0.05)),
+                                                                 breaks = breaks_width(width = 240)))
+
+upstream_plots$plot <- modify_at(upstream_plots$plot, .at = c(5), .f = \(x) x +  scale_y_continuous(limits = c(0, NA),
+                                                                 expand = expansion(mult = c(0, 0.05)),
+                                                                 breaks = breaks_width(width = 120)))
+
+upstream_plots$plot <- modify_at(upstream_plots$plot, .at = c(1, 4), .f = \(x) x +  scale_y_continuous(limits = c(0, NA),
+                                                                 expand = expansion(mult = c(0, 0.05)),
+                                                                 breaks = breaks_width(width = 60)))
+
 ptc_1 <- upstream_plots %>%
   filter(!str_detect(outcome, "999")) %>%
   pull(plot) %>%
@@ -118,72 +131,72 @@ ggplot2::ggsave("materials/upstream_standard.png",
 
 
 
-ptc_1 <- patchwork::wrap_plots(ed_time_outputs$p_std + guides(colour = "none", shape = "none"),
-                      handover_outputs$p_std + guides(colour = "none", shape = "none"),
-                      ncol = 1,
-                      axes = "collect",
-                      guides = "collect"
-                      ) 
-
-ptc_2 <- patchwork::wrap_plots(resp_outputs$p_norm_std[[3]] + guides(colour = "none", shape = "none"),
-                      resp_outputs$p_norm_std[[1]] + guides(colour = "none", shape = "none"),
-                      resp_outputs$p_norm_std[[2]],
-                      ncol = 1,
-                      axes = "collect",
-                      guides = "collect"
-                      ) 
-
-patchwork::wrap_plots(ptc_1 | ptc_2, guides = "collect") &
-  theme(legend.position = "bottom", legend.justification = "center")
-
-ggplot2::ggsave("materials/upstream_standard.png",
-                ggplot2::last_plot(),
-                bg = "white",
-                height = 12.5,
-                width = 15.0, 
-                scale = 0.65)
-
-
-
-x_lab <- "DTA Queue as a Percentage of Cubicle Capacity (Majors + Resus)."
-y_lab <- "Model-Standardised Ambulance Handover Time\n(min)."
-
-handover_outputs$p_std +
-  labs(x = x_lab,
-       y = y_lab,
-       title = "",
-       col = "") +
-  scale_y_continuous(breaks = breaks_width(60)) +
-  theme(legend.title = element_blank(),
-        legend.spacing.x = unit(0, "cm"))
+# ptc_1 <- patchwork::wrap_plots(ed_time_outputs$p_std + guides(colour = "none", shape = "none"),
+#                       handover_outputs$p_std + guides(colour = "none", shape = "none"),
+#                       ncol = 1,
+#                       axes = "collect",
+#                       guides = "collect"
+#                       ) 
+# 
+# ptc_2 <- patchwork::wrap_plots(resp_outputs$p_norm_std[[3]] + guides(colour = "none", shape = "none"),
+#                       resp_outputs$p_norm_std[[1]] + guides(colour = "none", shape = "none"),
+#                       resp_outputs$p_norm_std[[2]],
+#                       ncol = 1,
+#                       axes = "collect",
+#                       guides = "collect"
+#                       ) 
+# 
+# patchwork::wrap_plots(ptc_1 | ptc_2, guides = "collect") &
+#   theme(legend.position = "bottom", legend.justification = "center")
+# 
+# ggplot2::ggsave("materials/upstream_standard.png",
+#                 ggplot2::last_plot(),
+#                 bg = "white",
+#                 height = 12.5,
+#                 width = 15.0, 
+#                 scale = 0.65)
 
 
-ggplot2::ggsave("materials/handover_standard.png",
-                ggplot2::last_plot(),
-                bg = "white",
-                height = 7.5,
-                width = 10, 
-                scale = 0.6)
 
-x_lab <- "DTA Queue as a Percentage of Cubicle Capacity (Majors + Resus)."
-y_lab <- "Model-Standardised Ambulance Response Time\n(min)."
-
-resp_outputs$p_norm_std +
-  labs(x = x_lab,
-       y = y_lab,
-       title = "",
-       col = "") +
-  # scale_y_continuous(breaks = breaks_width(60)) +
-  theme(legend.title = element_blank(),
-        legend.spacing.x = unit(0, "cm"))
-
-
-ggplot2::ggsave("materials/response_standard.png",
-                ggplot2::last_plot(),
-                bg = "white",
-                height = 12.5,
-                width = 10, 
-                scale = 0.6)
+# x_lab <- "DTA Queue as a Percentage of Cubicle Capacity (Majors + Resus)."
+# y_lab <- "Model-Standardised Ambulance Handover Time\n(min)."
+# 
+# handover_outputs$p_std +
+#   labs(x = x_lab,
+#        y = y_lab,
+#        title = "",
+#        col = "") +
+#   scale_y_continuous(breaks = breaks_width(60)) +
+#   theme(legend.title = element_blank(),
+#         legend.spacing.x = unit(0, "cm"))
+# 
+# 
+# ggplot2::ggsave("materials/handover_standard.png",
+#                 ggplot2::last_plot(),
+#                 bg = "white",
+#                 height = 7.5,
+#                 width = 10, 
+#                 scale = 0.6)
+# 
+# x_lab <- "DTA Queue as a Percentage of Cubicle Capacity (Majors + Resus)."
+# y_lab <- "Model-Standardised Ambulance Response Time\n(min)."
+# 
+# resp_outputs$p_norm_std +
+#   labs(x = x_lab,
+#        y = y_lab,
+#        title = "",
+#        col = "") +
+#   # scale_y_continuous(breaks = breaks_width(60)) +
+#   theme(legend.title = element_blank(),
+#         legend.spacing.x = unit(0, "cm"))
+# 
+# 
+# ggplot2::ggsave("materials/response_standard.png",
+#                 ggplot2::last_plot(),
+#                 bg = "white",
+#                 height = 12.5,
+#                 width = 10, 
+#                 scale = 0.6)
 
 ed_time_outputs$full_mod %>%
   tidy(conf.int = TRUE) %>%

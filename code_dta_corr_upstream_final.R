@@ -166,9 +166,9 @@ trt_df <- local({
   
   # max_dt <- max(dat_ecds$dta_dt, na.rm = TRUE)
   # dta_seq <- seq.POSIXt(from = as.POSIXct(lubridate::ymd(report_start)), to = max_dt, by = glue::glue("{n_hour} hours"))
-
   dat_trt <- dat_ecds %>%
-    filter(!is.na(dta_dt), departure_int > 0) %>%
+    # take only non-admits
+    filter(is.na(dta_dt), departure_int > 0) %>%
     group_by(site = Site_Name) %>%
     nest() %>%
     mutate(departure_time = list(map2(
@@ -186,20 +186,6 @@ trt_df <- local({
     unnest(departure_df) %>%
     arrange(dt) 
   
-  dat_ecds %>%
-    group_by(dta = !is.na(dta_dt)) %>%
-    summarise(mean(departure_int, na.rm = TRUE))
-  
-  # 
-  # dat_trt <- dat_ecds %>%
-  #   mutate(dt = floor_date(arrival_dt, unit = glue::glue("{n_hour} hours"))) %>%
-  #   select(dt,
-  #          site = Site_Name,
-  #          imd,
-  #          sex,
-  #          age,
-  #          trt_time) %>%
-  #   na.omit()
   
   dat_trt
 })
@@ -621,9 +607,7 @@ trt_df <- trt_df %>%
     "9",
     "10 (most deprived)"
   )
-)
-
-) %>%
+)) %>%
   mutate(imd = fct_na_value_to_level(imd, level = "(Missing)"))  %>%
   mutate(sex = factor(ifelse(sex == "1", "Male", "Female"))) %>%
   filter(age < 120) %>%
@@ -754,7 +738,7 @@ full_mod_tab <-  full_mod %>%
   gtsummary::tbl_regression(
     label = list(
       n_dta_norm = x_lab,
-      n_ed_norm = "Number in ED (excluding DTA) as a percentage of cubicle capactiy (Majors + Resus)",
+      n_ed_norm = "Number in ED (excluding DTA) as a percentage of cubicle capacity (Majors + Resus)",
       sex = "Sex",
       age = "Age",
       imd = "Index of multiple deprivation decile",
