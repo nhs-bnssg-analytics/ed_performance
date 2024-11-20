@@ -58,7 +58,10 @@ imd_df <- local({
 
 
 dta_df <- local({
-  string_ecds<-glue::glue("select Arrival_Date,
+  
+  string_ecds<-glue::glue("select 
+                        nhs_number,
+                        Arrival_Date,
                         Arrival_Time,
                         Initial_Assessment_Date,
                         Initial_Assessment_Time,
@@ -66,6 +69,7 @@ dta_df <- local({
                         Seen_For_Treatment_Time,
                         Decision_To_Admit_Date,
                         Decision_To_Admit_Time,
+                        Organisation_Code_Commissioner,
                         Departure_Date,
                         Departure_Time,
                         Site_Name,
@@ -77,13 +81,14 @@ dta_df <- local({
   dat_ecds_raw<-sqlQuery(con,string_ecds)
   
   dat_ecds<-dat_ecds_raw %>%
+    mutate(nhs_number = as.character(nhs_number)) %>%
     mutate(arrival_dt=as.POSIXct(paste0(Arrival_Date," ",substr(Arrival_Time,1,8)),format="%Y-%m-%d %H:%M:%S")) %>%
     mutate(initial_dt=as.POSIXct(paste0(Initial_Assessment_Date," ",substr(Initial_Assessment_Time,1,8)),format="%Y-%m-%d %H:%M:%S")) %>%
     mutate(treatment_dt=as.POSIXct(paste0(Seen_For_Treatment_Date," ",substr(Seen_For_Treatment_Time,1,8)),format="%Y-%m-%d %H:%M:%S")) %>%
     mutate(dta_dt=paste0(Decision_To_Admit_Date," ",substr(Decision_To_Admit_Time,1,8))) %>%
     mutate(dta_dt=as.POSIXct(ifelse(grepl("NA",dta_dt),NA,dta_dt),format="%Y-%m-%d %H:%M:%S")) %>%
     mutate(departure_dt=as.POSIXct(paste0(Departure_Date," ",substr(Departure_Time,1,8)),format="%Y-%m-%d %H:%M:%S")) %>%
-    select(arrival_dt,initial_dt,treatment_dt,dta_dt,departure_dt,Site_Name, Acuity_Desc) %>%
+    select(nhs_number, arrival_dt,initial_dt,treatment_dt,dta_dt,departure_dt,Site_Name, Acuity_Desc) %>%
     rowwise() %>%
     mutate(departure_dt=max(dta_dt,departure_dt,na.rm=TRUE)) %>%
     ungroup() %>%
@@ -92,15 +97,47 @@ dta_df <- local({
     mutate(trt_time = interval(arrival_dt, treatment_dt)/dminutes(1)) %>%
     mutate(date=floor_date(departure_dt,"day")) %>%
     mutate(ed_category=case_when(Acuity_Desc %in% c("Non-urgent level emergency care","Standard level emergency care") ~ "minor",
-                                 TRUE~"major"))
+                                 TRUE~"major")) %>%
+    mutate(arr_id = cur_group_id(), .by = c(nhs_number, arrival_dt)) %>%
+    filter(Organisation_Code_Commissioner == '15C')
   
+  
+  dat_apc <- readRDS("data/dat_apc_new.RDS")
+  
+  browser()
+  
+  arrivals <- 
+    dat_ecds %>%
+    filter(!is.na(dta_time),
+           !is.na(nhs_number)) %>%
+    group_by(nhs_number, arr_id) %>%
+    summarise(departure_dt = as.Date(departure_dt)[1]
+    )
+  
+  dat_spec <- arrivals %>%
+    left_join(
+      dat_apc %>%
+        select(AIMTC_Pseudo_NHS, MainSpecialtyCode, StartDate_HospitalProviderSpell) %>%
+        mutate(AIMTC_Pseudo_NHS = as.character(AIMTC_Pseudo_NHS)) %>%
+        filter(!is.na(AIMTC_Pseudo_NHS)),
+      by = join_by(nhs_number == AIMTC_Pseudo_NHS)) %>% 
+    mutate(diff = abs(interval(departure_dt, StartDate_HospitalProviderSpell)/ddays(1))) %>%
+    filter(!is.na(diff)) %>%
+    group_by(arr_id) %>%
+    filter(between(diff, 0, 2)) %>%
+    filter(diff == min(diff)) %>% 
+    arrange(diff) %>%
+    slice(1) %>%
+    ungroup() %>%
+    select(nhs_number, arr_id, MainSpecialtyCode) 
   
   
   # max_dt <- max(dat_ecds$dta_dt, na.rm = TRUE)
   # dta_seq <- seq.POSIXt(from = as.POSIXct(lubridate::ymd(report_start)), to = max_dt, by = glue::glue("{n_hour} hours"))
   
   dat_dtas <- dat_ecds %>%
-    filter(dta_time > 0) %>%
+    left_join(dat_spec) %>%
+    filter(dta_time > 0, MainSpecialtyCode %in% c(300, 326, 430)) %>%
     group_by(site = Site_Name) %>%
     nest() %>%
     mutate(dtas = list(map2_dbl(snapshot_seq, data, ~ sum(
@@ -627,13 +664,13 @@ trt_df <- trt_df %>%
 
 # Normalisation and standardisation
 
-n_dta_cutoff <- 1.5
+n_dta_cutoff <- 1.25
 
 handover_outputs <- local({
   
   handover_df <- handover_df %>% select(-nhs_number)
   
-  bin_acc <- 0.1
+  bin_acc <- 0.05
   
   x_lab <- "DTA queue as a percentage of cubicle capacity (Majors + Resus)"
   y_lab <- "Standardised ambulance handover\ntime (min)"
@@ -842,7 +879,7 @@ resp_outputs <- local({
   
   resp_time_df <- resp_time_df %>% select(-nhs_number)
   
-  bin_acc <- 0.1
+  bin_acc <- 0.05
   
   x_lab <- "DTA queue as a percentage of cubicle capacity (Majors + Resus)"
   y_lab <- "Standardised ambulance response time\n(min)"
@@ -1166,8 +1203,7 @@ saveRDS(resp_outputs, "data/resp_outputs.RDS")
 
 time_ed_outputs <- local({
   
-  n_dta_cutoff <- 1.5
-  bin_acc <- 0.1
+  bin_acc <- 0.05
   
   x_lab <- "DTA queue as a percentage of cubicle capacity (Majors + Resus)"
   y_lab <- "Standardised time in ED \n(min)"

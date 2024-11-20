@@ -9,10 +9,6 @@ resp_outputs <- readRDS("data/resp_outputs.RDS")
 ed_time_outputs <- readRDS("data/time_ed_outputs.RDS")
 
 bin_acc <- 0.1
-
-library(patchwork)
-
-bin_acc <- 0.1
 x_lab <- "DTA queue as a percentage of cubicle capacity"
 
 targets <- tribble(~outcome, ~target, ~quantile,
@@ -202,19 +198,19 @@ ed_time_outputs$full_mod %>%
   tidy(conf.int = TRUE) %>%
   filter(term == "n_dta_norm") %>%
   dplyr::select(estimate, conf.low, conf.high, p.value) %>%
-  mutate(across(-p.value, \(x) x/10))
+  mutate(across(-p.value, \(x) x/5))
 
 handover_outputs$full_mod %>%
   tidy(conf.int = TRUE) %>%
   filter(term == "n_dta_norm") %>%
   dplyr::select(estimate, conf.low, conf.high, p.value) %>%
-  mutate(across(-p.value, \(x) x/10))
+  mutate(across(-p.value, \(x) x/5))
 
 resp_outputs$full_mod %>% map(\(x) {
   tidy(x, conf.int = TRUE) %>%
   filter(term == "n_dta_norm") %>%
   dplyr::select(estimate, conf.low, conf.high, p.value) %>%
-  mutate(across(-p.value, \(x) x/10))
+  mutate(across(-p.value, \(x) x/5))
   }
 )
 
