@@ -50,11 +50,12 @@ string_ecds<-glue::glue("select
                         Investigation_Code_1_Desc
       FROM Analyst_SQL_Area.dbo.tbl_BNSSG_ECDS
       where Site_Name in ('BRISTOL ROYAL INFIRMARY', 'SOUTHMEAD HOSPITAL', 'WESTON GENERAL HOSPITAL')
-      and Arrival_Date >= '{ymd(report_start) - ddays(pre_window_days)}'
-      and destination_desc not in ('Emergency department discharge to emergency department short stay ward',
-      'Emergency department discharge to same day emergency care service',
-      'Emergency department discharge to ambulatory emergency care service',
-      'Admission to the mortuary')
+      and Arrival_Date between '{ymd(report_start) - ddays(pre_window_days)}' and '{report_end}'
+      and destination_desc = 'Discharge to ward'
+      --and destination_desc not in ('Emergency department discharge to emergency department short stay ward',
+      --'Emergency department discharge to same day emergency care service',
+      --'Emergency department discharge to ambulatory emergency care service',
+      --'Admission to the mortuary')
       ")
 
 dat_ecds_raw<-sqlQuery(con,string_ecds)
@@ -161,6 +162,7 @@ dat_ecds_n_ed <-
 arrivals <- 
   dat_ecds %>%
   filter(!is.na(dta_time),
+         arrival_dt >= report_start,
          # nhs_number %in% unique(dat_attr$nhs_number),
          !is.na(nhs_number)) %>%
   group_by(nhs_number, arr_id) %>%
@@ -188,6 +190,117 @@ string_apc <- {glue::glue("SELECT
       ,[StartTime_HospitalProviderSpell]
       ,[DischargeDate_FromHospitalProviderSpell]
       ,[DischargeTime_HospitalProviderSpell]
+      ,[WardDayPeriodAvailability]
+      ,[WardNightPeriodAvailability]
+      ,[WardCode1]
+      ,[WardSecurityLevel1]
+      ,[LocationClass1]
+      ,[SiteCode_ofTreatment1]
+      ,[OrganisationCodeType_SiteCodeOfTreatment1]
+      ,[IntendedClinicalCareIntensity1]
+      ,[AgeGroupIntended1]
+      ,[SexOfPatients1]
+      ,[WardDayPeriodAvailability1]
+      ,[WardNightPeriodAvailability1]
+      ,[StartDate1]
+      ,[StartTime_WardStay1]
+      ,[EndDate1]
+      ,[EndTime_WardStay1]
+      ,[WardCode2]
+      ,[WardSecurityLevel2]
+      ,[StartTime_WardStay2]
+      ,[EndTime_WardStay2]
+      ,[WardCode3]
+      ,[WardSecurityLevel3]
+      ,[StartTime_WardStay3]
+      ,[EndTime_WardStay3]
+      ,[WardCode4]
+      ,[WardSecurityLevel4]
+      ,[StartTime_WardStay4]
+      ,[EndTime_WardStay4]
+      ,[WardCode5]
+      ,[WardSecurityLevel5]
+      ,[StartTime_WardStay5]
+      ,[EndTime_WardStay5]
+      ,[WardCode6]
+      ,[WardSecurityLevel6]
+      ,[StartTime_WardStay6]
+      ,[EndTime_WardStay6]
+      ,[WardCode7]
+      ,[WardSecurityLevel7]
+      ,[StartTime_WardStay7]
+      ,[EndTime_WardStay7]
+      ,[WardCode8]
+      ,[WardSecurityLevel8]
+      ,[StartTime_WardStay8]
+      ,[EndTime_WardStay8]
+      ,[WardCode9]
+      ,[WardSecurityLevel9]
+      ,[StartTime_WardStay9]
+      ,[EndTime_WardStay9]
+      ,[WardCode10]
+      ,[WardSecurityLevel10]
+      ,[StartTime_WardStay10]
+      ,[EndTime_WardStay10]
+      ,[WardCode11]
+      ,[WardSecurityLevel11]
+      ,[StartTime_WardStay11]
+      ,[EndTime_WardStay11]
+      ,[WardCode12]
+      ,[WardSecurityLevel12]
+      ,[StartTime_WardStay12]
+      ,[EndTime_WardStay12]
+      ,[WardCode13]
+      ,[WardSecurityLevel13]
+      ,[StartTime_WardStay13]
+      ,[EndTime_WardStay13]
+      ,[WardCode14]
+      ,[WardSecurityLevel14]
+      ,[StartTime_WardStay14]
+      ,[EndTime_WardStay14]
+      ,[WardCode15]
+      ,[WardSecurityLevel15]
+      ,[StartTime_WardStay15]
+      ,[EndTime_WardStay15]
+      ,[WardCode16]
+      ,[WardSecurityLevel16]
+      ,[StartTime_WardStay16]
+      ,[EndTime_WardStay16]
+      ,[WardCode17]
+      ,[WardSecurityLevel17]
+      ,[StartTime_WardStay17]
+      ,[EndTime_WardStay17]
+      ,[WardCode18]
+      ,[WardSecurityLevel18]
+      ,[StartTime_WardStay18]
+      ,[EndTime_WardStay18]
+      ,[WardCode19]
+      ,[WardSecurityLevel19]
+      ,[StartTime_WardStay19]
+      ,[EndTime_WardStay19]
+      ,[WardCode20]
+      ,[WardSecurityLevel20]
+      ,[StartTime_WardStay20]
+      ,[EndTime_WardStay20]
+      ,[WardCode21]
+      ,[WardSecurityLevel21]
+      ,[StartTime_WardStay21]
+      ,[EndTime_WardStay21]
+      ,[WardCode22]
+      ,[WardSecurityLevel22]
+      ,[StartTime_WardStay22]
+      ,[EndTime_WardStay22]
+      ,[WardCode23]
+      ,[WardSecurityLevel23]
+      ,[StartTime_WardStay23]
+      ,[EndTime_WardStay23]
+      ,[WardCode24]
+      ,[WardSecurityLevel24]
+      ,[StartTime_WardStay24]
+      ,[EndTime_WardStay24]
+      ,[WardCodeatEpisodeEndDate]
+      ,[WardSecurityLevelatEpisodeEndDate]
+      ,[VGP_WardCodeAtEndOfEpisode]
       ,[EpisodeNumber]
       ,[FirstRegularDayNightAdmission]
       ,[LastEpisodeInSpellIndicator]
@@ -264,8 +377,8 @@ string_apc <- {glue::glue("SELECT
   where cast(StartDate_HospitalProviderSpell as date) between '{report_start}' and '{report_end}'")
 }
 
-# dat_apc <- sqlQuery(con,string_apc) %>%
-#   mutate(AIMTC_Pseudo_NHS = as.character(AIMTC_Pseudo_NHS))
+dat_apc <- sqlQuery(con,string_apc) %>%
+  mutate(AIMTC_Pseudo_NHS = as.character(AIMTC_Pseudo_NHS))
 # 
 # saveRDS(dat_apc, "data/dat_apc_new.RDS")
 dat_apc <- readRDS("data/dat_apc_new.RDS")
@@ -311,7 +424,6 @@ dat_scores <- arrivals %>%
   `[`(-1) %>%
   bind_cols() 
 
-
 dat_spec <- arrivals %>%
   left_join(
     dat_apc %>%
@@ -319,7 +431,7 @@ dat_spec <- arrivals %>%
       mutate(AIMTC_Pseudo_NHS = as.character(AIMTC_Pseudo_NHS)) %>%
       filter(!is.na(AIMTC_Pseudo_NHS)),
     by = join_by(nhs_number == AIMTC_Pseudo_NHS)) %>% 
-  mutate(diff = abs(interval(departure_dt, StartDate_HospitalProviderSpell)/ddays(1))) %>%
+  mutate(diff = abs(interval(departure_dt, as_date(StartDate_HospitalProviderSpell))/ddays(1))) %>%
   filter(!is.na(diff)) %>%
   group_by(arr_id) %>%
   filter(between(diff, 0, 2)) %>%
@@ -336,7 +448,7 @@ dat_los <- arrivals %>%
       mutate(AIMTC_Pseudo_NHS = as.character(AIMTC_Pseudo_NHS)) %>%
       filter(!is.na(AIMTC_Pseudo_NHS)),
     by = join_by(nhs_number == AIMTC_Pseudo_NHS)) %>% 
-  mutate(diff = abs(interval(departure_dt, StartDate_HospitalProviderSpell)/ddays(1))) %>%
+  mutate(diff = abs(interval(departure_dt, as_date(StartDate_HospitalProviderSpell))/ddays(1))) %>%
   filter(!is.na(diff)) %>%
   group_by(arr_id) %>%
   filter(between(diff, 0, 2)) %>%

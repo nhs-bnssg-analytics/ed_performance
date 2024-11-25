@@ -5,6 +5,7 @@ library(feasts)
 library(tidymodels)
 
 
+
 source("theme.R")
 source("colour_functions.R")
 
@@ -44,7 +45,7 @@ imd_df <- local({
                         Index_Of_Multiple_Deprivation
       FROM Analyst_SQL_Area.dbo.tbl_BNSSG_ECDS
       where Site_Name in ('BRISTOL ROYAL INFIRMARY', 'SOUTHMEAD HOSPITAL', 'WESTON GENERAL HOSPITAL')
-      and Arrival_Date >= '{report_start}'
+      and Arrival_Date between '{report_start}' and '{report_end}'
       ")
   dat_ecds_raw<-sqlQuery(con,string_ecds)
   dat_ecds_raw %>%
@@ -56,11 +57,12 @@ imd_df <- local({
 }) %>%
   na.omit()
 
-
+# using sus
 dta_df <- local({
   
   string_ecds<-glue::glue("select 
                         nhs_number,
+                        Treatment_Function_Code
                         Arrival_Date,
                         Arrival_Time,
                         Initial_Assessment_Date,
@@ -76,7 +78,22 @@ dta_df <- local({
                         Acuity_Desc
       FROM Analyst_SQL_Area.dbo.tbl_BNSSG_ECDS
       where Site_Name in ('BRISTOL ROYAL INFIRMARY', 'SOUTHMEAD HOSPITAL', 'WESTON GENERAL HOSPITAL')
-      and Arrival_Date >= '{report_start}'
+      and Arrival_Date between '{report_start}' and '{report_end}'
+      --and destination_desc = 'Discharge to ward'
+      and destination_desc not in ('Emergency department discharge to emergency department short stay ward',
+      'Emergency department discharge to same day emergency care service',
+      'Emergency department discharge to ambulatory emergency care service',
+      'Emergency department discharge to neonatal intensive care unit',
+      'Emergency department discharge to special care baby unit',
+      'Admission to the mortuary',
+      'Discharge to home',
+      'Discharge to hospital at home service',
+      'Discharge to nursing home',
+      'Discharge to residential home',
+      'Discharge to police custody',
+      'Patient discharge, to legal custody',
+      'Urgent admission to hospice'
+      )
       ")
   dat_ecds_raw<-sqlQuery(con,string_ecds)
   
@@ -88,7 +105,7 @@ dta_df <- local({
     mutate(dta_dt=paste0(Decision_To_Admit_Date," ",substr(Decision_To_Admit_Time,1,8))) %>%
     mutate(dta_dt=as.POSIXct(ifelse(grepl("NA",dta_dt),NA,dta_dt),format="%Y-%m-%d %H:%M:%S")) %>%
     mutate(departure_dt=as.POSIXct(paste0(Departure_Date," ",substr(Departure_Time,1,8)),format="%Y-%m-%d %H:%M:%S")) %>%
-    select(nhs_number, arrival_dt,initial_dt,treatment_dt,dta_dt,departure_dt,Site_Name, Acuity_Desc) %>%
+    select(nhs_number, Organisation_Code_Commissioner, arrival_dt,initial_dt,treatment_dt,dta_dt,departure_dt,Site_Name, Acuity_Desc) %>%
     rowwise() %>%
     mutate(departure_dt=max(dta_dt,departure_dt,na.rm=TRUE)) %>%
     ungroup() %>%
@@ -104,7 +121,6 @@ dta_df <- local({
   
   dat_apc <- readRDS("data/dat_apc_new.RDS")
   
-  browser()
   
   arrivals <- 
     dat_ecds %>%
@@ -131,7 +147,6 @@ dta_df <- local({
     ungroup() %>%
     select(nhs_number, arr_id, MainSpecialtyCode) 
   
-  
   # max_dt <- max(dat_ecds$dta_dt, na.rm = TRUE)
   # dta_seq <- seq.POSIXt(from = as.POSIXct(lubridate::ymd(report_start)), to = max_dt, by = glue::glue("{n_hour} hours"))
   
@@ -148,7 +163,81 @@ dta_df <- local({
     unnest(dta_df)
   dat_dtas
 })
-
+# using TFC
+dta_df <- local({
+  
+  string_ecds<-glue::glue("select 
+                        nhs_number,
+                        Treatment_Function_Code,
+                        Arrival_Date,
+                        Arrival_Time,
+                        Initial_Assessment_Date,
+                        Initial_Assessment_Time,
+                        Seen_For_Treatment_Date,
+                        Seen_For_Treatment_Time,
+                        Decision_To_Admit_Date,
+                        Decision_To_Admit_Time,
+                        Organisation_Code_Commissioner,
+                        Departure_Date,
+                        Departure_Time,
+                        Site_Name,
+                        Acuity_Desc
+      FROM Analyst_SQL_Area.dbo.tbl_BNSSG_ECDS
+      where Site_Name in ('BRISTOL ROYAL INFIRMARY', 'SOUTHMEAD HOSPITAL', 'WESTON GENERAL HOSPITAL')
+      and Treatment_Function_Code in (300, 326, 430)
+      and Arrival_Date between '{report_start}' and '{report_end}'
+      --and destination_desc = 'Discharge to ward'
+      and destination_desc not in ('Emergency department discharge to emergency department short stay ward',
+      'Emergency department discharge to same day emergency care service',
+      'Emergency department discharge to ambulatory emergency care service',
+      'Emergency department discharge to neonatal intensive care unit',
+      'Emergency department discharge to special care baby unit',
+      'Admission to the mortuary',
+      'Discharge to home',
+      'Discharge to hospital at home service',
+      'Discharge to nursing home',
+      'Discharge to residential home',
+      'Discharge to police custody',
+      'Patient discharge, to legal custody',
+      'Urgent admission to hospice'
+      )
+      ")
+  dat_ecds_raw<-sqlQuery(con,string_ecds)
+  
+  dat_ecds<-dat_ecds_raw %>%
+    mutate(nhs_number = as.character(nhs_number)) %>%
+    mutate(arrival_dt=as.POSIXct(paste0(Arrival_Date," ",substr(Arrival_Time,1,8)),format="%Y-%m-%d %H:%M:%S")) %>%
+    mutate(initial_dt=as.POSIXct(paste0(Initial_Assessment_Date," ",substr(Initial_Assessment_Time,1,8)),format="%Y-%m-%d %H:%M:%S")) %>%
+    mutate(treatment_dt=as.POSIXct(paste0(Seen_For_Treatment_Date," ",substr(Seen_For_Treatment_Time,1,8)),format="%Y-%m-%d %H:%M:%S")) %>%
+    mutate(dta_dt=paste0(Decision_To_Admit_Date," ",substr(Decision_To_Admit_Time,1,8))) %>%
+    mutate(dta_dt=as.POSIXct(ifelse(grepl("NA",dta_dt),NA,dta_dt),format="%Y-%m-%d %H:%M:%S")) %>%
+    mutate(departure_dt=as.POSIXct(paste0(Departure_Date," ",substr(Departure_Time,1,8)),format="%Y-%m-%d %H:%M:%S")) %>%
+    select(nhs_number, Organisation_Code_Commissioner, arrival_dt,initial_dt,treatment_dt,dta_dt,departure_dt,Site_Name, Acuity_Desc) %>%
+    rowwise() %>%
+    mutate(departure_dt=max(dta_dt,departure_dt,na.rm=TRUE)) %>%
+    ungroup() %>%
+    mutate(dta_int = interval(dta_dt, departure_dt)) %>%
+    mutate(dta_time = dta_int/dminutes(1)) %>%
+    mutate(trt_time = interval(arrival_dt, treatment_dt)/dminutes(1)) %>%
+    mutate(date=floor_date(departure_dt,"day")) %>%
+    mutate(ed_category=case_when(Acuity_Desc %in% c("Non-urgent level emergency care","Standard level emergency care") ~ "minor",
+                                 TRUE~"major")) %>%
+    mutate(arr_id = cur_group_id(), .by = c(nhs_number, arrival_dt)) %>%
+    filter(Organisation_Code_Commissioner == '15C')
+  
+  
+  
+  dat_dtas <- dat_ecds %>%
+    group_by(site = Site_Name) %>%
+    nest() %>%
+    mutate(dtas = list(map2_dbl(snapshot_seq, data, ~ sum(
+      .x %within% na.omit(.y$dta_int)
+    )))) %>%
+    mutate(dta_df = map(dtas, function(n_dta) map2_df(n_dta, snapshot_seq, ~tibble(dt = .y, n_dta = .x))))  %>%
+    select(site, dta_df) %>%
+    unnest(dta_df)
+  dat_dtas
+})
 
 
 sex_df <- readRDS("data/dat_attr_demog.RDS") %>%
@@ -664,13 +753,13 @@ trt_df <- trt_df %>%
 
 # Normalisation and standardisation
 
-n_dta_cutoff <- 1.25
+n_dta_cutoff <- 1.5
 
 handover_outputs <- local({
   
   handover_df <- handover_df %>% select(-nhs_number)
   
-  bin_acc <- 0.05
+  bin_acc <- 0.1
   
   x_lab <- "DTA queue as a percentage of cubicle capacity (Majors + Resus)"
   y_lab <- "Standardised ambulance handover\ntime (min)"
@@ -879,7 +968,7 @@ resp_outputs <- local({
   
   resp_time_df <- resp_time_df %>% select(-nhs_number)
   
-  bin_acc <- 0.05
+  bin_acc <- 0.1
   
   x_lab <- "DTA queue as a percentage of cubicle capacity (Majors + Resus)"
   y_lab <- "Standardised ambulance response time\n(min)"
@@ -1203,7 +1292,7 @@ saveRDS(resp_outputs, "data/resp_outputs.RDS")
 
 time_ed_outputs <- local({
   
-  bin_acc <- 0.05
+  bin_acc <- 0.1
   
   x_lab <- "DTA queue as a percentage of cubicle capacity (Majors + Resus)"
   y_lab <- "Standardised time in ED \n(min)"

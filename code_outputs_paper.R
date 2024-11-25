@@ -70,7 +70,7 @@ upstream_plots <- resp_outputs$plot_dat %>%
       ) +
       scale_x_continuous(labels = scales::percent,
                          breaks = scales::breaks_width(0.5)) +
-      coord_cartesian(xlim = c(0.05, 1.55)
+      coord_cartesian(xlim = c(0.05, 1.25)
                       # , ylim = c(0, NA), expand = FALSE
       ) +
       scale_y_continuous(limits = c(0, NA), expand = expansion(mult = c(0, 0.05))) +
@@ -118,7 +118,7 @@ upstream_out <- wrap_plots(ptc_2 | ptc_1,
         legend.spacing.x = unit(0, "cm")) 
 
 
-ggplot2::ggsave("materials/upstream_standard.png",
+ggplot2::ggsave("materials/upstream_standard_2.png",
                 upstream_out,
                 bg = "white",
                 height = 12.5,
