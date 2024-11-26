@@ -9,6 +9,7 @@ resp_outputs <- readRDS("data/resp_outputs.RDS")
 ed_time_outputs <- readRDS("data/time_ed_outputs.RDS")
 
 bin_acc <- 0.1
+cut_off <- 1.1
 x_lab <- "DTA queue as a percentage of cubicle capacity"
 
 targets <- tribble(~outcome, ~target, ~quantile,
@@ -70,7 +71,7 @@ upstream_plots <- resp_outputs$plot_dat %>%
       ) +
       scale_x_continuous(labels = scales::percent,
                          breaks = scales::breaks_width(0.5)) +
-      coord_cartesian(xlim = c(0.05, 1.25)
+      coord_cartesian(xlim = c(0.05, cut_off + 0.05)
                       # , ylim = c(0, NA), expand = FALSE
       ) +
       scale_y_continuous(limits = c(0, NA), expand = expansion(mult = c(0, 0.05))) +
@@ -118,7 +119,7 @@ upstream_out <- wrap_plots(ptc_2 | ptc_1,
         legend.spacing.x = unit(0, "cm")) 
 
 
-ggplot2::ggsave("materials/upstream_standard_2.png",
+ggplot2::ggsave("materials/upstream_standard_110.png",
                 upstream_out,
                 bg = "white",
                 height = 12.5,
