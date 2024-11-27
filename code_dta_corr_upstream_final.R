@@ -580,8 +580,9 @@ resp_time_df <- local({
     ,[SourceFileID]
 FROM [ABI].[dbo].[vw_UrgentCare_Ambulance_SWASFT] a
 LEFT JOIN [Analyst_SQL_Area].[dbo].[tbl_BNSSG_Datasets_SWAST_AR119] c on a.Incident_Number=c.Call_Number
-where Outcome in ('See & Convey', 'See & Treat') AND
-CCG = '15C' AND
+where Outcome in ('See & Convey', 'See & Treat') 
+--AND CCG = '15C' 
+AND
   CONVERT(DATE, [T0_Time_of_Call]) > '{report_start}'"
   )
   
@@ -748,7 +749,7 @@ trt_df <- trt_df %>%
 
 # Normalisation and standardisation
 
-n_dta_cutoff <- 1.1
+n_dta_cutoff <- 1.0
 
 handover_outputs <- local({
   
