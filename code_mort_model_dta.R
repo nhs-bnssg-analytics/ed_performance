@@ -47,7 +47,8 @@ string_ecds<-glue::glue("select
                         Chief_Complaint_Desc,
                         Acuity_Desc,
                         Diagnoses_Code_1_Desc,
-                        Investigation_Code_1_Desc
+                        Investigation_Code_1_Desc,
+                        Treatment_Function_Code
       FROM Analyst_SQL_Area.dbo.tbl_BNSSG_ECDS
       where Site_Name in ('BRISTOL ROYAL INFIRMARY', 'SOUTHMEAD HOSPITAL', 'WESTON GENERAL HOSPITAL')
       and Arrival_Date between '{ymd(report_start) - ddays(pre_window_days)}' and '{report_end}'
@@ -65,6 +66,7 @@ dat_ecds_raw <- readRDS("data/dat_ecds_raw_new.RDS")
 dat_ecds<-dat_ecds_raw %>%
   filter(Organisation_Code_Commissioner == '15C') %>% # filter for 15C as we can not pick up deaths for non BNSSG patients
   mutate(NHS_Number = as.character(NHS_Number)) %>%
+  mutate(Treatment_Function_Code = coalesce(as.character(Treatment_Function_Code, "Missing"))) %>%
   mutate(arrival_dt=as.POSIXct(paste0(Arrival_Date," ",substr(Arrival_Time,1,8)),format="%Y-%m-%d %H:%M:%S")) %>%
   mutate(initial_dt=as.POSIXct(paste0(Initial_Assessment_Date," ",substr(Initial_Assessment_Time,1,8)),format="%Y-%m-%d %H:%M:%S")) %>%
   mutate(treatment_dt=as.POSIXct(paste0(Seen_For_Treatment_Date," ",substr(Seen_For_Treatment_Time,1,8)),format="%Y-%m-%d %H:%M:%S")) %>%
@@ -74,6 +76,7 @@ dat_ecds<-dat_ecds_raw %>%
   mutate(conclusion_dt=as.POSIXct(paste0(Conclusion_Date," ",substr(Conclusion_Time,1,8)),format="%Y-%m-%d %H:%M:%S")) %>%
   select(
     nhs_number = NHS_Number,
+    tfc = Treatment_Function_Code,
     imd = Index_Of_Multiple_Deprivation,
     sex = Stated_Gender,
     age = HES_Age_At_Arrival,
@@ -166,7 +169,9 @@ arrivals <-
          # nhs_number %in% unique(dat_attr$nhs_number),
          !is.na(nhs_number)) %>%
   group_by(nhs_number, arr_id) %>%
-  summarise(departure_dt = as.Date(departure_dt)[1]
+  summarise(
+    tfc = tfc[1],
+    departure_dt = as.Date(departure_dt)[1]
   )
 
 # SUS query (takes a long time, should prune the variables it is returning)
@@ -543,6 +548,7 @@ mortality_df <- local({
 })
 
 dat_adm <- dat_ecds %>%
+  # filter(tfc %in% c(300, 326, 430)) %>%
   # remove arrivals that dont have full outcome window
   filter(arrival_dt < ymd(report_end) - ddays(days_outcome_window)) %>%
   mutate(nhs_number = as.character(nhs_number)) %>%
