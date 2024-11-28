@@ -1,7 +1,7 @@
 library(tidyverse)
 library(tidymodels)
 
-mod_df <- readRDS("data/mort_mod_df_final.RDS")
+mod_df <- readRDS("data/mort_mod_df_final_new.RDS")
 mod_df <- mod_df %>%
   mutate(dta_time = dta_time/60) %>% # convert minutes to hours
   # filter(ed_time < 60*30) %>%

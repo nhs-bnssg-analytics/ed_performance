@@ -186,10 +186,10 @@ dta_df <- local({
                         Acuity_Desc
       FROM Analyst_SQL_Area.dbo.tbl_BNSSG_ECDS
       where Site_Name in ('BRISTOL ROYAL INFIRMARY', 'SOUTHMEAD HOSPITAL', 'WESTON GENERAL HOSPITAL')
-      and Treatment_Function_Code in (300, 326, 430)
+      --and Treatment_Function_Code in (300, 326, 430)
       and Arrival_Date between '{report_start}' and '{report_end}'
       --and destination_desc = 'Discharge to ward'
-      and destination_desc not in ('Emergency department discharge to emergency department short stay ward',
+      and coalesce(destination_desc, 'Missing') not in ('Emergency department discharge to emergency department short stay ward',
       'Emergency department discharge to same day emergency care service',
       'Emergency department discharge to ambulatory emergency care service',
       'Emergency department discharge to neonatal intensive care unit',
@@ -214,7 +214,7 @@ dta_df <- local({
     mutate(dta_dt=paste0(Decision_To_Admit_Date," ",substr(Decision_To_Admit_Time,1,8))) %>%
     mutate(dta_dt=as.POSIXct(ifelse(grepl("NA",dta_dt),NA,dta_dt),format="%Y-%m-%d %H:%M:%S")) %>%
     mutate(departure_dt=as.POSIXct(paste0(Departure_Date," ",substr(Departure_Time,1,8)),format="%Y-%m-%d %H:%M:%S")) %>%
-    select(nhs_number, Organisation_Code_Commissioner, arrival_dt,initial_dt,treatment_dt,dta_dt,departure_dt,Site_Name, Acuity_Desc) %>%
+    select(nhs_number, tfc = Treatment_Function_Code, Organisation_Code_Commissioner, arrival_dt,initial_dt,treatment_dt,dta_dt,departure_dt,Site_Name, Acuity_Desc) %>%
     rowwise() %>%
     mutate(departure_dt=max(dta_dt,departure_dt,na.rm=TRUE)) %>%
     ungroup() %>%
@@ -226,8 +226,45 @@ dta_df <- local({
                                  TRUE~"major")) %>%
     mutate(arr_id = cur_group_id(), .by = c(nhs_number, arrival_dt)) 
   
+  arrivals <- 
+    dat_ecds %>%
+    filter(!is.na(dta_time),
+           arrival_dt >= report_start,
+           # nhs_number %in% unique(dat_attr$nhs_number),
+           !is.na(nhs_number)) %>%
+    group_by(nhs_number, arr_id) %>%
+    summarise(
+      tfc = tfc[1],
+      departure_dt = as.Date(departure_dt)[1]
+    )
+  
+  dat_apc <- readRDS("data/dat_apc_new.RDS")
+  
+  dat_spec <- arrivals %>%
+    left_join(
+      dat_apc %>%
+        select(AIMTC_Pseudo_NHS, MainSpecialtyCode, StartDate_HospitalProviderSpell) %>%
+        mutate(AIMTC_Pseudo_NHS = as.character(AIMTC_Pseudo_NHS)) %>%
+        filter(!is.na(AIMTC_Pseudo_NHS)),
+      by = join_by(nhs_number == AIMTC_Pseudo_NHS)) %>% 
+    mutate(diff = abs(interval(departure_dt, as_date(StartDate_HospitalProviderSpell))/ddays(1))) %>%
+    filter(!is.na(diff)) %>%
+    group_by(arr_id) %>%
+    filter(between(diff, 0, 2)) %>%
+    filter(diff == min(diff)) %>% 
+    arrange(diff) %>%
+    slice(1) %>%
+    ungroup() %>%
+    select(nhs_number, arr_id, tfc, MainSpecialtyCode) %>%
+    mutate(tfc = ifelse(tfc %in% c(300, 326, 430), "medical", "not medical")) %>%
+    mutate(MainSpecialtyCode = ifelse(MainSpecialtyCode %in% c(300, 326, 430), "medical", "not medical")) %>% 
+    mutate(spec = ifelse(tfc == "medical" | MainSpecialtyCode == "medical", "medical", "not medical")) %>%
+    select(nhs_number, arr_id, spec)
+  
   
   dat_dtas <- dat_ecds %>%
+    left_join(dat_spec) %>%
+    filter(spec == "medical") %>%
     group_by(site = Site_Name) %>%
     nest() %>%
     mutate(dtas = list(map2_dbl(snapshot_seq, data, ~ sum(
@@ -261,7 +298,7 @@ trt_df <- local({
                         Acuity_Desc
       FROM Analyst_SQL_Area.dbo.tbl_BNSSG_ECDS
       where Site_Name in ('BRISTOL ROYAL INFIRMARY', 'SOUTHMEAD HOSPITAL', 'WESTON GENERAL HOSPITAL')
-      and Arrival_Date >= '{report_start}'
+      and Arrival_Date between '{report_start}' and '{report_end}'
       ")
   dat_ecds_raw<-sqlQuery(con,string_ecds)
   
@@ -326,7 +363,7 @@ ed_df <- local({
                         Acuity_Desc
       FROM Analyst_SQL_Area.dbo.tbl_BNSSG_ECDS
       where Site_Name in ('BRISTOL ROYAL INFIRMARY', 'SOUTHMEAD HOSPITAL', 'WESTON GENERAL HOSPITAL')
-      and Arrival_Date >= '{report_start}'
+      and Arrival_Date between '{report_start}' and '{report_end}'
       ")
   dat_ecds_raw<-sqlQuery(con,string_ecds)
   
@@ -581,7 +618,7 @@ resp_time_df <- local({
 FROM [ABI].[dbo].[vw_UrgentCare_Ambulance_SWASFT] a
 LEFT JOIN [Analyst_SQL_Area].[dbo].[tbl_BNSSG_Datasets_SWAST_AR119] c on a.Incident_Number=c.Call_Number
 where Outcome in ('See & Convey', 'See & Treat') 
---AND CCG = '15C' 
+AND CCG = '15C'
 AND
   CONVERT(DATE, [T0_Time_of_Call]) > '{report_start}'"
   )
@@ -610,6 +647,7 @@ AND
   
   response_time 
 })
+
 
 # saveRDS(dta_df, "data/upstream_dta_df.RDS")
 # saveRDS(imd_df, "data/upstream_imd_df.RDS")
@@ -749,7 +787,7 @@ trt_df <- trt_df %>%
 
 # Normalisation and standardisation
 
-n_dta_cutoff <- 1.0
+n_dta_cutoff <- 1.2
 
 handover_outputs <- local({
   

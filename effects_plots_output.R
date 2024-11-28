@@ -18,10 +18,15 @@ ylab_los <- str_wrap("In-hospital length of stay (day)", wrap)
 xlab <- "Duration between DTA and admission (hours)"
 
 patchwork::wrap_plots(
-                      los_effect_output$los_effect_plot + facet_grid(.~"In-hospital length of stay (day)") + scale_y_continuous(limits = c(2, 16)) + labs(y = "", x = xlab),
-                      readm_effect_plot + facet_grid(.~"30-day readmission rate") + scale_y_continuous(limits = c(0.02, 0.16), labels = scales::percent) + labs(y = "", x = xlab),
-                      mort_effect_plot + facet_grid(.~"30-day mortality rate") + scale_y_continuous(limits = c(0.02, 0.16), labels = scales::percent) + labs(y = "", x = xlab),
+                      los_effect_output$los_effect_plot + facet_grid(.~"In-hospital length of stay (day)") + scale_y_continuous(limits = c(5, NA)) + labs(y = "", x = xlab),
+                      readm_effect_plot + facet_grid(.~"30-day readmission rate") + scale_y_continuous(limits = c(0, NA), labels = scales::percent) + labs(y = "", x = xlab),
+                      mort_effect_plot + facet_grid(.~"30-day mortality rate") + scale_y_continuous(limits = c(0, NA), labels = scales::percent) + labs(y = "", x = xlab),
                       nrow = 1, axes = "collect_x")
+# patchwork::wrap_plots(
+#                       los_effect_output$los_effect_plot + facet_grid(.~"In-hospital length of stay (day)") + scale_y_continuous(limits = c(2, 16)) + labs(y = "", x = xlab),
+#                       readm_effect_plot + facet_grid(.~"30-day readmission rate") + scale_y_continuous(limits = c(0.02, 0.16), labels = scales::percent) + labs(y = "", x = xlab),
+#                       mort_effect_plot + facet_grid(.~"30-day mortality rate") + scale_y_continuous(limits = c(0.02, 0.16), labels = scales::percent) + labs(y = "", x = xlab),
+#                       nrow = 1, axes = "collect_x")
 
 ggsave("materials/effects_plot_patch_1row.png",
        last_plot(),

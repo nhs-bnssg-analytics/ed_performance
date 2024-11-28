@@ -9,7 +9,7 @@ resp_outputs <- readRDS("data/resp_outputs.RDS")
 ed_time_outputs <- readRDS("data/time_ed_outputs.RDS")
 
 bin_acc <- 0.1
-cut_off <- 1.0
+cut_off <- 1.2
 x_lab <- "DTA queue as a percentage of cubicle capacity"
 
 targets <- tribble(~outcome, ~target, ~quantile,
@@ -119,7 +119,7 @@ upstream_out <- wrap_plots(ptc_2 | ptc_1,
         legend.spacing.x = unit(0, "cm")) 
 
 
-ggplot2::ggsave("materials/upstream_standard_100.png",
+ggplot2::ggsave("materials/upstream_standard_120.png",
                 upstream_out,
                 bg = "white",
                 height = 12.5,

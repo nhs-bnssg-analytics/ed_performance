@@ -1,7 +1,7 @@
 library(tidyverse)
 library(tidymodels)
 
-mod_df <- readRDS("data/mort_mod_df_final.RDS")
+mod_df <- readRDS("data/mort_mod_df_final_new.RDS")
 mod_df <- mod_df %>%
   mutate(age = cut(age, breaks = c(0 , seq(30, 100, 10), Inf), right = FALSE, labels = c(
     "29 years old or under",

@@ -444,7 +444,10 @@ dat_spec <- arrivals %>%
   arrange(diff) %>%
   slice(1) %>%
   ungroup() %>%
-  select(nhs_number, arr_id, MainSpecialtyCode) 
+  select(nhs_number, arr_id, tfc, MainSpecialtyCode) %>%
+  mutate(spec = coalesce(as.numeric(tfc), MainSpecialtyCode))
+
+
 
 dat_los <- arrivals %>%
   left_join(
@@ -548,9 +551,10 @@ mortality_df <- local({
 })
 
 dat_adm <- dat_ecds %>%
-  # filter(tfc %in% c(300, 326, 430)) %>%
   # remove arrivals that dont have full outcome window
   filter(arrival_dt < ymd(report_end) - ddays(days_outcome_window)) %>%
+  left_join(dat_spec) %>% 
+  filter(spec %in% c(300, 326, 430)) %>%
   mutate(nhs_number = as.character(nhs_number)) %>%
   group_by(nhs_number) %>%
   slice_min(dta_dt, na_rm = TRUE) %>%
@@ -580,16 +584,16 @@ dat_adm <- dat_ecds %>%
   left_join(dat_ecds_perf) %>%
   left_join(dat_ecds_n_ed) %>%
   left_join(dat_scores) %>%
-  left_join(dat_spec) %>%
+  # left_join(dat_spec) %>%
   left_join(dat_los) %>%
   select(-arr_id) %>%
-  filter(MainSpecialtyCode %in% c(300, 326, 430)) %>% # filter General Internal Medicine
-  select(-MainSpecialtyCode) %>%
-  # na.omit() %>%
+  # filter(MainSpecialtyCode %in% c(300, 326, 430)) %>% # filter General Internal Medicine
+  # select(-MainSpecialtyCode) %>%
+  na.omit() %>%
   distinct()
 
-saveRDS(dat_adm, "data/dat_adm_final.RDS")
-dat_adm <- readRDS("data/dat_adm_final.RDS")
+saveRDS(dat_adm, "data/dat_adm_final_new.RDS")
+dat_adm <- readRDS("data/dat_adm_final_new.RDS")
 
 # imputing missings
 
@@ -674,4 +678,4 @@ mod_df <- dat_adm %>%
   distinct() %>%
   select(-nhs_number)
   
-saveRDS(mod_df, "data/mort_mod_df_final.RDS")
+saveRDS(mod_df, "data/mort_mod_df_final_new.RDS")
