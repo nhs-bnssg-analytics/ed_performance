@@ -31,7 +31,7 @@ patchwork::wrap_plots(
 ggsave("materials/effects_plot_patch_1row.png",
        last_plot(),
        bg = "white",
-       height = 7.5,
+       height = 5,
        width = 10, 
        scale = 0.7)
 
@@ -84,13 +84,8 @@ gtsummary::tbl_merge(list(reg_table_mort,
   gtsummary::as_gt() %>%
   gt::gtsave("materials/reg_table_downstream.html")
 
-# %>%
-# gtsummary::as_gt() %>%
-# gt::tab_header(
-# title = gt::md("**In-Hospital Length of Stay (days)**"))   %>%
-#   gt::gtsave("materials/los_reg_table.html")
 
-
+# Relative risks
 
 rr_fn <- function(or, p0) {
   or / ((1-p0)+(p0*or))
@@ -100,15 +95,15 @@ mod_df_raw <- mort_effect_output$mod_df
 
 mort_or <- mort_effect_output$mort_mod_raw %>%
   update(. ~ . -dta_time + I(dta_time/(4))) %>%
-  tidy(conf.int = TRUE) %>%
+  broom::tidy(conf.int = TRUE) %>%
   filter(str_detect(term, "dta_time"))%>%
   select(estimate, conf.low, conf.high, p.value)
   
 
-mod_df <- readm_effect_output$mod_df
+mod_df_raw <- readm_effect_output$mod_df
 readm_or <- readm_effect_output$readm_mod_raw %>%
   update(. ~ . -dta_time + I(dta_time/(4))) %>%
-  tidy(conf.int = TRUE) %>%
+  broom::tidy(conf.int = TRUE) %>%
   filter(str_detect(term, "dta_time"))%>%
   select(estimate, conf.low, conf.high, p.value)
 
@@ -124,7 +119,7 @@ readm_or %>%
 
 los_effect_output$los_mod %>%
   update(. - los + I(24*los) ~ . -dta_time + I(dta_time/(4))) %>%
-  tidy(conf.int = TRUE) %>%
+  broom::tidy(conf.int = TRUE) %>%
   filter(str_detect(term, "dta_time"))
 
   

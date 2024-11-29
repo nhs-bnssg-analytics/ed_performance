@@ -8,12 +8,12 @@ handover_outputs <- readRDS("data/handover_outputs.RDS")
 resp_outputs <- readRDS("data/resp_outputs.RDS")
 ed_time_outputs <- readRDS("data/time_ed_outputs.RDS")
 
-bin_acc <- 0.1
-cut_off <- 1.2
+bin_acc <- 0.05
+cut_off <- 1.1
 x_lab <- "DTA queue as a percentage of cubicle capacity"
 
 targets <- tribble(~outcome, ~target, ~quantile,
-                   "Time in ED (min), standardised", 240, .95,
+                   "Time in ED for non-admits (min), standardised", 240, .95,
                    "Ambulance handover time (min), standardised", 30, .95,
                    "Ambulance response time (min) [999 Category 1 call], standardised", 15, .9,
                    "Ambulance response time (min) [999 Category 2 call], standardised", 40, .9,
@@ -42,10 +42,10 @@ upstream_plots <- resp_outputs$plot_dat %>%
   bind_rows(
     ed_time_outputs$plot_df %>%
       select(n_dta_norm, response = trt_adj_inv) %>%
-      mutate(outcome = "Time in ED (min), standardised")
+      mutate(outcome = "Time in ED for non-admits (min), standardised")
   )  %>% 
   mutate(n_dta_norm = plyr::round_any(n_dta_norm, accuracy = bin_acc, f = \(x) floor(0.5 + x))) %>%
-  filter(n_dta_norm >= 0.1) %>%
+  filter(n_dta_norm >= 0.05) %>%
   group_by(outcome) %>%
   nest() %>%
   left_join(targets) %>%
@@ -70,7 +70,7 @@ upstream_plots <- resp_outputs$plot_dat %>%
         values = c("Mean" = "black", "Comparator quantile"= "black", "National target" = "red"),
       ) +
       scale_x_continuous(labels = scales::percent,
-                         breaks = scales::breaks_width(0.5)) +
+                         breaks = scales::breaks_width(0.25)) +
       coord_cartesian(xlim = c(0.05, cut_off + 0.05)
                       # , ylim = c(0, NA), expand = FALSE
       ) +
@@ -119,7 +119,7 @@ upstream_out <- wrap_plots(ptc_2 | ptc_1,
         legend.spacing.x = unit(0, "cm")) 
 
 
-ggplot2::ggsave("materials/upstream_standard_120.png",
+ggplot2::ggsave("materials/upstream_standard_110.png",
                 upstream_out,
                 bg = "white",
                 height = 12.5,
@@ -128,105 +128,40 @@ ggplot2::ggsave("materials/upstream_standard_120.png",
 
 
 
-# ptc_1 <- patchwork::wrap_plots(ed_time_outputs$p_std + guides(colour = "none", shape = "none"),
-#                       handover_outputs$p_std + guides(colour = "none", shape = "none"),
-#                       ncol = 1,
-#                       axes = "collect",
-#                       guides = "collect"
-#                       ) 
-# 
-# ptc_2 <- patchwork::wrap_plots(resp_outputs$p_norm_std[[3]] + guides(colour = "none", shape = "none"),
-#                       resp_outputs$p_norm_std[[1]] + guides(colour = "none", shape = "none"),
-#                       resp_outputs$p_norm_std[[2]],
-#                       ncol = 1,
-#                       axes = "collect",
-#                       guides = "collect"
-#                       ) 
-# 
-# patchwork::wrap_plots(ptc_1 | ptc_2, guides = "collect") &
-#   theme(legend.position = "bottom", legend.justification = "center")
-# 
-# ggplot2::ggsave("materials/upstream_standard.png",
-#                 ggplot2::last_plot(),
-#                 bg = "white",
-#                 height = 12.5,
-#                 width = 15.0, 
-#                 scale = 0.65)
-
-
-
-# x_lab <- "DTA Queue as a Percentage of Cubicle Capacity (Majors + Resus)."
-# y_lab <- "Model-Standardised Ambulance Handover Time\n(min)."
-# 
-# handover_outputs$p_std +
-#   labs(x = x_lab,
-#        y = y_lab,
-#        title = "",
-#        col = "") +
-#   scale_y_continuous(breaks = breaks_width(60)) +
-#   theme(legend.title = element_blank(),
-#         legend.spacing.x = unit(0, "cm"))
-# 
-# 
-# ggplot2::ggsave("materials/handover_standard.png",
-#                 ggplot2::last_plot(),
-#                 bg = "white",
-#                 height = 7.5,
-#                 width = 10, 
-#                 scale = 0.6)
-# 
-# x_lab <- "DTA Queue as a Percentage of Cubicle Capacity (Majors + Resus)."
-# y_lab <- "Model-Standardised Ambulance Response Time\n(min)."
-# 
-# resp_outputs$p_norm_std +
-#   labs(x = x_lab,
-#        y = y_lab,
-#        title = "",
-#        col = "") +
-#   # scale_y_continuous(breaks = breaks_width(60)) +
-#   theme(legend.title = element_blank(),
-#         legend.spacing.x = unit(0, "cm"))
-# 
-# 
-# ggplot2::ggsave("materials/response_standard.png",
-#                 ggplot2::last_plot(),
-#                 bg = "white",
-#                 height = 12.5,
-#                 width = 10, 
-#                 scale = 0.6)
+# Headline outputs
 
 ed_time_outputs$full_mod %>%
   tidy(conf.int = TRUE) %>%
   filter(term == "n_dta_norm") %>%
   dplyr::select(estimate, conf.low, conf.high, p.value) %>%
-  mutate(across(-p.value, \(x) x/5))
+  mutate(across(-p.value, \(x) x/4))
 
 handover_outputs$full_mod %>%
   tidy(conf.int = TRUE) %>%
   filter(term == "n_dta_norm") %>%
   dplyr::select(estimate, conf.low, conf.high, p.value) %>%
-  mutate(across(-p.value, \(x) x/5))
+  mutate(across(-p.value, \(x) x/4))
 
 resp_outputs$full_mod %>% map(\(x) {
-  tidy(x, conf.int = TRUE) %>%
+  broom::tidy(x, conf.int = TRUE) %>%
   filter(term == "n_dta_norm") %>%
   dplyr::select(estimate, conf.low, conf.high, p.value) %>%
-  mutate(across(-p.value, \(x) x/5))
+  mutate(across(-p.value, \(x) x/4))
   }
 )
 
 handover_tab <- handover_outputs$full_mod_tab 
 ed_time_tab <- ed_time_outputs$full_mod_tab 
-resp_tab_1 <- resp_outputs$full_mod_tabs$tab[[1]] 
-resp_tab_2 <- resp_outputs$full_mod_tabs$tab[[2]] 
-resp_tab_3 <- resp_outputs$full_mod_tabs$tab[[3]]
+resp_tab_1 <- resp_outputs$full_mod_tabs$tab[[3]] 
+resp_tab_2 <- resp_outputs$full_mod_tabs$tab[[1]] 
+resp_tab_3 <- resp_outputs$full_mod_tabs$tab[[2]]
 
 gtsummary::tbl_merge(list(
   ed_time_tab,
   handover_tab,
-  resp_tab_3,
+  resp_tab_1,
   resp_tab_2,
-  resp_tab_1
+  resp_tab_3
   ), tab_spanner = c("Time spent in ED (min)",
                      "Ambulance handover time (min)",
                      "999 call Category 1 response time (min)",

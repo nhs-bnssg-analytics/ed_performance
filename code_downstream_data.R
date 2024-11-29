@@ -52,16 +52,26 @@ string_ecds<-glue::glue("select
       FROM Analyst_SQL_Area.dbo.tbl_BNSSG_ECDS
       where Site_Name in ('BRISTOL ROYAL INFIRMARY', 'SOUTHMEAD HOSPITAL', 'WESTON GENERAL HOSPITAL')
       and Arrival_Date between '{ymd(report_start) - ddays(pre_window_days)}' and '{report_end}'
-      and destination_desc = 'Discharge to ward'
-      --and destination_desc not in ('Emergency department discharge to emergency department short stay ward',
-      --'Emergency department discharge to same day emergency care service',
-      --'Emergency department discharge to ambulatory emergency care service',
-      --'Admission to the mortuary')
+      --and destination_desc = 'Discharge to ward'
+      and coalesce(destination_desc, 'Missing') not in ('Emergency department discharge to emergency department short stay ward',
+      'Emergency department discharge to same day emergency care service',
+      'Emergency department discharge to ambulatory emergency care service',
+      'Emergency department discharge to neonatal intensive care unit',
+      'Emergency department discharge to special care baby unit',
+      'Admission to the mortuary',
+      'Discharge to home',
+      'Discharge to hospital at home service',
+      'Discharge to nursing home',
+      'Discharge to residential home',
+      'Discharge to police custody',
+      'Patient discharge, to legal custody',
+      'Urgent admission to hospice'
+      )
       ")
 
 dat_ecds_raw<-sqlQuery(con,string_ecds)
-saveRDS(dat_ecds_raw, "data/dat_ecds_raw_new.RDS")
-dat_ecds_raw <- readRDS("data/dat_ecds_raw_new.RDS")
+saveRDS(dat_ecds_raw, "data/dat_ecds_raw.RDS")
+dat_ecds_raw <- readRDS("data/dat_ecds_raw.RDS")
 
 dat_ecds<-dat_ecds_raw %>%
   filter(Organisation_Code_Commissioner == '15C') %>% # filter for 15C as we can not pick up deaths for non BNSSG patients
@@ -145,21 +155,6 @@ dat_ecds_n_ed <-
   select(nhs_number, n_ed, n_adm) %>%
   distinct()
 
-
-
-# get bnssg nhs nums for filtering
-# string_attr <- glue::glue("select distinct 
-#  nhs_number
-# from MODELLING_SQL_AREA.dbo.primary_care_attributes
-# where attribute_period between '{report_start}' and '{report_end}'")
-# 
-# 
-# dat_attr <- sqlQuery(con,string_attr) %>%
-#   filter(!is.na(nhs_number)) %>%
-#   mutate(nhs_number = as.character(nhs_number))
-# 
-# saveRDS(dat_attr, "data/dat_attr.RDS")
-# dat_attr <- readRDS("data/dat_attr.RDS")
 
 # arrivals for joining to sus
 arrivals <- 
@@ -443,9 +438,11 @@ dat_spec <- arrivals %>%
   filter(diff == min(diff)) %>% 
   arrange(diff) %>%
   slice(1) %>%
-  ungroup() %>%
   select(nhs_number, arr_id, tfc, MainSpecialtyCode) %>%
-  mutate(spec = coalesce(as.numeric(tfc), MainSpecialtyCode))
+  mutate(tfc = ifelse(tfc %in% c(300, 326, 430), "medical", "not medical")) %>%
+  mutate(MainSpecialtyCode = ifelse(MainSpecialtyCode %in% c(300, 326, 430), "medical", "not medical")) %>% 
+  mutate(spec = ifelse(tfc == "medical" | MainSpecialtyCode == "medical", "medical", "not medical")) %>%
+  select(nhs_number, arr_id, spec)
 
 
 
@@ -494,21 +491,6 @@ admissions_full <- dat_ecds %>%
   filter(!is.na(dta_dt)) %>%
   distinct()
 
-# dat_reatt <- arrivals %>%
-#   left_join(dat_disch, by = join_by(nhs_number == nhs_number, arr_id == arr_id)) %>%
-#   left_join(arrivals_full, by = join_by(nhs_number == nhs_number)) %>%
-#   mutate(discharge_date = discharge_date %>% ymd()) %>%
-#   mutate(discharge_date = if_else(is.na(discharge_date), departure_dt, discharge_date)) %>%
-#   mutate(reatt = interval(discharge_date, arrival_dt)/ddays(1) <= days_outcome_window & # reatt within limit
-#            as.Date(arrival_dt) > discharge_date # 'new' admission is new (not prior)
-#          # |
-#          #   interval(departure_dt, arrival_dt)/ddays(1) <= days_outcome_window &
-#          #   as.Date(arrival_dt) > discharge_date
-#   ) %>% 
-#   group_by(arr_id) %>%
-#   slice_max(reatt, n = 1, with_ties = FALSE) %>%
-#   select(nhs_number, arr_id, reatt_dt = arrival_dt, reatt)
-
 dat_readm <- arrivals %>%
   left_join(dat_disch, , by = join_by(nhs_number == nhs_number, arr_id == arr_id)) %>%
   left_join(admissions_full, by = join_by(nhs_number == nhs_number)) %>%
@@ -554,12 +536,12 @@ dat_adm <- dat_ecds %>%
   # remove arrivals that dont have full outcome window
   filter(arrival_dt < ymd(report_end) - ddays(days_outcome_window)) %>%
   left_join(dat_spec) %>% 
-  filter(spec %in% c(300, 326, 430)) %>%
+  filter(spec == "medical") %>%
   mutate(nhs_number = as.character(nhs_number)) %>%
   group_by(nhs_number) %>%
   slice_min(dta_dt, na_rm = TRUE) %>%
   filter(dta_time >= 0) %>% # some records are negative 0 exactly, seems to be DQ
-  filter(age < 120, !is.na(age))   %>%
+  filter(between(age, 0, 120), !is.na(age))   %>% # DQ check on age which can be missing or recorded incorrectly
   # filter(dta_dt == min(dta_dt, na.rm = TRUE)) %>%
   ungroup() %>%
   select(
@@ -592,8 +574,8 @@ dat_adm <- dat_ecds %>%
   na.omit() %>%
   distinct()
 
-saveRDS(dat_adm, "data/dat_adm_final_new.RDS")
-dat_adm <- readRDS("data/dat_adm_final_new.RDS")
+saveRDS(dat_adm, "data/dat_adm_final.RDS")
+dat_adm <- readRDS("data/dat_adm_final.RDS")
 
 # imputing missings
 
@@ -678,4 +660,4 @@ mod_df <- dat_adm %>%
   distinct() %>%
   select(-nhs_number)
   
-saveRDS(mod_df, "data/mort_mod_df_final_new.RDS")
+saveRDS(mod_df, "data/mort_mod_df_final.RDS")
