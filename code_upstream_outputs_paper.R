@@ -134,19 +134,19 @@ ed_time_outputs$full_mod %>%
   tidy(conf.int = TRUE) %>%
   filter(term == "n_dta_norm") %>%
   dplyr::select(estimate, conf.low, conf.high, p.value) %>%
-  mutate(across(-p.value, \(x) x/4))
+  mutate(across(-p.value, \(x) x/5))
 
 handover_outputs$full_mod %>%
   tidy(conf.int = TRUE) %>%
   filter(term == "n_dta_norm") %>%
   dplyr::select(estimate, conf.low, conf.high, p.value) %>%
-  mutate(across(-p.value, \(x) x/4))
+  mutate(across(-p.value, \(x) x/5))
 
 resp_outputs$full_mod %>% map(\(x) {
   broom::tidy(x, conf.int = TRUE) %>%
   filter(term == "n_dta_norm") %>%
   dplyr::select(estimate, conf.low, conf.high, p.value) %>%
-  mutate(across(-p.value, \(x) x/4))
+  mutate(across(-p.value, \(x) x/5))
   }
 )
 
@@ -157,16 +157,17 @@ resp_tab_2 <- resp_outputs$full_mod_tabs$tab[[1]]
 resp_tab_3 <- resp_outputs$full_mod_tabs$tab[[2]]
 
 gtsummary::tbl_merge(list(
-  ed_time_tab,
-  handover_tab,
   resp_tab_1,
   resp_tab_2,
-  resp_tab_3
-  ), tab_spanner = c("Time spent in ED (min)",
-                     "Ambulance handover time (min)",
+  resp_tab_3,
+  handover_tab,
+  ed_time_tab
+  ), tab_spanner = c(
                      "999 call Category 1 response time (min)",
                      "999 call Category 2 response time (min)",
-                     "999 call Category 3 response time (min)"
+                     "999 call Category 3 response time (min)",
+                     "Ambulance handover time (min)",
+                     "Time spent in ED (min)"
                      )) %>%
   gtsummary::as_gt() %>%
   gt::gtsave("materials/upstream_reg_table.html")

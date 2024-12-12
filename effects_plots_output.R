@@ -78,9 +78,11 @@ reg_table_los <- los_effect_output$los_mod %>% gtsummary::tbl_regression(estimat
   label = label_list_downstream
 ) %>% gtsummary::add_glance_table(include = c(nobs)) 
 
-gtsummary::tbl_merge(list(reg_table_mort,
+gtsummary::tbl_merge(list(
+                          reg_table_los,
                           reg_table_readm,
-                          reg_table_los)) %>%
+                          reg_table_mort
+  )) %>%
   gtsummary::as_gt() %>%
   gt::gtsave("materials/reg_table_downstream.html")
 

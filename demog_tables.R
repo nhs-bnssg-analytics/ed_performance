@@ -21,15 +21,20 @@ n_fun <- function(x){
 
 handover_mod_df <- readRDS("data/handover_outputs.RDS") %>%
   `[[`("mod_dat") %>%
-  mutate(imd = fct_drop(imd))
+  mutate(imd = fct_drop(imd)) %>%
+  mutate(sex = factor(sex)) %>%
+  rename(arrival_time = hour)
 
 resp_mod_df <- readRDS("data/resp_outputs.RDS") %>%
   `[[`("mod_dat") %>%
-  mutate(imd = fct_drop(imd))
+  mutate(imd = fct_drop(imd)) %>%
+  mutate(sex = factor(sex)) %>%
+  rename(arrival_time = hour)
 
 time_ed_mod_df <- readRDS("data/time_ed_outputs.RDS") %>%
   `[[`("mod_dat") %>%
-  mutate(imd = fct_drop(imd))
+  mutate(imd = fct_drop(imd)) %>%
+  rename(arrival_time = hour)
 
 
 label_list <- list(
@@ -39,7 +44,7 @@ label_list <- list(
   sex = "Sex",
   imd = "Index of multiple deprivation decile",
   wkend = "Weekend",
-  hour = "Time of arrival",
+  arrival_time = "Time of arrival",
   arrival_month = "Month of arrival"#,
   # arrival_year = "Year of Arrival"
 )
@@ -143,7 +148,7 @@ label_list_downstream <- list(
 )
 
 
-tbl_summary(downstream_mod_df,
+downstream_demo_tbl <- tbl_summary(downstream_mod_df,
             include = c(dta_time,
                         perf,
                         age,
@@ -156,6 +161,19 @@ tbl_summary(downstream_mod_df,
             label = label_list_downstream,
             digits = list(perf = 1),
             statistic = list(c(perf) ~ "{median_pct} ({p25_pct}, {p75_pct})%")
-            ) %>%
-  gtsummary::as_gt() %>%
-  gt::gtsave("materials/downstream_demog_tab.html")
+            ) 
+
+
+
+
+
+tbl_merge(
+  list(resp_demo_tbl, handover_demo_tbl, time_ed_demo_tbl, downstream_demo_tbl),
+          tab_spanner = c(
+                          "Ambulance responses",
+                          "Ambulance handovers",
+                          "Patients in ED, non-admits",
+                          "IPLOS, 30-day readmission rate, 30-day mortality rate")
+) %>%
+  as_gt() %>%
+  gt::gtsave("materials/merged_demog_tab.html")
