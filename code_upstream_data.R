@@ -17,7 +17,9 @@ report_end <- '2024-06-01'
 n_hour <- 2
 
 # Site normalisation data
-site_resus_maj <- tibble(site = c("BRISTOL ROYAL INFIRMARY", "WESTON GENERAL HOSPITAL", "SOUTHMEAD HOSPITAL"), maj = c(16, 9, 14), resus = c(8, 4, 6)) %>%
+site_resus_maj <- tibble(site = c("BRISTOL ROYAL INFIRMARY", "WESTON GENERAL HOSPITAL", "SOUTHMEAD HOSPITAL"),
+                         maj = c(16, 9, 14),
+                         resus = c(8, 4, 6)) %>%
   mutate(total = maj + resus)
 
 # sequence of time snapshots (i.e. when we measure DTA queue)
