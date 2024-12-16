@@ -12,15 +12,15 @@ plot_df <- los_effect_output$los_mod_df
 
 wrap <- 30
 
-ylab_mort <- str_wrap("30-day mortality rate", wrap)
-ylab_readm <- str_wrap("30-day readmission rate", wrap)
-ylab_los <- str_wrap("In-hospital length of stay (day)", wrap)
-xlab <- "Duration between DTA and admission (hours)"
+ylab_mort <- str_wrap("30-day mortality rate (OM6)", wrap)
+ylab_readm <- str_wrap("30-day readmission rate (OM5)", wrap)
+ylab_los <- str_wrap("Inpatient length of stay (OM4)", wrap)
+xlab <- "Medicine boarding time"
 
 patchwork::wrap_plots(
-                      los_effect_output$los_effect_plot + facet_grid(.~"In-hospital length of stay (day)") + scale_y_continuous(limits = c(5, NA)) + labs(y = "", x = xlab),
-                      readm_effect_plot + facet_grid(.~"30-day readmission rate") + scale_y_continuous(limits = c(0, NA), labels = scales::percent) + labs(y = "", x = xlab),
-                      mort_effect_plot + facet_grid(.~"30-day mortality rate") + scale_y_continuous(limits = c(0, NA), labels = scales::percent) + labs(y = "", x = xlab),
+                      los_effect_output$los_effect_plot + facet_grid(.~"Inpatient length of stay (OM4)") + scale_y_continuous(limits = c(5, NA)) + labs(y = "", x = xlab),
+                      readm_effect_plot + facet_grid(.~"30-day readmission rate (OM5)") + scale_y_continuous(limits = c(0, NA), labels = scales::percent) + labs(y = "", x = xlab),
+                      mort_effect_plot + facet_grid(.~"30-day mortality rate (OM6)") + scale_y_continuous(limits = c(0, NA), labels = scales::percent) + labs(y = "", x = xlab),
                       nrow = 1, axes = "collect_x")
 # patchwork::wrap_plots(
 #                       los_effect_output$los_effect_plot + facet_grid(.~"In-hospital length of stay (day)") + scale_y_continuous(limits = c(2, 16)) + labs(y = "", x = xlab),
@@ -98,7 +98,7 @@ mod_df_raw <- mort_effect_output$mod_df
 mort_or <- mort_effect_output$mort_mod_raw %>%
   update(. ~ . -dta_time + I(dta_time/(4))) %>%
   broom::tidy(conf.int = TRUE) %>%
-  filter(str_detect(term, "dta_time"))%>%
+  filter(str_detect(term, "perf"))%>%
   select(estimate, conf.low, conf.high, p.value)
   
 
@@ -112,7 +112,7 @@ readm_or <- readm_effect_output$readm_mod_raw %>%
     
 mort_or %>%
   mutate(across(-p.value, exp)) %>%
-  mutate(across(-p.value, \(x) 100*(rr_fn(x, 0.04)-1), .names = "rr_{.col}"))
+  mutate(across(-p.value, \(x) 100*(rr_fn(x, 0.05)-1), .names = "rr_{.col}"))
 
 readm_or %>%
   mutate(across(-p.value, exp)) %>%

@@ -10,14 +10,14 @@ ed_time_outputs <- readRDS("data/time_ed_outputs.RDS")
 
 bin_acc <- 0.05
 cut_off <- 1.1
-x_lab <- "DTA queue as a percentage of cubicle capacity"
+x_lab <- "Medicine boarding as a percentage of ED bedded capacity"
 
-targets <- tribble(~outcome, ~target, ~quantile,
-                   "Time in ED for non-admits (min), standardised", 240, .95,
-                   "Ambulance handover time (min), standardised", 30, .95,
-                   "Ambulance response time (min) [999 Category 1 call], standardised", 15, .9,
-                   "Ambulance response time (min) [999 Category 2 call], standardised", 40, .9,
-                   "Ambulance response time (min) [999 Category 3 call], standardised", 120, .9
+targets <- tribble(~outcome, ~measure, ~target, ~quantile,
+                   "Time until ED treatment for non-admitted patients (OM3)", "(OM3)", 240, .78,
+                   "Ambulance handover time (OM2)", "(OM2)", 30, .90,
+                   "Ambulance response time [Category 1]", "(OM1a)", 15, .9,
+                   "Ambulance response time [Category 2]", "(OM1b)", 40, .9,
+                   "Ambulance response time [Category 3]", "(OM1c)", 120, .9
 )
 
 upstream_plots <- resp_outputs$plot_dat %>%
@@ -28,7 +28,7 @@ upstream_plots <- resp_outputs$plot_dat %>%
       select(n_dta_norm, response = response_adj_inv) %>%
       mutate(
         outcome = as.character(glue::glue(
-          "Ambulance response time (min) [999 Category {str_remove_all(y, 'cat')} call], standardised"
+          "Ambulance response time [Category {str_remove_all(y, 'cat')}]"
         )
         ))
   })) %>%
@@ -37,12 +37,12 @@ upstream_plots <- resp_outputs$plot_dat %>%
   bind_rows(
     handover_outputs$plot_df %>%
       select(n_dta_norm, response = handover_adj_inv) %>%
-      mutate(response = response/60, outcome = "Ambulance handover time (min), standardised")
+      mutate(response = response/60, outcome = "Ambulance handover time (OM2)")
   ) %>%
   bind_rows(
     ed_time_outputs$plot_df %>%
       select(n_dta_norm, response = trt_adj_inv) %>%
-      mutate(outcome = "Time in ED for non-admits (min), standardised")
+      mutate(outcome = "Time until ED treatment for non-admitted patients (OM3)")
   )  %>% 
   mutate(n_dta_norm = plyr::round_any(n_dta_norm, accuracy = bin_acc, f = \(x) floor(0.5 + x))) %>%
   filter(n_dta_norm >= 0.05) %>%
@@ -56,14 +56,14 @@ upstream_plots <- resp_outputs$plot_dat %>%
     \(data, target)
     ggplot(data = data, ,mapping = aes(x = n_dta_norm, y = response)) +
       geom_boxplot(mapping = aes(group = cut_width(n_dta_norm, width = bin_acc)), outliers = FALSE, fatten = NULL) +
+      geom_hline(aes(yintercept = target), col = "red", linetype = 2) +
+      geom_point(aes(y = target, col = "National target")) +
       stat_summary(
         fun = ~ mean(.x),
         geom = "point",
         col = "black",
-        aes(col = "Mean", shape = "Mean")
+        aes(col = "Mean", shape = "Mean (data)")
       ) +
-      geom_hline(aes(yintercept = target), col = "red", linetype = 2) +
-      geom_point(aes(y = target, col = "National target")) +
       geom_point(aes(y = response_q, shape = "Comparator quantile"), col = "black") +
       theme_minimal() +
       scale_colour_manual(
@@ -79,7 +79,8 @@ upstream_plots <- resp_outputs$plot_dat %>%
                          breaks = c("Mean", "Comparator quantile"),
                          # guide = guide_legend(override.aes = list(size = 3, alpha = 1))
       ) +
-      theme(panel.grid.major.x = element_line(color = "grey65", size = 0.3))
+      theme(panel.grid.major.x = element_line(color = "grey65", size = 0.3)) +
+      guides(colour = guide_legend(order = 1))
   )) %>%
   mutate(plot = map(plot, \(x) x + labs(x = x_lab, colour = "", shape = "", y = str_remove_all(outcome, " \\[.*\\]"))))
 
@@ -98,16 +99,21 @@ upstream_plots$plot <- modify_at(upstream_plots$plot, .at = c(1, 4), .f = \(x) x
                                                                  breaks = breaks_width(width = 60)))
 
 ptc_1 <- upstream_plots %>%
-  filter(!str_detect(outcome, "999")) %>%
+  filter(!str_detect(outcome, "Category")) %>%
   pull(plot) %>%
   wrap_plots(axes = "collect", ncol = 1)
 
+
+
 ptc_2 <- upstream_plots %>%
-  filter(str_detect(outcome, "999")) %>%
-  mutate(plot = map2(plot, outcome, \(x, y) x + facet_grid(.~str_remove_all(str_extract(y, "\\[.*\\]"), "\\[|\\]")))) %>%
+  filter(str_detect(outcome, "Category")) %>%
+  mutate(outcome = str_c(str_remove_all(outcome, "\\]"), " ", measure, "]")) %>%
+  mutate(outcome = str_remove_all(str_extract(outcome, "\\[.*\\]"), "\\[|\\]")) %>%
+  mutate(plot = map2(plot, outcome, \(x, y) x + facet_grid(.~c(y)))) %>%
   arrange(outcome) %>%
   pull(plot) %>%
   wrap_plots(axes = "collect", ncol = 1)
+
 
 upstream_out <- wrap_plots(ptc_2 | ptc_1,
            axes = "collect",

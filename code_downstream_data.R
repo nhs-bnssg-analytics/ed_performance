@@ -118,9 +118,77 @@ dat_ecds<-dat_ecds_raw %>%
   ungroup()
 
 
-dat_ecds_perf <- dat_ecds %>%
-  group_by(site, arrival_hour = floor_date(arrival_dt, unit = "hour")) %>%
-  summarise(perf = 1-mean(breach))
+# ED perf, for all patients
+
+dat_ecds_perf <- glue::glue(
+  "select
+NHS_Number,
+                        Arrival_Date,
+                        Arrival_Time,
+                        Initial_Assessment_Date,
+                        Initial_Assessment_Time,
+                        Seen_For_Treatment_Date,
+                        Seen_For_Treatment_Time,
+                        Decision_To_Admit_Date,
+                        Decision_To_Admit_Time,
+                        Departure_Date,
+                        Departure_Time,
+                        Conclusion_Date,
+                        Conclusion_Time,
+                        Site_Name,
+                        Acuity_Desc,
+                        Index_Of_Multiple_Deprivation,
+                        Stated_Gender,
+                        HES_Age_At_Arrival,
+                        Organisation_Code_Commissioner,
+                        Arrival_Mode_Desc,
+                        Arrival_Category_Desc,
+                        Attendance_Source_Desc,
+                        destination_desc,
+                        Chief_Complaint_Desc,
+                        Acuity_Desc,
+                        Diagnoses_Code_1_Desc,
+                        Investigation_Code_1_Desc,
+                        Treatment_Function_Code
+      FROM Analyst_SQL_Area.dbo.tbl_BNSSG_ECDS
+      where Site_Name in ('BRISTOL ROYAL INFIRMARY', 'SOUTHMEAD HOSPITAL', 'WESTON GENERAL HOSPITAL')
+      and Arrival_Date between '{ymd(report_start) - ddays(pre_window_days)}' and '{report_end}'
+      "
+) %>%
+  sqlQuery(con, .) %>% mutate(NHS_Number = as.character(NHS_Number)) %>%
+  mutate(Treatment_Function_Code = coalesce(as.character(Treatment_Function_Code, "Missing"))) %>%
+  mutate(arrival_dt=as.POSIXct(paste0(Arrival_Date," ",substr(Arrival_Time,1,8)),format="%Y-%m-%d %H:%M:%S")) %>%
+  mutate(initial_dt=as.POSIXct(paste0(Initial_Assessment_Date," ",substr(Initial_Assessment_Time,1,8)),format="%Y-%m-%d %H:%M:%S")) %>%
+  mutate(treatment_dt=as.POSIXct(paste0(Seen_For_Treatment_Date," ",substr(Seen_For_Treatment_Time,1,8)),format="%Y-%m-%d %H:%M:%S")) %>%
+  mutate(dta_dt=paste0(Decision_To_Admit_Date," ",substr(Decision_To_Admit_Time,1,8))) %>%
+  mutate(dta_dt=as.POSIXct(ifelse(grepl("NA",dta_dt),NA,dta_dt),format="%Y-%m-%d %H:%M:%S")) %>%
+  mutate(departure_dt=as.POSIXct(paste0(Departure_Date," ",substr(Departure_Time,1,8)),format="%Y-%m-%d %H:%M:%S")) %>%
+  mutate(conclusion_dt=as.POSIXct(paste0(Conclusion_Date," ",substr(Conclusion_Time,1,8)),format="%Y-%m-%d %H:%M:%S")) %>%
+  select(
+    nhs_number = NHS_Number,
+    arrival_dt,
+    initial_dt,
+    treatment_dt,
+    dta_dt,
+    departure_dt,
+    conclusion_dt,
+    site = Site_Name
+  ) %>%
+  rowwise() %>%
+  mutate(departure_dt=max(dta_dt,departure_dt, conclusion_dt, na.rm=TRUE)) %>%
+  # mutate(departure_dt=max(departure_dt, conclusion_dt, na.rm=TRUE)) %>%
+  ungroup() %>%
+  mutate(dta_time = interval(dta_dt, departure_dt)/dminutes(1)) %>%
+  mutate(ed_time = interval(arrival_dt, departure_dt)/dminutes(1)) %>%
+  mutate(breach = (interval(arrival_dt, departure_dt)/dminutes(1)) > 4*60) %>%
+  mutate(arrival_hour = ceiling_date(arrival_dt, unit = "4 hour")) %>%
+  filter(!between(arrival_hour, ymd("2022-04-01"), ymd("2022-07-10"))) %>%
+  # Remove rows for weston out of hours
+  filter(!(site == "WESTON GENERAL HOSPITAL" & hour(arrival_dt) %in% c(10:12, 1:7))) %>%
+  group_by(site, arrival_hour) %>%
+  summarise(perf = 1-mean(breach)) %>%
+  ungroup()
+  
 
 # compute the number of previous ed attendances/admissions from index event
 # index here is the FIRST ed attendance with admission in the study period
@@ -562,7 +630,7 @@ dat_adm <- dat_ecds %>%
     # diagnoses,
     # investigation
   ) %>%
-  mutate(arrival_hour = floor_date(arrival_dt, "hour")) %>%
+  mutate(arrival_hour = ceiling_date(arrival_dt, "4 hour")) %>%
   left_join(dat_ecds_perf) %>%
   left_join(dat_ecds_n_ed) %>%
   left_join(dat_scores) %>%
@@ -587,7 +655,6 @@ dat_adm <- readRDS("data/dat_adm_final.RDS")
 #   juice()
 
 dat_adm <- na.omit(dat_adm)
-
 
 t_max <- 24*60
 
