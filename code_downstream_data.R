@@ -73,7 +73,88 @@ dat_ecds_raw<-sqlQuery(con,string_ecds)
 saveRDS(dat_ecds_raw, "data/dat_ecds_raw.RDS")
 dat_ecds_raw <- readRDS("data/dat_ecds_raw.RDS")
 
+string_ecds_full <-glue::glue("select 
+                        NHS_Number,
+                        Arrival_Date,
+                        Arrival_Time,
+                        Initial_Assessment_Date,
+                        Initial_Assessment_Time,
+                        Seen_For_Treatment_Date,
+                        Seen_For_Treatment_Time,
+                        Decision_To_Admit_Date,
+                        Decision_To_Admit_Time,
+                        Departure_Date,
+                        Departure_Time,
+                        Conclusion_Date,
+                        Conclusion_Time,
+                        Site_Name,
+                        Acuity_Desc,
+                        Index_Of_Multiple_Deprivation,
+                        Stated_Gender,
+                        HES_Age_At_Arrival,
+                        Organisation_Code_Commissioner,
+                        Arrival_Mode_Desc,
+                        Arrival_Category_Desc,
+                        Attendance_Source_Desc,
+                        destination_desc,
+                        Chief_Complaint_Desc,
+                        Acuity_Desc,
+                        Diagnoses_Code_1_Desc,
+                        Investigation_Code_1_Desc,
+                        Treatment_Function_Code
+      FROM Analyst_SQL_Area.dbo.tbl_BNSSG_ECDS
+      where Site_Name in ('BRISTOL ROYAL INFIRMARY', 'SOUTHMEAD HOSPITAL', 'WESTON GENERAL HOSPITAL')
+      and Arrival_Date between '{ymd(report_start) - ddays(pre_window_days)}' and '{report_end}'
+      ")
+
+dat_ecds_full_raw<-sqlQuery(con,string_ecds_full)
+
+
 dat_ecds<-dat_ecds_raw %>%
+  filter(Organisation_Code_Commissioner == '15C') %>% # filter for 15C as we can not pick up deaths for non BNSSG patients
+  mutate(NHS_Number = as.character(NHS_Number)) %>%
+  mutate(Treatment_Function_Code = coalesce(as.character(Treatment_Function_Code, "Missing"))) %>%
+  mutate(arrival_dt=as.POSIXct(paste0(Arrival_Date," ",substr(Arrival_Time,1,8)),format="%Y-%m-%d %H:%M:%S")) %>%
+  mutate(initial_dt=as.POSIXct(paste0(Initial_Assessment_Date," ",substr(Initial_Assessment_Time,1,8)),format="%Y-%m-%d %H:%M:%S")) %>%
+  mutate(treatment_dt=as.POSIXct(paste0(Seen_For_Treatment_Date," ",substr(Seen_For_Treatment_Time,1,8)),format="%Y-%m-%d %H:%M:%S")) %>%
+  mutate(dta_dt=paste0(Decision_To_Admit_Date," ",substr(Decision_To_Admit_Time,1,8))) %>%
+  mutate(dta_dt=as.POSIXct(ifelse(grepl("NA",dta_dt),NA,dta_dt),format="%Y-%m-%d %H:%M:%S")) %>%
+  mutate(departure_dt=as.POSIXct(paste0(Departure_Date," ",substr(Departure_Time,1,8)),format="%Y-%m-%d %H:%M:%S")) %>%
+  mutate(conclusion_dt=as.POSIXct(paste0(Conclusion_Date," ",substr(Conclusion_Time,1,8)),format="%Y-%m-%d %H:%M:%S")) %>%
+  select(
+    nhs_number = NHS_Number,
+    tfc = Treatment_Function_Code,
+    imd = Index_Of_Multiple_Deprivation,
+    sex = Stated_Gender,
+    age = HES_Age_At_Arrival,
+    arrival_dt,
+    initial_dt,
+    treatment_dt,
+    dta_dt,
+    departure_dt,
+    conclusion_dt,
+    site = Site_Name,
+    Acuity_Desc,
+    arrival_mode = Arrival_Mode_Desc,
+    arrival_cat = Arrival_Category_Desc,
+    diagnoses = Diagnoses_Code_1_Desc,
+    investigation = Investigation_Code_1_Desc
+  ) %>%
+  rowwise() %>%
+  mutate(departure_dt=max(dta_dt,departure_dt, conclusion_dt, na.rm=TRUE)) %>%
+  # mutate(departure_dt=max(departure_dt, conclusion_dt, na.rm=TRUE)) %>%
+  ungroup() %>%
+  mutate(dta_time = interval(dta_dt, departure_dt)/dminutes(1)) %>%
+  mutate(ed_time = interval(arrival_dt, departure_dt)/dminutes(1)) %>%
+  mutate(breach = (interval(arrival_dt, departure_dt)/dminutes(1)) > 4*60) %>%
+  mutate(date=floor_date(departure_dt,"day")) %>%
+  mutate(ed_category=case_when(Acuity_Desc %in% c("Non-urgent level emergency care","Standard level emergency care") ~ "minor",
+                               TRUE~"major")) %>%
+  group_by(nhs_number, arrival_dt) %>%
+  mutate(arr_id = cur_group_id()) %>%
+  ungroup()
+
+dat_ecds_full <- dat_ecds_full_raw %>%
   filter(Organisation_Code_Commissioner == '15C') %>% # filter for 15C as we can not pick up deaths for non BNSSG patients
   mutate(NHS_Number = as.character(NHS_Number)) %>%
   mutate(Treatment_Function_Code = coalesce(as.character(Treatment_Function_Code, "Missing"))) %>%
@@ -192,7 +273,39 @@ NHS_Number,
 
 # compute the number of previous ed attendances/admissions from index event
 # index here is the FIRST ed attendance with admission in the study period
-dat_ecds_n_ed <- 
+# (DEPRECATED) this changed because I filtered the ECDS source for less destinations
+# dat_ecds_n_ed <- 
+#   dat_ecds %>%
+#   select(nhs_number, arrival_dt, dta_dt) %>%
+#   mutate(
+#     arrival_day = floor_date(arrival_dt, "days"),
+#     dta_day = floor_date(dta_dt, "days")
+#     
+#   ) %>%
+#   distinct() %>%
+#   filter(!is.na(nhs_number)) %>%
+#   arrange(nhs_number, arrival_day) %>%
+#   group_by(nhs_number, arrival_day) %>%
+#   # for any given patient & day of arrival, take the last record (if there is
+#   # more than one)
+#   slice_max(arrival_dt, na_rm = TRUE) %>%
+#   # filter(arrival_dt == max(arrival_dt, na.rm = TRUE)) %>%
+#   group_by(nhs_number) %>%
+#   # remove patients that never DTA
+#   filter(!all(is.na(dta_dt))) %>%
+#   # earliest arrival with dta
+#   mutate(min_arr = arrival_day[which.min(dta_dt)]) %>%
+#   # remove ed attendances after the min DTA date
+#   filter(arrival_day <= min_arr) %>%
+#   mutate(arr_diff = (min_arr - lag(arrival_day))/ddays(1)) %>%
+#   mutate(n_ed = sum(na.omit(arr_diff) < pre_window_days)) %>%
+#   mutate(n_adm = sum(na.omit(arr_diff[!is.na(dta_dt)]) < pre_window_days)) %>%
+#   mutate(n_ed = ifelse(n_ed > 0, n_ed -1, 0)) %>%
+#   mutate(n_adm = ifelse(n_adm > 0, n_adm -1, 0)) %>%
+#   select(nhs_number, n_ed, n_adm) %>%
+#   distinct()
+
+dat_dtas <- 
   dat_ecds %>%
   select(nhs_number, arrival_dt, dta_dt) %>%
   mutate(
@@ -212,17 +325,30 @@ dat_ecds_n_ed <-
   # remove patients that never DTA
   filter(!all(is.na(dta_dt))) %>%
   # earliest arrival with dta
-  mutate(min_arr = arrival_day[which.min(dta_dt)]) %>%
-  # remove ed attendances after the min DTA date
-  filter(arrival_day <= min_arr) %>%
-  mutate(arr_diff = (min_arr - lag(arrival_day))/ddays(1)) %>%
-  mutate(n_ed = sum(na.omit(arr_diff) < pre_window_days)) %>%
-  mutate(n_adm = sum(na.omit(arr_diff[!is.na(dta_dt)]) < pre_window_days)) %>%
-  mutate(n_ed = ifelse(n_ed > 0, n_ed -1, 0)) %>%
-  mutate(n_adm = ifelse(n_adm > 0, n_adm -1, 0)) %>%
-  select(nhs_number, n_ed, n_adm) %>%
+  slice_min(dta_dt) %>%
+  group_by(nhs_number, dta_day) %>%
+  mutate(id = cur_group_id()) %>%
+  ungroup()
+
+
+dat_ed_attends <- 
+  dat_ecds_full %>%
+  select(nhs_number, pre_arrival_dt = arrival_dt) %>%
   distinct()
 
+
+dat_pre_attends <- dat_dtas %>%
+  left_join(dat_ed_attends) %>%
+  filter(pre_arrival_dt < arrival_dt) %>%
+  filter(between(pre_arrival_dt, arrival_dt - ddays(pre_window_days), arrival_dt)) %>%
+  group_by(id) %>%
+  count(name = "n_ed")
+  
+dat_ecds_n_ed <- dat_dtas %>%
+  left_join(dat_pre_attends) %>%
+  mutate(n_ed = coalesce(n_ed, 0)) %>%
+  select(nhs_number, n_ed) %>%
+  distinct()
 
 # arrivals for joining to sus
 arrivals <- 

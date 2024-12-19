@@ -62,12 +62,12 @@ upstream_plots <- resp_outputs$plot_dat %>%
         fun = ~ mean(.x),
         geom = "point",
         col = "black",
-        aes(col = "Mean", shape = "Mean (data)")
+        aes(col = "Empirical mean", shape = "Empirical mean")
       ) +
-      geom_point(aes(y = response_q, shape = "Comparator quantile"), col = "black") +
+      geom_point(aes(y = response_q, shape = "Target"), col = "black") +
       theme_minimal() +
       scale_colour_manual(
-        values = c("Mean" = "black", "Comparator quantile"= "black", "National target" = "red"),
+        values = c("Empirical mean" = "black", "Target"= "black", "National target" = "red"),
       ) +
       scale_x_continuous(labels = scales::percent,
                          breaks = scales::breaks_width(0.25)) +
@@ -76,7 +76,7 @@ upstream_plots <- resp_outputs$plot_dat %>%
       ) +
       scale_y_continuous(limits = c(0, NA), expand = expansion(mult = c(0, 0.05))) +
       scale_shape_manual(values = c(17, 19),
-                         breaks = c("Mean", "Comparator quantile"),
+                         breaks = c("Empirical mean", "Target"),
                          # guide = guide_legend(override.aes = list(size = 3, alpha = 1))
       ) +
       theme(panel.grid.major.x = element_line(color = "grey65", size = 0.3)) +
@@ -131,7 +131,6 @@ ggplot2::ggsave("materials/upstream_standard_110.png",
                 height = 12.5,
                 width = 15.0, 
                 scale = 0.65)
-
 
 
 # Headline outputs

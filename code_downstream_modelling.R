@@ -58,7 +58,6 @@ roc_stab <- roc_stability %>%
   summarise(mean_auc = mean(auc), u_auc = quantile(auc, 0.975), l_auc = quantile(auc, 0.025))
 
 
-
 mod_raw <- glm(
   formula = mort_30 ~ . 
   # + I(dta_time ^ 2)

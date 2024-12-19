@@ -15,7 +15,7 @@ wrap <- 30
 ylab_mort <- str_wrap("30-day mortality rate (OM6)", wrap)
 ylab_readm <- str_wrap("30-day readmission rate (OM5)", wrap)
 ylab_los <- str_wrap("Inpatient length of stay (OM4)", wrap)
-xlab <- "Medicine boarding time"
+xlab <- "Medical boarding time"
 
 patchwork::wrap_plots(
                       los_effect_output$los_effect_plot + facet_grid(.~"Inpatient length of stay (OM4)") + scale_y_continuous(limits = c(5, NA)) + labs(y = "", x = xlab),
@@ -31,7 +31,7 @@ patchwork::wrap_plots(
 ggsave("materials/effects_plot_patch_1row.png",
        last_plot(),
        bg = "white",
-       height = 5,
+       height = 4.75,
        width = 10, 
        scale = 0.7)
 
@@ -57,12 +57,34 @@ label_list_downstream <- list(
 )
 
 
-reg_table_mort <- mort_effect_output$mort_mod_raw %>% gtsummary::tbl_regression(exponentiate = TRUE,
-                                                              estimate_fun = purrr::partial(gtsummary::style_ratio, digits = 3),
-  label = label_list_downstream
-) %>% gtsummary::add_glance_table(include = c(nobs)) 
+my_tidy <- function(x, exponentiate =  TRUE, conf.level = 0.95, ...) {
+  browser()
+  dplyr::bind_cols(
+    broom::tidy(x, exponentiate = exponentiate, conf.int = FALSE),
+    # calculate the confidence intervals, and save them in a tibble
+    exp(stats::confint.default(x)) %>%
+      tibble::as_tibble() %>%
+      rlang::set_names(c("conf.low", "conf.high"))  )
+}
+
+reg_table_mort <-
+  mort_effect_output$mort_mod_raw %>%
+  gtsummary::tbl_regression(
+    tidy_fun = my_tidy,
+    exponentiate = TRUE,
+    estimate_fun = purrr::partial(gtsummary::style_ratio, digits = 3),
+    label = label_list_downstream
+  ) %>%
+  gtsummary::add_glance_table(include = c(nobs))
+
 
 # %>%
+#     gtsummary::modify_fmt_fun(
+#       # p.value = label_style_pvalue(digits = 3),
+#       c(conf.high) ~ function(x) scales::scientific(x),
+#       rows = variable == "n_ed"
+#     )
+
 # gtsummary::as_gt() %>%
 # gt::tab_header(
 # title = gt::md("**30-day Mortality**")) %>%
@@ -97,9 +119,11 @@ mod_df_raw <- mort_effect_output$mod_df
 
 mort_or <- mort_effect_output$mort_mod_raw %>%
   update(. ~ . -dta_time + I(dta_time/(4))) %>%
-  broom::tidy(conf.int = TRUE) %>%
-  filter(str_detect(term, "perf"))%>%
+  broom::tidy(conf.int = TRUE, exponentiate = TRUE) %>%
+  filter(str_detect(term, "dta_time"))%>%
   select(estimate, conf.low, conf.high, p.value)
+
+mort_or[1, 1:3] %>% flatten() %>% as.numeric() - 1 
   
 
 mod_df_raw <- readm_effect_output$mod_df
@@ -109,10 +133,12 @@ readm_or <- readm_effect_output$readm_mod_raw %>%
   filter(str_detect(term, "dta_time"))%>%
   select(estimate, conf.low, conf.high, p.value)
 
+
+readm_or[1, 1:3] %>% flatten() %>% as.numeric() - 1 
     
 mort_or %>%
   mutate(across(-p.value, exp)) %>%
-  mutate(across(-p.value, \(x) 100*(rr_fn(x, 0.05)-1), .names = "rr_{.col}"))
+  mutate(across(-p.value, \(x) 100*(rr_fn(x, 0.04)-1), .names = "rr_{.col}"))
 
 readm_or %>%
   mutate(across(-p.value, exp)) %>%
