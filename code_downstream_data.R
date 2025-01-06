@@ -6,6 +6,7 @@ require(lubridate)
 library(feasts)
 library(tidymodels)
 library(comorbidity)
+library(magrittr)
 
 source("theme.R")
 source("colour_functions.R")
@@ -731,7 +732,7 @@ dat_adm <- dat_ecds %>%
   filter(arrival_dt < ymd(report_end) - ddays(days_outcome_window)) %>%
   left_join(dat_spec) %>% 
   filter(spec == "medical") %>%
-  mutate(nhs_number = as.character(nhs_number)) %>%
+  mutate(nhs_number = as.character(nhs_number)) %>% #%T>% nrow() %>%
   group_by(nhs_number) %>%
   slice_min(dta_dt, na_rm = TRUE) %>%
   filter(dta_time >= 0) %>% # some records are negative 0 exactly, seems to be DQ
