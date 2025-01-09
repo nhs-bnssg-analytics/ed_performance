@@ -23,9 +23,7 @@ lvl_props <- mod_df_raw %>%
 mod_eff <- effects::predictorEffect("dta_time", mod, fixed.predictors = list(given.values = lvl_props))
 
 
-
-
-set.seed(123)
+eff_full_gap <- map_dbl(1:1000, ~{
 test_samp <- mod_df_raw %>%
   sample_n(1000)
 
@@ -43,8 +41,43 @@ off <- 0L
 
 scoef <- ifelse(is.na(mod$coefficients), 0L, mod$coefficients)
 effect <- off + mod_mat %*% scoef
+  
+full_gap <- (predict(mod, test_samp, type = "response") %>%  sum()) - (predict(mod, mutate(test_samp, dta_time = 0), type = "response") %>%  sum())
+est_gap <- exp(effect) %>% sum()  
+
+full_gap-est_gap
+})
+
+library(marginaleffects)
+
+test_samp %>%
+  bind_rows(test_samp %>% mutate(dta_time = 0)) %>%
+  comparisons(mod, newdata = ., variables = "dta_time") 
+
+
+predictions(mod, mutate(test_samp, dta_time = 0)) %>%
+ as_data_frame() %>%
+ pull(estimate) %>%
+  sum()
+
+mod_mat <- mod_eff$model.matrix %>%
+  as_tibble() %>%
+  dplyr::select(-dta_time) %>%
+  unique() %>%
+  expand_grid(dta_time = mod_df_raw$dta_time) %>%
+  relocate(dta_time, .after = which(names(mod$coefficients) == "dta_time")) %>%
+  as.matrix()
+
+off <- 0L
+
+scoef <- ifelse(is.na(mod$coefficients), 0L, mod$coefficients)
+effect <- off + mod_mat %*% scoef
 
 exp(effect) %>% sum()
+
+(predict(mod, mod_df_raw, type = "response") %>%  sum()) - (predict(mod, mutate(mod_df_raw, dta_time = 0), type = "response") %>%  sum())
+
+
 
 
 # standardised mortality model
