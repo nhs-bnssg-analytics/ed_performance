@@ -23,6 +23,48 @@ lvl_props <- mod_df_raw %>%
 mod_eff <- effects::predictorEffect("dta_time", mod, fixed.predictors = list(given.values = lvl_props))
 
 
+# empirical distribution of vw_score
+
+rvw <- partial(EnvStats::remp, obs = as.numeric(mod_df_raw$vw_score))
+
+# impute with bagged trees
+
+library(tidymodels)
+
+
+impute_rec <- recipe(mort_30 ~ ., data = mod_df_raw) %>%
+  step_impute_knn(vw_score) %>%
+  prep()
+
+n_s <- 100
+
+res_cf <- map_dbl(seq_len(1000), ~{
+test_samp <- mod_df_raw %>%
+  sample_n(n_s)
+
+test_samp_synth <- 
+  test_samp %>%
+  mutate(vw_score = NA_real_) %>%
+  bake(impute_rec, new_data = .)
+
+
+raw_cf <- sum(predict(mod, test_samp, type = "response")) - sum(predict(mod, mutate(test_samp, dta_time = 0), type = "response"))
+synth_cf <- sum(predict(mod, test_samp_synth, type = "response")) - sum(predict(mod, mutate(test_samp_synth, dta_time = 0), type = "response"))
+
+(raw_cf - synth_cf)/raw_cf
+}
+)
+
+hist(res_cf)
+mean(res_cf)
+
+# synth_cf <- map_dbl(seq_len(1000), ~ {
+#   vws <- rvw(n_s)
+#   sum(predict(mod, mutate(test_samp, vw_score = vws), type = "response")) - sum(predict(mod, mutate(test_samp, dta_time = 0, vw_score = vws), type = "response"))
+# })
+
+raw_cf - synth_cf
+
 eff_full_gap <- map_dbl(1:1000, ~{
 test_samp <- mod_df_raw %>%
   sample_n(1000)
@@ -50,6 +92,9 @@ full_gap-est_gap
 
 library(marginaleffects)
 
+test_samp <- mod_df_raw %>%
+  sample_n(1000)
+
 test_samp %>%
   bind_rows(test_samp %>% mutate(dta_time = 0)) %>%
   comparisons(mod, newdata = ., variables = "dta_time") 
@@ -75,8 +120,11 @@ effect <- off + mod_mat %*% scoef
 
 exp(effect) %>% sum()
 
-(predict(mod, mod_df_raw, type = "response") %>%  sum()) - (predict(mod, mutate(mod_df_raw, dta_time = 0), type = "response") %>%  sum())
 
+# full data
+(predict(mod, mod_df_raw, type = "response") %>%  sum()) - (predict(mod, mutate(mod_df_raw, dta_time = 0), type = "response") %>%  sum())
+# synthetic data
+(predict(mod, mutate(mod_df_raw, vw_score = 6.305284), type = "response") %>%  sum()) - (predict(mod, mutate(mod_df_raw, vw_score = 6.305284, dta_time = 0), type = "response") %>%  sum())
 
 
 
