@@ -8,9 +8,30 @@ library(tidymodels)
 con_string <- "driver={SQL Server};\n  server=Xsw-00-ash01;\n  trusted_connection=true"
 con<-odbcDriverConnect(con_string)
 
-report_start <- '2025-01-13'
-report_end <- '2025-01-20'
+report_start <- '2024-07-01'
+report_end <- '2024-07-07'
 n_hour <- 2
+
+bin_acc <- 0.01
+
+
+handover_coef <- readRDS("data/handover_outputs.RDS") %>%
+  `[[`("full_mod") %>%
+  `[[`("coefficients") %>%
+  `[`("n_dta_norm")
+
+ed_time_coef <- readRDS("data/time_ed_outputs.RDS") %>%
+  `[[`("full_mod") %>%
+  `[[`("coefficients") %>%
+  `[`("n_dta_norm")
+
+
+resp_coef <- readRDS("data/resp_outputs.RDS")  %>%
+  `[[`("full_mod") %>%
+  map(~.x %>%  `[[`("coefficients") %>%
+        `[`("n_dta_norm"))
+
+
 
 # Site normalisation data
 site_resus_maj <- tibble(site = c("BRISTOL ROYAL INFIRMARY", "WESTON GENERAL HOSPITAL", "SOUTHMEAD HOSPITAL"),
@@ -32,6 +53,189 @@ sex_df <- readRDS("data/dat_attr_demog.RDS") %>%
   select(nhs_number, sex) %>%
   distinct()
 
+handover_arrivals <- local({
+  string_actv_swafst <- glue::glue(
+    "SELECT DISTINCT
+    [ID]
+    ,[Derived_Pseudo_NHSNumber]
+    ,[Incident_Number]
+    ,[Time_Of_Incident]
+    ,[CCG]
+    ,[Post_Code_Sector]
+    ,[Symptom_Group_Chief_Complaint]
+    ,[Pathways_AMPDS_Disposition]
+    ,[Managed_Incident]
+    ,[Incident_Colour]
+    ,[Incident_Colour_Split]
+    ,[Incident_Colour_Split_Full]
+    ,[Response_Target_1_Clock Start]
+    ,[Response_Target_2_Clock Start]
+    ,[Response_Target_1_Clock Stop]
+    ,[Response_Target_2_Clock Stop]
+    ,[Outcome]
+    ,[Conveyed_To_Ward_Type]
+   ,b.[OrganisationName] as 'Site_Name'
+    ,[First_Hospital_Attended]
+    ,[First_Ward_Attended]
+    ,[Time_of_Handover_at_First_Hospital_Attended]
+    ,[First_MIU_Attended]
+    ,[CCG_of_First_MIU_Attended]
+    ,[Number_of_Patients_Carried]
+    ,[Contract_Activity]
+    ,[Month_of_Call]
+    ,[Age_Bracket]
+    ,[Residential_or_Nursing_home_Location]
+    ,[Residential_or_Nursing_home_Location_Name]
+    ,[Authorising_Doctor_Practice]
+    ,[Authorising_Hospital]
+    ,[Booked_Pickup_Hospital]
+    ,[Booked_Pickup_Ward]
+    ,[Booked_Destination_Hospital]
+    ,[Booked_Destination_Ward]
+    ,[Local_Authority]
+    ,[Ward]
+    ,c.[Patient_Gender]
+    ,c.[Handover_Duration__seconds_]
+    ,[T0_Time_of_Call]
+    ,[T1_Time_Call_answered]
+    ,[Time_First_Core_Resource_Allocated]
+    ,[Time_Last_Core_Resource_Cleared]
+    ,[Mental_Health_Call_Indicator]
+    ,[Suicide_Call_Indicator]
+    ,[Provisional_Diagnosis]
+    ,[High_Intensity_User_Call_Indicator]
+    ,[SourceFileID]
+    ,c.[Time_Resource_Arrived_at_Receiving_Location]
+    ,c.[Time_of_Patient_Handover]
+    ,c.[Time_Clear]
+FROM [ABI].[dbo].[vw_UrgentCare_Ambulance_SWASFT] a
+LEFT JOIN [ABI].[Lard].[vw_Organisation_Lookup] b on a.[First_Hospital_Attended]=b.[OrganisationCode]
+LEFT JOIN [Analyst_SQL_Area].[dbo].[tbl_BNSSG_Datasets_SWAST_AR119] c on a.Incident_Number=c.Call_Number
+where Outcome = 'See & Convey' AND
+b.[OrganisationName] in ('BRISTOL ROYAL INFIRMARY', 'SOUTHMEAD HOSPITAL', 'WESTON GENERAL HOSPITAL') AND
+Conveyed_To_Ward_Type = 'A&E' AND
+  (CONVERT(DATE, [Time_Of_Incident]) > '{report_start}' OR
+  CONVERT(DATE, [T0_Time_of_Call]) > '{report_start}' OR
+  CONVERT(DATE, [T1_Time_Call_answered]) > '{report_start}' OR
+  CONVERT(DATE, [Time_First_Core_Resource_Allocated]) > '{report_start}' OR
+  CONVERT(DATE, [Time_Last_Core_Resource_Cleared]) > '{report_start}' OR
+  CONVERT(DATE, [Response_Target_1_Clock Start]) > '{report_start}' OR
+  CONVERT(DATE, [Response_Target_2_Clock Start]) > '{report_start}' OR
+  CONVERT(DATE, [Response_Target_1_Clock Stop]) > '{report_start}' OR
+  CONVERT(DATE, [Response_Target_2_Clock Stop]) > '{report_start}')"
+  )
+  
+  actv_swafst <- RODBC::sqlQuery(con, string_actv_swafst) %>%
+    mutate(handover_time = lubridate::parse_date_time(Time_of_Handover_at_First_Hospital_Attended, orders = "ymd HMS")) %>%
+    filter(handover_time <= report_end)
+  
+  handover_df <- actv_swafst %>%
+    group_by(site = Site_Name, Outcome) %>%
+    nest() %>%
+    mutate(handover_time = list(map2(
+      snapshot_int,
+      data,
+      ~ filter(.y, handover_time %within% .x) %>%
+        select(nhs_number = Derived_Pseudo_NHSNumber,
+               handover_time = Handover_Duration__seconds_)
+    ))) %>%
+    mutate(handover_df = map(handover_time, function(handover_time)
+      map2_df(handover_time, snapshot_seq, ~ bind_cols(tibble(dt = .y), .x)))) %>%
+    select(site, handover_df) %>%
+    unnest(handover_df) %>%
+    arrange(dt) %>%
+    group_by(site, dt) %>%
+    count() %>%
+    ungroup()
+    
+})
+
+
+call_responses <- local({
+  string_actv_swafst <- glue::glue(
+    "SELECT DISTINCT
+    [ID]
+    ,[Derived_Pseudo_NHSNumber]
+    ,c.[Patient_Gender]
+    ,[Incident_Number]
+    ,[Time_Of_Incident]
+    ,[CCG]
+    ,[Post_Code_Sector]
+    ,[Symptom_Group_Chief_Complaint]
+    ,[Pathways_AMPDS_Disposition]
+    ,[Managed_Incident]
+    ,[Incident_Colour]
+    ,[Incident_Colour_Split]
+    ,[Incident_Colour_Split_Full]
+    ,[Response_Target_1_Clock Start]
+    ,[Response_Target_2_Clock Start]
+    ,[Response_Target_1_Clock Stop]
+    ,[Response_Target_2_Clock Stop]
+    ,[Outcome]
+    ,[Conveyed_To_Ward_Type]
+    ,[First_Hospital_Attended]
+    ,[First_Ward_Attended]
+    ,[Time_of_Handover_at_First_Hospital_Attended]
+    ,[First_MIU_Attended]
+    ,[CCG_of_First_MIU_Attended]
+    ,[Number_of_Patients_Carried]
+    ,[Contract_Activity]
+    ,[Month_of_Call]
+    ,[Age_Bracket]
+    ,[Residential_or_Nursing_home_Location]
+    ,[Residential_or_Nursing_home_Location_Name]
+    ,[Authorising_Doctor_Practice]
+    ,[Authorising_Hospital]
+    ,[Booked_Pickup_Hospital]
+    ,[Booked_Pickup_Ward]
+    ,[Booked_Destination_Hospital]
+    ,[Booked_Destination_Ward]
+    ,[Local_Authority]
+    ,[Ward]
+    ,[T0_Time_of_Call]
+    ,[T1_Time_Call_answered]
+    ,[Time_First_Core_Resource_Allocated]
+    ,[Time_Last_Core_Resource_Cleared]
+    ,[Mental_Health_Call_Indicator]
+    ,[Suicide_Call_Indicator]
+    ,[Provisional_Diagnosis]
+    ,[High_Intensity_User_Call_Indicator]
+    ,[SourceFileID]
+FROM [ABI].[dbo].[vw_UrgentCare_Ambulance_SWASFT] a
+LEFT JOIN [Analyst_SQL_Area].[dbo].[tbl_BNSSG_Datasets_SWAST_AR119] c on a.Incident_Number=c.Call_Number
+where Outcome in ('See & Convey', 'See & Treat') 
+AND CCG = '15C'
+AND
+  CONVERT(DATE, [T0_Time_of_Call]) > '{report_start}'"
+  )
+  
+  actv_swafst <- RODBC::sqlQuery(con, string_actv_swafst)
+  
+  
+  response_time <- actv_swafst %>%
+    mutate(across(matches("Time|Clock"),
+                  .f = ~lubridate::parse_date_time(.x, orders = c("ymd_HMS", "dmy_HMS")))) %>%
+    filter(Outcome %in% c("See & Treat", "See & Convey"))  %>%
+    filter(T0_Time_of_Call >= ymd(report_start),
+           T0_Time_of_Call <= ymd(report_end) ) %>%
+    mutate(dt = floor_date(T0_Time_of_Call, glue::glue("{n_hour} hours")),
+           call_category = Incident_Colour,
+           response = (`Response_Target_1_Clock Stop` - `Response_Target_1_Clock Start`)/dminutes(1)) %>%
+    filter(call_category %in% str_c("Category ", c(1, 2, 3))) %>%
+    mutate(call_category = recode(call_category,
+                                  "Category 3"= "cat3",
+                                  "Category 2"= "cat2",
+                                  "Category 1"= "cat1")) %>%
+    mutate(nhs_number = as.character(Derived_Pseudo_NHSNumber)) %>%
+    select(nhs_number, dt, age = Age_Bracket, outcome = Outcome, call_category, response) %>%
+    group_by(dt) %>%
+    count() %>%
+    ungroup() %>%
+    mutate(site = "ICS")
+  
+  response_time 
+})
+
 
 
 dta_df <- local({
@@ -39,6 +243,7 @@ dta_df <- local({
   
   string_ecds<-glue::glue("select 
                         nhs_number,
+                        Attendance_Unique_Identifier,
                         Treatment_Function_Code,
                         Arrival_Date,
                         Arrival_Time,
@@ -83,7 +288,7 @@ dta_df <- local({
     mutate(dta_dt=paste0(Decision_To_Admit_Date," ",substr(Decision_To_Admit_Time,1,8))) %>%
     mutate(dta_dt=as.POSIXct(ifelse(grepl("NA",dta_dt),NA,dta_dt),format="%Y-%m-%d %H:%M:%S")) %>%
     mutate(departure_dt=as.POSIXct(paste0(Departure_Date," ",substr(Departure_Time,1,8)),format="%Y-%m-%d %H:%M:%S")) %>%
-    select(nhs_number, tfc = Treatment_Function_Code, Organisation_Code_Commissioner, arrival_dt,initial_dt,treatment_dt,dta_dt,departure_dt,Site_Name, Acuity_Desc) %>%
+    select(nhs_number, Attendance_Unique_Identifier,  tfc = Treatment_Function_Code, Organisation_Code_Commissioner, arrival_dt,initial_dt,treatment_dt,dta_dt,departure_dt,Site_Name, Acuity_Desc) %>%
     rowwise() %>%
     mutate(departure_dt=max(dta_dt,departure_dt,na.rm=TRUE)) %>%
     ungroup() %>%
@@ -95,6 +300,53 @@ dta_df <- local({
                                  TRUE~"major")) %>%
     mutate(arr_id = cur_group_id(), .by = c(nhs_number, arrival_dt)) 
   
+  
+  string_ecds_full<-glue::glue("select 
+                        nhs_number,
+                        Attendance_Unique_Identifier,
+                        Treatment_Function_Code,
+                        Arrival_Date,
+                        Arrival_Time,
+                        Initial_Assessment_Date,
+                        Initial_Assessment_Time,
+                        Seen_For_Treatment_Date,
+                        Seen_For_Treatment_Time,
+                        Decision_To_Admit_Date,
+                        Decision_To_Admit_Time,
+                        Organisation_Code_Commissioner,
+                        Departure_Date,
+                        Departure_Time,
+                        Site_Name,
+                        Acuity_Desc
+      FROM Analyst_SQL_Area.dbo.tbl_BNSSG_ECDS
+      where Site_Name in ('BRISTOL ROYAL INFIRMARY', 'SOUTHMEAD HOSPITAL', 'WESTON GENERAL HOSPITAL')
+      --and Treatment_Function_Code in (300, 326, 430)
+      and Arrival_Date between '{report_start}' and '{report_end}'
+      ")
+  dat_ecds_full_raw<-sqlQuery(con,string_ecds_full)
+  
+  dat_ecds_full<-dat_ecds_full_raw %>%
+    mutate(nhs_number = as.character(nhs_number)) %>%
+    mutate(arrival_dt=as.POSIXct(paste0(Arrival_Date," ",substr(Arrival_Time,1,8)),format="%Y-%m-%d %H:%M:%S")) %>%
+    mutate(initial_dt=as.POSIXct(paste0(Initial_Assessment_Date," ",substr(Initial_Assessment_Time,1,8)),format="%Y-%m-%d %H:%M:%S")) %>%
+    mutate(treatment_dt=as.POSIXct(paste0(Seen_For_Treatment_Date," ",substr(Seen_For_Treatment_Time,1,8)),format="%Y-%m-%d %H:%M:%S")) %>%
+    mutate(dta_dt=paste0(Decision_To_Admit_Date," ",substr(Decision_To_Admit_Time,1,8))) %>%
+    mutate(dta_dt=as.POSIXct(ifelse(grepl("NA",dta_dt),NA,dta_dt),format="%Y-%m-%d %H:%M:%S")) %>%
+    mutate(departure_dt=as.POSIXct(paste0(Departure_Date," ",substr(Departure_Time,1,8)),format="%Y-%m-%d %H:%M:%S")) %>%
+    select(nhs_number, Attendance_Unique_Identifier,  tfc = Treatment_Function_Code, Organisation_Code_Commissioner, arrival_dt,initial_dt,treatment_dt,dta_dt,departure_dt,Site_Name, Acuity_Desc) %>%
+    rowwise() %>%
+    mutate(departure_dt=max(dta_dt,departure_dt,na.rm=TRUE)) %>%
+    ungroup() %>%
+    mutate(dta_int = interval(dta_dt, departure_dt)) %>%
+    mutate(dta_time = dta_int/dminutes(1)) %>%
+    mutate(trt_time = interval(arrival_dt, treatment_dt)/dminutes(1)) %>%
+    mutate(date=floor_date(departure_dt,"day")) %>%
+    mutate(ed_category=case_when(Acuity_Desc %in% c("Non-urgent level emergency care","Standard level emergency care") ~ "minor",
+                                 TRUE~"major")) %>%
+    mutate(arr_id = cur_group_id(), .by = c(nhs_number, arrival_dt)) 
+  
+  
+  # arrivals that become dta
   arrivals <- 
     dat_ecds %>%
     filter(!is.na(dta_time),
@@ -104,8 +356,22 @@ dta_df <- local({
     group_by(nhs_number, arr_id) %>%
     summarise(
       tfc = tfc[1],
+      arrival_dt = arrival_dt, 
       departure_dt = as.Date(departure_dt)[1]
-    )
+    ) %>%
+    ungroup()
+  
+  # all arrivals
+  arrivals_full <- 
+    dat_ecds_full %>%
+    filter(arrival_dt >= report_start) %>%
+    group_by() %>%
+    summarise(
+      id = Attendance_Unique_Identifier,
+      site = Site_Name,
+      arrival_dt = arrival_dt, 
+    ) %>%
+    distinct()
   
   
   dat_spec <- arrivals %>%
@@ -114,41 +380,80 @@ dta_df <- local({
     #mutate(MainSpecialtyCode = ifelse(MainSpecialtyCode %in% c(300, 326, 430), "medical", "not medical")) %>% 
     #mutate(spec = ifelse(tfc == "medical" | MainSpecialtyCode == "medical", "medical", "not medical")) %>%
     select(nhs_number, arr_id, spec)
-  
+
   
   dat_dtas <- dat_ecds %>%
     left_join(dat_spec) %>%
     filter(spec == "medical") %>%
     group_by(site = Site_Name) %>%
     nest() %>%
-    mutate(dtas = list(map2_dbl(snapshot_seq, data, ~ sum(
-      .x %within% na.omit(.y$dta_int)
-    )))) %>%
+    mutate(dtas = list(map2_dbl(snapshot_seq, data, \(snapshot, data) sum(
+      snapshot %within% na.omit(data$dta_int)
+    ))))   %>%
+    mutate(arrivals = list(map2_dbl(snapshot_int,
+                                    site,
+                                    \(snapshot_int, site_id)
+                                    nrow(filter(arrivals_full, arrival_dt %within% snapshot_int, site == site_id))
+                                    )
+                           )
+           ) %>%
     mutate(dta_df = map(dtas, function(n_dta) map2_df(n_dta, snapshot_seq, ~tibble(dt = .y, n_dta = .x))))  %>%
-    select(site, dta_df) %>%
-    unnest(dta_df)
+    mutate(arrival_df = map(arrivals, function(n_arrival_all) map_df(n_arrival_all, ~tibble(n_arrival_all = .x)))) %>%
+    select(site, dta_df, arrival_df) %>%
+    unnest(cols = c(dta_df, arrival_df)) %>%
+    left_join(site_resus_maj) %>%
+    mutate(n_dta_norm = n_dta/total) %>%
+    ungroup()
+  
   dat_dtas
 })
 
 
-
-
-imd_df <- local({
+# all_arrival_impacts <- 
   
-  string_ecds<-glue::glue("select Arrival_Date,
-                        Arrival_Time,
-                        NHS_Number,
-                        Index_Of_Multiple_Deprivation
-      FROM Analyst_SQL_Area.dbo.tbl_BNSSG_ECDS
-      where Site_Name in ('BRISTOL ROYAL INFIRMARY', 'SOUTHMEAD HOSPITAL', 'WESTON GENERAL HOSPITAL')
-      and Arrival_Date between '{report_start}' and '{report_end}'
-      ")
-  dat_ecds_raw<-sqlQuery(con,string_ecds)
-  dat_ecds_raw %>%
-    group_by(nhs_number = NHS_Number) %>%
-    arrange(desc(Arrival_Time)) %>%
-    slice(1) %>%
-    mutate(nhs_number = as.character(nhs_number)) %>%
-    select(nhs_number, imd = Index_Of_Multiple_Deprivation)
-}) %>%
-  na.omit()
+  
+  dta_df %>%
+  select(site, dt, n_arrival_all, n_dta_norm) %>%
+  left_join(handover_arrivals) %>%
+  mutate(n_handover = coalesce(n, 0)) %>%
+  select(-n, -dt) %>%
+  mutate(
+         handover_impact = n_dta_norm * handover_coef * n_handover,
+         ed_time_impact = n_dta_norm * ed_time_coef * n_arrival_all,
+         # cat1_resp_impact = n_dta_norm * resp_coef$cat1 * n_arrival,
+         # cat2_resp_impact = n_dta_norm * resp_coef$cat2 * n_arrival,
+         # cat3_resp_impact = n_dta_norm * resp_coef$cat3 * n_arrival
+         ) %>%
+  select(-n_dta_norm) %>%
+  summarise(across(everything(), sum),
+            .by = site) %>%
+  mutate(
+    handover_impact_per_patient = handover_impact/n_handover,
+   ed_time_impact_per_patient = ed_time_impact/n_arrival_all)
+  
+  
+  %>%
+  mutate(across(-c(site, n_arrival_all, n_handover), .fns = list(per_arrival = \(x) x/n_arrival)))
+  
+  %>%
+  pivot_longer(cols = -c(site, n_arrival),
+               names_to = c("metric", "grp"),
+               names_sep = "_per_") %>%
+  mutate(grp = coalesce(grp, "full"))
+
+handover_arrivals %>%
+  select(site, n_arrival = n, n_dta_norm)
+
+
+
+
+
+%>%
+  ggplot(aes(y = str_remove(metric, "_impact"), x = value/60)) +
+  geom_col() +
+  ggh4x::facet_grid2(site~grp, scales = "free", independent = "x") +
+  labs(x = "Hours additional", y = "Impact")
+
+
+
+                          
