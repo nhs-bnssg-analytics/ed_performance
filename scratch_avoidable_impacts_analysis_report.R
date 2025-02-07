@@ -411,15 +411,17 @@ dta_df <- local({
 
 # all_arrival_impacts <- 
   
-  
-  dta_df %>%
+library(marquee)
+
+
+handover_impact <- dta_df %>%
   select(site, dt, n_arrival_all, n_dta_norm) %>%
   left_join(handover_arrivals) %>%
   mutate(n_handover = coalesce(n, 0)) %>%
   select(-n, -dt) %>%
   mutate(
          handover_impact = n_dta_norm * handover_coef * n_handover,
-         ed_time_impact = n_dta_norm * ed_time_coef * n_arrival_all,
+         # ed_time_impact = n_dta_norm * ed_time_coef * n_arrival_all,
          # cat1_resp_impact = n_dta_norm * resp_coef$cat1 * n_arrival,
          # cat2_resp_impact = n_dta_norm * resp_coef$cat2 * n_arrival,
          # cat3_resp_impact = n_dta_norm * resp_coef$cat3 * n_arrival
@@ -427,12 +429,44 @@ dta_df <- local({
   select(-n_dta_norm) %>%
   summarise(across(everything(), sum),
             .by = site) %>%
-  mutate(
-    handover_impact_per_patient = handover_impact/n_handover,
-   ed_time_impact_per_patient = ed_time_impact/n_arrival_all)
+  select(site, impact = handover_impact) %>%
+  mutate(label = glue::glue(.open = '-{',
+                            .close = '}-',
+                            ' Over the last 7 days patients waited an additional  
+                            
+                             ## {.#9532a8  **-{round(impact/60)}-**}  
+                            
+                             hours for {.#9532a8 ambulance handover}')) %>%
+  # mutate(label = glue::glue("<span style='color:blue'>{round(impact/60)}</span>"))%>%
+  nest(.by = site) 
+
+%>%
+  mutate(plot = map(data, \(d) {
+    ggplot(d, aes(x = 0, y = 0, label = label)) +
+      annotate(geom = "marquee", size = 10, width = 0.4, hjust = 0) +
+      theme_void()})) %>%
+  pull(plot)
+
+
+
+handover_impact$data[[1]] %>%
+  mutate(x = 1, y = 1)|> 
+  ggplot(aes(x, y)) +
+  geom_marquee(
+    aes(label = label),
+    size = 13,
+    width = 0.85,
+    style = classic_style(align = "justified-center"),
+    family = 'Source Sans Pro'
+  ) +
+  theme_void()
+
+
   
-  
-  %>%
+handover_impact$plot
+
+
+%>%
   mutate(across(-c(site, n_arrival_all, n_handover), .fns = list(per_arrival = \(x) x/n_arrival)))
   
   %>%
