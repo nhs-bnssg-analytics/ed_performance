@@ -3,13 +3,19 @@ require(RODBC)
 require(lubridate)
 library(feasts)
 library(tidymodels)
+library(patchwork)
+library(ggtext)
+library(marquee)
+library(extrafont)
 
 # upstream data
 con_string <- "driver={SQL Server};\n  server=Xsw-00-ash01;\n  trusted_connection=true"
 con<-odbcDriverConnect(con_string)
 
-report_start <- '2024-07-01'
-report_end <- '2024-07-07'
+report_start <- '2025-01-20'
+report_end <- '2025-01-27'
+# report_start <- '2024-01-01'
+# report_end <- '2025-01-31'
 n_hour <- 2
 
 bin_acc <- 0.01
@@ -149,94 +155,6 @@ Conveyed_To_Ward_Type = 'A&E' AND
     ungroup()
     
 })
-
-
-call_responses <- local({
-  string_actv_swafst <- glue::glue(
-    "SELECT DISTINCT
-    [ID]
-    ,[Derived_Pseudo_NHSNumber]
-    ,c.[Patient_Gender]
-    ,[Incident_Number]
-    ,[Time_Of_Incident]
-    ,[CCG]
-    ,[Post_Code_Sector]
-    ,[Symptom_Group_Chief_Complaint]
-    ,[Pathways_AMPDS_Disposition]
-    ,[Managed_Incident]
-    ,[Incident_Colour]
-    ,[Incident_Colour_Split]
-    ,[Incident_Colour_Split_Full]
-    ,[Response_Target_1_Clock Start]
-    ,[Response_Target_2_Clock Start]
-    ,[Response_Target_1_Clock Stop]
-    ,[Response_Target_2_Clock Stop]
-    ,[Outcome]
-    ,[Conveyed_To_Ward_Type]
-    ,[First_Hospital_Attended]
-    ,[First_Ward_Attended]
-    ,[Time_of_Handover_at_First_Hospital_Attended]
-    ,[First_MIU_Attended]
-    ,[CCG_of_First_MIU_Attended]
-    ,[Number_of_Patients_Carried]
-    ,[Contract_Activity]
-    ,[Month_of_Call]
-    ,[Age_Bracket]
-    ,[Residential_or_Nursing_home_Location]
-    ,[Residential_or_Nursing_home_Location_Name]
-    ,[Authorising_Doctor_Practice]
-    ,[Authorising_Hospital]
-    ,[Booked_Pickup_Hospital]
-    ,[Booked_Pickup_Ward]
-    ,[Booked_Destination_Hospital]
-    ,[Booked_Destination_Ward]
-    ,[Local_Authority]
-    ,[Ward]
-    ,[T0_Time_of_Call]
-    ,[T1_Time_Call_answered]
-    ,[Time_First_Core_Resource_Allocated]
-    ,[Time_Last_Core_Resource_Cleared]
-    ,[Mental_Health_Call_Indicator]
-    ,[Suicide_Call_Indicator]
-    ,[Provisional_Diagnosis]
-    ,[High_Intensity_User_Call_Indicator]
-    ,[SourceFileID]
-FROM [ABI].[dbo].[vw_UrgentCare_Ambulance_SWASFT] a
-LEFT JOIN [Analyst_SQL_Area].[dbo].[tbl_BNSSG_Datasets_SWAST_AR119] c on a.Incident_Number=c.Call_Number
-where Outcome in ('See & Convey', 'See & Treat') 
-AND CCG = '15C'
-AND
-  CONVERT(DATE, [T0_Time_of_Call]) > '{report_start}'"
-  )
-  
-  actv_swafst <- RODBC::sqlQuery(con, string_actv_swafst)
-  
-  
-  response_time <- actv_swafst %>%
-    mutate(across(matches("Time|Clock"),
-                  .f = ~lubridate::parse_date_time(.x, orders = c("ymd_HMS", "dmy_HMS")))) %>%
-    filter(Outcome %in% c("See & Treat", "See & Convey"))  %>%
-    filter(T0_Time_of_Call >= ymd(report_start),
-           T0_Time_of_Call <= ymd(report_end) ) %>%
-    mutate(dt = floor_date(T0_Time_of_Call, glue::glue("{n_hour} hours")),
-           call_category = Incident_Colour,
-           response = (`Response_Target_1_Clock Stop` - `Response_Target_1_Clock Start`)/dminutes(1)) %>%
-    filter(call_category %in% str_c("Category ", c(1, 2, 3))) %>%
-    mutate(call_category = recode(call_category,
-                                  "Category 3"= "cat3",
-                                  "Category 2"= "cat2",
-                                  "Category 1"= "cat1")) %>%
-    mutate(nhs_number = as.character(Derived_Pseudo_NHSNumber)) %>%
-    select(nhs_number, dt, age = Age_Bracket, outcome = Outcome, call_category, response) %>%
-    group_by(dt) %>%
-    count() %>%
-    ungroup() %>%
-    mutate(site = "ICS")
-  
-  response_time 
-})
-
-
 
 dta_df <- local({
   
@@ -408,10 +326,99 @@ dta_df <- local({
   dat_dtas
 })
 
-
-# all_arrival_impacts <- 
+resp_df <- local({
+  string_actv_swafst <- glue::glue(
+    "SELECT DISTINCT
+    [ID]
+    ,[Derived_Pseudo_NHSNumber]
+    ,c.[Patient_Gender]
+    ,[Incident_Number]
+    ,[Time_Of_Incident]
+    ,[CCG]
+    ,[Post_Code_Sector]
+    ,[Symptom_Group_Chief_Complaint]
+    ,[Pathways_AMPDS_Disposition]
+    ,[Managed_Incident]
+    ,[Incident_Colour]
+    ,[Incident_Colour_Split]
+    ,[Incident_Colour_Split_Full]
+    ,[Response_Target_1_Clock Start]
+    ,[Response_Target_2_Clock Start]
+    ,[Response_Target_1_Clock Stop]
+    ,[Response_Target_2_Clock Stop]
+    ,[Outcome]
+    ,[Conveyed_To_Ward_Type]
+    ,[First_Hospital_Attended]
+    ,[First_Ward_Attended]
+    ,[Time_of_Handover_at_First_Hospital_Attended]
+    ,[First_MIU_Attended]
+    ,[CCG_of_First_MIU_Attended]
+    ,[Number_of_Patients_Carried]
+    ,[Contract_Activity]
+    ,[Month_of_Call]
+    ,[Age_Bracket]
+    ,[Residential_or_Nursing_home_Location]
+    ,[Residential_or_Nursing_home_Location_Name]
+    ,[Authorising_Doctor_Practice]
+    ,[Authorising_Hospital]
+    ,[Booked_Pickup_Hospital]
+    ,[Booked_Pickup_Ward]
+    ,[Booked_Destination_Hospital]
+    ,[Booked_Destination_Ward]
+    ,[Local_Authority]
+    ,[Ward]
+    ,[T0_Time_of_Call]
+    ,[T1_Time_Call_answered]
+    ,[Time_First_Core_Resource_Allocated]
+    ,[Time_Last_Core_Resource_Cleared]
+    ,[Mental_Health_Call_Indicator]
+    ,[Suicide_Call_Indicator]
+    ,[Provisional_Diagnosis]
+    ,[High_Intensity_User_Call_Indicator]
+    ,[SourceFileID]
+FROM [ABI].[dbo].[vw_UrgentCare_Ambulance_SWASFT] a
+LEFT JOIN [Analyst_SQL_Area].[dbo].[tbl_BNSSG_Datasets_SWAST_AR119] c on a.Incident_Number=c.Call_Number
+where Outcome in ('See & Convey', 'See & Treat') 
+AND CCG = '15C'
+AND
+  CONVERT(DATE, [T0_Time_of_Call]) >= '{report_start}'"
+  )
   
-library(marquee)
+  actv_swafst <- RODBC::sqlQuery(con, string_actv_swafst)
+  
+  
+  dat <- actv_swafst %>%
+    mutate(across(matches("Time|Clock"),
+                  .f = ~lubridate::parse_date_time(.x, orders = c("ymd_HMS", "dmy_HMS")))) %>%
+    filter(Outcome %in% c("See & Treat", "See & Convey"))  %>%
+    filter(T0_Time_of_Call >= ymd(report_start),
+           T0_Time_of_Call <= ymd(report_end) ) %>%
+    mutate(dt = floor_date(T0_Time_of_Call, glue::glue("{n_hour} hours")),
+           call_category = Incident_Colour,
+           response = (`Response_Target_1_Clock Stop` - `Response_Target_1_Clock Start`)/dminutes(1)) %>%
+    filter(call_category %in% str_c("Category ", c(1, 2, 3))) %>%
+    mutate(call_category = recode(call_category,
+                                  "Category 3"= "cat3",
+                                  "Category 2"= "cat2",
+                                  "Category 1"= "cat1")) %>%
+    mutate(nhs_number = as.character(Derived_Pseudo_NHSNumber)) %>%
+    select(nhs_number, dt, age = Age_Bracket, outcome = Outcome, call_category, response) %>%
+    group_by(dt = floor_date(dt, "2 hours"), call_category) %>%
+    summarise(n = n(), response = sum(response)) %>%
+    ungroup() %>%
+    na.omit()
+  
+  dat 
+})
+
+
+ed_attend_impact <- dta_df %>%
+  select(site, n_arrival_all, n_dta_norm) %>%
+  mutate(ed_time_impact = n_dta_norm * ed_time_coef * n_arrival_all) %>%
+  select(-n_dta_norm, -n_arrival_all) %>%
+  summarise(across(everything(), sum),
+            .by = site)
+
 
 
 handover_impact <- dta_df %>%
@@ -429,35 +436,125 @@ handover_impact <- dta_df %>%
   select(-n_dta_norm) %>%
   summarise(across(everything(), sum),
             .by = site) %>%
-  select(site, impact = handover_impact) %>%
+  select(site, handover_impact) 
+
+
+resp_impact <- dta_df %>%
+  select(site, dt, n_dta_norm) %>%
+  summarise(n_dta_norm = mean(n_dta_norm), .by = dt) %>% 
+  # expand_grid(call_category = unique(resp_df$call_category)) %>%
+  left_join(complete(resp_df, dt = snapshot_seq, call_category, fill = list(n = 0, response = 0))) %>%
+  select(-dt) %>%
+  left_join(unnest(enframe(resp_coef, name = "call_category", value = "coef"), cols = coef)) %>% 
+  mutate(
+    resp_impact = n_dta_norm * coef * n
+    # ed_time_impact = n_dta_norm * ed_time_coef * n_arrival_all,
+    # cat1_resp_impact = n_dta_norm * resp_coef$cat1 * n_arrival,
+    # cat2_resp_impact = n_dta_norm * resp_coef$cat2 * n_arrival,
+    # cat3_resp_impact = n_dta_norm * resp_coef$cat3 * n_arrival
+  ) %>% 
+  select(-c(n_dta_norm, coef, n)) %>%
+  summarise(across(everything(), sum),
+            .by = call_category)
+
+
+saveRDS(handover_impact, "data/avoidable_impacts_handover_impact.RDS")
+saveRDS(ed_attend_impact, "data/avoidable_impacts_ed_attend_impact.RDS")
+saveRDS(resp_impact, "data/avoidable_impacts_resp_impact.RDS")
+
+handover_impact <- readRDS("data/avoidable_impacts_handover_impact.RDS")
+ed_attend_impact <- readRDS("data/avoidable_impacts_ed_attend_impact.RDS")
+resp_impact <- readRDS("data/avoidable_impacts_resp_impact.RDS")
+
+
+
+"#32A895"
+"#9532a8"
+"#A89532"
+
+handover_plots <- handover_impact %>%
+  mutate(label = glue::glue(#"<span style='color:black'>Over the last 7 days patients waited an additional</span><br><br>
+                            "<span style='color:#9532a8; font-size:32pt'>**{round(handover_impact/60)}**</span><br><br>
+                            <span style='color:black'>hours for</span> <span style='color:#9532a8'>**ambulance handover**</span><br>")) %>%
+  nest(.by = site) %>%
+  mutate(handover_plot = map(data, \(d) {
+  ggplot(data = d, aes(x = 1, y = 1, label = label)) +
+  geom_richtext(col = NA)  +
+  theme_void(base_family = "mono")})) %>%
+  select(-data)
+  
+
+ed_plots <- ed_attend_impact %>%
+  mutate(label = glue::glue(#"<span style='color:black'>Over the last 7 days patients waited an additional</span><br><br>
+                            "<span style='color:#A89532; font-size:32pt'>**{round(ed_time_impact/60)}**</span><br><br>
+                            <span style='color:black'>hours to be</span> <span style='color:#A89532'>**seen for treatment**</span><br>")) %>%
+  nest(.by = site) %>%
+  mutate(ed_plot = map(data, \(d) {
+    ggplot(data = d, aes(x = 1, y = 1, label = label)) +
+      geom_richtext(col = NA)  +
+      theme_void(base_family = "mono")})) %>%
+  select(-data)
+
+
+
+
+site_margin_plot <- tibble(
+  site = c(
+    "SOUTHMEAD HOSPITAL",
+    "WESTON GENERAL HOSPITAL",
+    "BRISTOL ROYAL INFIRMARY"
+  ),
+  label = c(
+    "at Southmead hospital.",
+    "at Weston general hospital.",
+    "at Bristol royal infirmary."
+    )
+) %>%
+nest(.by = site) %>%
+mutate(site_margin_plot = map(data,
+                  \(d) ggplot(d, aes(x = 1, y = 1, label = label)) +
+                    geom_text() +
+                    theme_void(base_family = "mono")
+                  )) %>%
+  select(-data)
+
+
+left_join(handover_plots, ed_plots) %>%
+  left_join(site_margin_plot) %>%
+  pivot_longer(-site) %>%
+  pull(value) %>%
+  wrap_plots(ncol = 3, widths = c(3/7, 3/7, 1/7))
+  
+
+
+foo <- handover_impact %>%
   mutate(label = glue::glue(.open = '-{',
                             .close = '}-',
-                            ' Over the last 7 days patients waited an additional  
-                            
-                             ## {.#9532a8  **-{round(impact/60)}-**}  
-                            
+                            ' Over the last 7 days patients waited an additional
+                             ## {.#9532a8  **-{round(handover_impact/60)}-**}
                              hours for {.#9532a8 ambulance handover}')) %>%
   # mutate(label = glue::glue("<span style='color:blue'>{round(impact/60)}</span>"))%>%
-  nest(.by = site) 
-
-%>%
-  mutate(plot = map(data, \(d) {
-    ggplot(d, aes(x = 0, y = 0, label = label)) +
-      annotate(geom = "marquee", size = 10, width = 0.4, hjust = 0) +
-      theme_void()})) %>%
-  pull(plot)
-
-
-
-handover_impact$data[[1]] %>%
-  mutate(x = 1, y = 1)|> 
-  ggplot(aes(x, y)) +
+  nest(.by = site)
+# 
+# %>%
+#   mutate(plot = map(data, \(d) {
+#     ggplot(d, aes(x = 0, y = 0, label = label)) +
+#       annotate(geom = "marquee", size = 10, width = 0.4, hjust = 0) +
+#       theme_void()})) %>%
+#   pull(plot)
+# 
+# 
+# 
+foo$data[[1]] %>%
+  mutate(x = 1, y = 1) %>%
+  ggplot(mapping = aes(x, y)) +
+  # geom_text(aes(label = label))
   geom_marquee(
     aes(label = label),
     size = 13,
     width = 0.85,
     style = classic_style(align = "justified-center"),
-    family = 'Source Sans Pro'
+    family = 'Comic Sans MS'
   ) +
   theme_void()
 
@@ -487,6 +584,8 @@ handover_arrivals %>%
   geom_col() +
   ggh4x::facet_grid2(site~grp, scales = "free", independent = "x") +
   labs(x = "Hours additional", y = "Impact")
+
+
 
 
 
