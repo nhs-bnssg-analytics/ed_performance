@@ -17,6 +17,7 @@ mod_df <- mod_df %>%
     "90-99 years old" ,
     "100 years old or over" 
   ))) %>%
+  
   na.omit() 
 
 # Mortality model
