@@ -292,6 +292,7 @@ ed_df <- local({
 })
 
 handover_df <- local({
+  browser()
   string_actv_swafst <- glue::glue(
     "SELECT DISTINCT
     [ID]
@@ -456,6 +457,7 @@ minor_time_in_ed_df <- local({
 # amb response time
 
 resp_time_df <- local({
+  browser()
   string_actv_swafst <- glue::glue(
     "SELECT DISTINCT
     [ID]

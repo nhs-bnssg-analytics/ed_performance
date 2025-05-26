@@ -10,7 +10,7 @@ ed_time_outputs <- readRDS("data/time_ed_outputs.RDS")
 
 bin_acc <- 0.05
 cut_off <- 1.1
-x_lab <- "Medicine boarding as a percentage of ED bedded capacity"
+x_lab <- str_wrap("Medicine boarding as a percentage of ED bedded capacity", 40)
 
 targets <- tribble(~outcome, ~measure, ~target, ~quantile,
                    "Time until ED treatment for non-admitted patients (OM3)", "(OM3)", 240, .78,
@@ -57,17 +57,17 @@ upstream_plots <- resp_outputs$plot_dat %>%
     ggplot(data = data, ,mapping = aes(x = n_dta_norm, y = response)) +
       geom_boxplot(mapping = aes(group = cut_width(n_dta_norm, width = bin_acc)), outliers = FALSE, fatten = NULL) +
       geom_hline(aes(yintercept = target), col = "red", linetype = 2) +
-      geom_point(aes(y = target, col = "National target")) +
+      geom_point(aes(y = target, col = "National target threshold")) +
       stat_summary(
         fun = ~ mean(.x),
         geom = "point",
         col = "black",
-        aes(col = "Empirical mean", shape = "Empirical mean")
+        aes(col = "Empirical data, mean", shape = "Empirical data, mean")
       ) +
-      geom_point(aes(y = response_q, shape = "Target"), col = "black") +
+      geom_point(aes(y = response_q, shape = "Empirical data, evaluated at target quantile"), col = "black") +
       theme_minimal() +
       scale_colour_manual(
-        values = c("Empirical mean" = "black", "Target"= "black", "National target" = "red"),
+        values = c("Empirical data, mean" = "black", "Empirical data, evaluated at target quantile"= "black", "National target threshold" = "red"),
       ) +
       scale_x_continuous(labels = scales::percent,
                          breaks = scales::breaks_width(0.25)) +
@@ -76,13 +76,13 @@ upstream_plots <- resp_outputs$plot_dat %>%
       ) +
       scale_y_continuous(limits = c(0, NA), expand = expansion(mult = c(0, 0.05))) +
       scale_shape_manual(values = c(17, 19),
-                         breaks = c("Empirical mean", "Target"),
+                         breaks = c("Empirical data, mean", "Empirical data, evaluated at target quantile"),
                          # guide = guide_legend(override.aes = list(size = 3, alpha = 1))
       ) +
       theme(panel.grid.major.x = element_line(color = "grey65", size = 0.3)) +
       guides(colour = guide_legend(order = 1))
   )) %>%
-  mutate(plot = map(plot, \(x) x + labs(x = x_lab, colour = "", shape = "", y = str_remove_all(outcome, " \\[.*\\]"))))
+  mutate(plot = map(plot, \(x) x + labs(x = x_lab, colour = "", shape = "", y = str_remove_all(str_wrap(outcome, 40), " \\[.*\\]"))))
 
 
 
@@ -125,12 +125,12 @@ upstream_out <- wrap_plots(ptc_2 | ptc_1,
         legend.spacing.x = unit(0, "cm")) 
 
 
-ggplot2::ggsave("materials/upstream_standard_110.png",
+ggplot2::ggsave("materials/upstream_standard_110_pres.png",
                 upstream_out,
                 bg = "white",
                 height = 12.5,
                 width = 15.0, 
-                scale = 0.65)
+                scale = 0.55)
 
 
 # Headline outputs

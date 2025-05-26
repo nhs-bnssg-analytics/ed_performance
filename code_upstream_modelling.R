@@ -42,6 +42,8 @@ resp_time_df <-  readRDS("data/upstream_resp_time_df.RDS")
 dta_df <- dta_df %>%
   filter(!(site == "WESTON GENERAL HOSPITAL" & hour(dt) %in% c(10:12, 1:7))) 
 
+# handover_rows_1 <- nrow(filter(handover_df, !is.na(nhs_number)))
+
 handover_df <- handover_df %>%
   na.omit() %>%
   ungroup() %>%
@@ -83,6 +85,17 @@ handover_df <- handover_df %>%
   )) %>%
   mutate(age = fct_relevel(age, "100 years old or over", after = 10)) 
 
+# handover_rows_2 <- nrow(handover_df)
+
+# resp_rows_1 <- 
+#   resp_time_df %>%
+#     filter(!is.na(nhs_number), nhs_number %in% dat_attr$nhs_number) %>%
+#     nest(.by = call_category) %>%
+#     arrange(call_category) %>%
+#     mutate(n = map_dbl(data, nrow)) %>%
+#     pull(n)
+#   
+
 resp_time_df <- resp_time_df %>%
   na.omit() %>%
   filter(sex %in% c("Male", "Female")) %>%
@@ -123,6 +136,15 @@ resp_time_df <- resp_time_df %>%
   )) %>%
   mutate(age = fct_relevel(age, "100 years old or over", after = 10)) 
 
+# resp_rows_2 <- resp_time_df %>%
+#   nest(.by = call_category) %>%
+#   arrange(call_category) %>%
+#   mutate(n = map_dbl(data, nrow)) %>%
+#   pull(n)
+
+# 1 - (resp_rows_2/resp_rows_1)
+
+# trt_rows_1 <- nrow(trt_df)
 
 trt_df <- trt_df %>%
   na.omit() %>%
@@ -157,7 +179,7 @@ trt_df <- trt_df %>%
     "100 years old or over" 
   )))
 
-
+# trt_rows_2 <- nrow(trt_df)
 
 # Normalisation and standardisation
 
@@ -250,6 +272,7 @@ handover_outputs <- local({
   std_mod <- handover_mod
   
   std_mod_tab <- gtsummary::tbl_regression(
+    intercept = TRUE,
     std_mod,
     label = list(
       age = "Age",
@@ -271,6 +294,7 @@ handover_outputs <- local({
   
   full_mod_tab <-  full_mod %>%
     gtsummary::tbl_regression(
+      intercept = TRUE,
       label = list(
         n_dta_norm = x_lab,
         n_ed_norm = "Number in ED (excluding DTA) as a percentage of cubicle capacity (Majors + Resus)",
@@ -544,7 +568,6 @@ resp_outputs <- local({
     select(-dt) %>%
     ungroup()
   
-  browser()
   resp_mods <- 
     mod_dat %>%
     group_by(call_category) %>%
@@ -564,6 +587,7 @@ resp_outputs <- local({
     select(call_category, mod) %>%
     mutate(tab = map2(mod, call_category, ~{
       gtsummary::tbl_regression(.x,
+                                intercept = TRUE,
                                 label = list(
                                   age = "Age",
                                   sex = "Sex",
@@ -586,6 +610,7 @@ resp_outputs <- local({
     select(call_category, mod_full) %>%
     mutate(tab = map2(mod_full, call_category, ~{
       gtsummary::tbl_regression(.x,
+                                intercept = TRUE,
                                 label = list(
                                   n_dta_norm = x_lab,
                                   n_ed_norm = "Number in ED (excluding DTA) as a percentage of cubicle capacity (Majors + Resus)",
@@ -782,6 +807,7 @@ time_ed_outputs <- local({
   
   std_mod_tab <- gtsummary::tbl_regression(
     std_mod,
+    intercept = TRUE,
     label = list(
       age = "Age",
       sex = "Sex",
@@ -804,6 +830,7 @@ time_ed_outputs <- local({
   
   full_mod_tab <-  full_mod %>%
     gtsummary::tbl_regression(
+      intercept = TRUE,
       label = list(
         n_dta_norm = x_lab,
         n_ed_norm = "Number in ED (excluding DTA) as a percentage of cubicle capacity (Majors + Resus)",

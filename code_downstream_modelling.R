@@ -269,17 +269,20 @@ saveRDS(list(mod_df = mod_df_raw,
     
     plot_df <- plot_df %>% mutate(dta_time = dta_time)
     
-    mod_full <- lm(los ~ . 
-                   + dta_time
-                   # + I(age^2)
+    mod_full <- lm(los ~  
+                   dta_time
+                   + age
+                   + sex
+                   + imd
+                   + vw_score
+                   + perf
+                   + n_ed
+                   + arrival_time
+                   + arrival_month
+                   + wkend
                    + I(n_ed^2)
                    + I(perf^2)
                    + I(vw_score^2)
-                   -arrival_year
-                   -ed_time
-                   -Acuity_Desc
-                   -arrival_mode
-                   -arrival_cat
                    , plot_df)
     
     reg_tab_full <- gtsummary::tbl_regression(
@@ -347,7 +350,7 @@ saveRDS(list(mod_df = mod_df_raw,
     
   })
   
-  saveRDS(los_outputs, "data/los_outputs.RDS")
+  saveRDS(los_outputs, "data/los_outputs_reformulated.RDS")
   
   
   lvl_props <- los_outputs$mod_df %>%
@@ -377,7 +380,7 @@ saveRDS(list(mod_df = mod_df_raw,
   
   
   
-  saveRDS(list(mod_df = los_outputs$mod_df,los_mod = los_outputs$mod_full, los_mod_df = los_outputs$mod_df, los_effect_plot = los_effects_plot), "data/los_effect_output.RDS")
+  saveRDS(list(mod_df = los_outputs$mod_df,los_mod = los_outputs$mod_full, los_mod_df = los_outputs$mod_df, los_effect_plot = los_effects_plot), "data/los_effect_output_reformulated.RDS")
   
   
   los_outputs <- readRDS("data/los_outputs.RDS") 

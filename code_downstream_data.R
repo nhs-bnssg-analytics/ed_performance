@@ -730,6 +730,7 @@ mortality_df <- local({
 dat_adm <- dat_ecds %>%
   # remove arrivals that dont have full outcome window
   filter(arrival_dt < ymd(report_end) - ddays(days_outcome_window)) %>%
+  filter(!between(dta_dt, ymd("2022-04-01"), ymd("2022-07-10"))) %>%
   left_join(dat_spec) %>% 
   filter(spec == "medical") %>%
   mutate(nhs_number = as.character(nhs_number)) %>% #%T>% nrow() %>%

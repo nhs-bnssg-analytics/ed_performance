@@ -10,17 +10,17 @@ los_effect_output <- readRDS("data/los_effect_output.RDS")
 plot_df <- los_effect_output$los_mod_df
 
 
-wrap <- 30
+wrap <- 20
 
 ylab_mort <- str_wrap("30-day mortality rate (OM6)", wrap)
 ylab_readm <- str_wrap("30-day readmission rate (OM5)", wrap)
 ylab_los <- str_wrap("Inpatient length of stay (OM4)", wrap)
-xlab <- "Medical boarding time"
+xlab <- "Medical boarding time, hours"
 
 patchwork::wrap_plots(
-                      los_effect_output$los_effect_plot + facet_grid(.~"Inpatient length of stay (OM4)") + scale_y_continuous(limits = c(5, NA)) + labs(y = "", x = xlab),
-                      readm_effect_plot + facet_grid(.~"30-day readmission rate (OM5)") + scale_y_continuous(limits = c(0, NA), labels = scales::percent) + labs(y = "", x = xlab),
-                      mort_effect_plot + facet_grid(.~"30-day mortality rate (OM6)") + scale_y_continuous(limits = c(0, NA), labels = scales::percent) + labs(y = "", x = xlab),
+                      los_effect_output$los_effect_plot + facet_grid(.~str_wrap("Inpatient length of stay (OM4)", 20)) + scale_y_continuous(limits = c(5, NA)) + labs(y = "", x = xlab),
+                      readm_effect_plot + facet_grid(.~str_wrap("30-day readmission rate (OM5)", 20)) + scale_y_continuous(limits = c(0, NA), labels = scales::percent) + labs(y = "", x = xlab),
+                      mort_effect_plot + facet_grid(.~str_wrap("30-day mortality rate (OM6)", 20)) + scale_y_continuous(limits = c(0, NA), labels = scales::percent) + labs(y = "", x = xlab),
                       nrow = 1, axes = "collect_x")
 # patchwork::wrap_plots(
 #                       los_effect_output$los_effect_plot + facet_grid(.~"In-hospital length of stay (day)") + scale_y_continuous(limits = c(2, 16)) + labs(y = "", x = xlab),
@@ -28,12 +28,12 @@ patchwork::wrap_plots(
 #                       mort_effect_plot + facet_grid(.~"30-day mortality rate") + scale_y_continuous(limits = c(0.02, 0.16), labels = scales::percent) + labs(y = "", x = xlab),
 #                       nrow = 1, axes = "collect_x")
 
-ggsave("materials/effects_plot_patch_1row.png",
+ggsave("materials/effects_plot_patch_1row_pres.png",
        last_plot(),
        bg = "white",
        height = 4.75,
        width = 10, 
-       scale = 0.7)
+       scale = 0.5)
 
 # mort_effect_output$mort_mod_raw %>%
 #   tidy() %>%
@@ -58,7 +58,7 @@ label_list_downstream <- list(
 
 
 my_tidy <- function(x, exponentiate =  TRUE, conf.level = 0.95, ...) {
-  browser()
+
   dplyr::bind_cols(
     broom::tidy(x, exponentiate = exponentiate, conf.int = FALSE),
     # calculate the confidence intervals, and save them in a tibble
@@ -70,6 +70,7 @@ my_tidy <- function(x, exponentiate =  TRUE, conf.level = 0.95, ...) {
 reg_table_mort <-
   mort_effect_output$mort_mod_raw %>%
   gtsummary::tbl_regression(
+    intercept = TRUE,
     tidy_fun = my_tidy,
     exponentiate = TRUE,
     estimate_fun = purrr::partial(gtsummary::style_ratio, digits = 3),
@@ -90,13 +91,13 @@ reg_table_mort <-
 # title = gt::md("**30-day Mortality**")) %>%
 #   gt::gtsave("materials/mort_reg_table.html")
 
-reg_table_readm <- readm_effect_output$readm_mod_raw %>% gtsummary::tbl_regression(exponentiate = TRUE,
+reg_table_readm <- readm_effect_output$readm_mod_raw %>% gtsummary::tbl_regression(exponentiate = TRUE,     intercept = TRUE,
                                                               estimate_fun = purrr::partial(gtsummary::style_ratio, digits = 3),
                                                               label = label_list_downstream
   ) %>% gtsummary::add_glance_table(include = c(nobs))
 
 
-reg_table_los <- los_effect_output$los_mod %>% gtsummary::tbl_regression(estimate_fun = purrr::partial(gtsummary::style_ratio, digits = 2),
+reg_table_los <- los_effect_output$los_mod %>% gtsummary::tbl_regression(intercept = TRUE,estimate_fun = purrr::partial(gtsummary::style_ratio, digits = 2),
   label = label_list_downstream
 ) %>% gtsummary::add_glance_table(include = c(nobs)) 
 
