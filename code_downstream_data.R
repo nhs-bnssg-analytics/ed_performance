@@ -572,8 +572,8 @@ string_apc <- {glue::glue("SELECT
   where cast(StartDate_HospitalProviderSpell as date) between '{report_start}' and '{report_end}'")
 }
 
-dat_apc <- sqlQuery(con,string_apc) %>%
-  mutate(AIMTC_Pseudo_NHS = as.character(AIMTC_Pseudo_NHS))
+# dat_apc <- sqlQuery(con,string_apc) %>%
+#   mutate(AIMTC_Pseudo_NHS = as.character(AIMTC_Pseudo_NHS))
 # 
 # saveRDS(dat_apc, "data/dat_apc_new.RDS")
 dat_apc <- readRDS("data/dat_apc_new.RDS")
@@ -726,6 +726,59 @@ mortality_df <- local({
     mutate(Derived_Pseudo_NHS = as.character(Derived_Pseudo_NHS)) %>%
     select(nhs_number = Derived_Pseudo_NHS, date_death = REG_DATE_OF_DEATH)
 })
+
+
+# Bed occupancy 
+
+bed_occ_df <- local({
+  string_bed <- glue::glue("SELECT
+    CAST(t.report_date AS DATE) AS report_date, -- Cast to DATE to remove time component
+    t.provider,
+    MAX(CASE
+        WHEN t.metric_id = 347347 AND t.provider = 'BRI' THEN t.value
+        WHEN t.metric_id = 346199 AND t.provider = 'NBT' THEN t.value
+        WHEN t.metric_id = 346113 AND t.provider = 'WGH' THEN t.value
+        ELSE NULL
+    END) AS total_beds,
+    MAX(CASE
+        WHEN t.metric_id = 347351 AND t.provider = 'BRI' THEN t.value
+        WHEN t.metric_id = 346203 AND t.provider = 'NBT' THEN t.value
+        WHEN t.metric_id = 346117 AND t.provider = 'WGH' THEN t.value
+        ELSE NULL
+    END) AS beds_occupied,
+    CAST(
+        (MAX(CASE
+            WHEN t.metric_id = 347351 AND t.provider = 'BRI' THEN t.value
+            WHEN t.metric_id = 346203 AND t.provider = 'NBT' THEN t.value
+            WHEN t.metric_id = 346117 AND t.provider = 'WGH' THEN t.value
+            ELSE NULL
+        END) * 100.0) /
+        NULLIF(MAX(CASE
+            WHEN t.metric_id = 347347 AND t.provider = 'BRI' THEN t.value
+            WHEN t.metric_id = 346199 AND t.provider = 'NBT' THEN t.value
+            WHEN t.metric_id = 346113 AND t.provider = 'WGH' THEN t.value
+            ELSE NULL
+        END), 0)
+    AS DECIMAL(5, 2)) AS percentage_beds_occupied
+FROM
+    [Analyst_SQL_Area].[dbo].[tbl_BNSSG_Datasets_UrgentCare_Daily] AS t
+WHERE
+    ((t.provider = 'BRI' AND t.metric_id IN (347351, 347347)) OR
+    (t.provider = 'NBT' AND t.metric_id IN (346203, 346199)) OR
+    (t.provider = 'WGH' AND t.metric_id IN (346117, 346113)))
+AND t.report_date between '{lubridate::ymd(report_start)}' AND '{lubridate::ymd(report_end)}'
+GROUP BY
+    CAST(t.report_date AS DATE), -- Group by report_date (as DATE)
+    t.provider
+ORDER BY
+    CAST(t.report_date AS DATE), -- Order by report_date (as DATE)
+    t.provider;")
+  
+  con<-odbcDriverConnect("driver={SQL Server};\n  server=Xsw-00-ash01;\n  trusted_connection=true")
+  
+  sqlQuery(con, string_bed)
+  
+  })
 
 dat_adm <- dat_ecds %>%
   # remove arrivals that dont have full outcome window
