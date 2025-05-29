@@ -146,6 +146,7 @@ dat_ecds<-dat_ecds_raw %>%
   # mutate(departure_dt=max(departure_dt, conclusion_dt, na.rm=TRUE)) %>%
   ungroup() %>%
   mutate(dta_time = interval(dta_dt, departure_dt)/dminutes(1)) %>%
+  mutate(time_to_dta = interval(arrival_dt, dta_dt)/dminutes(1)) %>%
   mutate(ed_time = interval(arrival_dt, departure_dt)/dminutes(1)) %>%
   mutate(breach = (interval(arrival_dt, departure_dt)/dminutes(1)) > 4*60) %>%
   mutate(date=floor_date(departure_dt,"day")) %>%
@@ -190,6 +191,7 @@ dat_ecds_full <- dat_ecds_full_raw %>%
   # mutate(departure_dt=max(departure_dt, conclusion_dt, na.rm=TRUE)) %>%
   ungroup() %>%
   mutate(dta_time = interval(dta_dt, departure_dt)/dminutes(1)) %>%
+  mutate(time_to_dta = interval(arrival_dt, dta_dt)/dminutes(1)) %>%
   mutate(ed_time = interval(arrival_dt, departure_dt)/dminutes(1)) %>%
   mutate(breach = (interval(arrival_dt, departure_dt)/dminutes(1)) > 4*60) %>%
   mutate(date=floor_date(departure_dt,"day")) %>%
@@ -261,10 +263,11 @@ NHS_Number,
   # mutate(departure_dt=max(departure_dt, conclusion_dt, na.rm=TRUE)) %>%
   ungroup() %>%
   mutate(dta_time = interval(dta_dt, departure_dt)/dminutes(1)) %>%
+  mutate(time_to_dta = interval(arrival_dt, dta_dt)/dminutes(1)) %>%
   mutate(ed_time = interval(arrival_dt, departure_dt)/dminutes(1)) %>%
   mutate(breach = (interval(arrival_dt, departure_dt)/dminutes(1)) > 4*60) %>%
   mutate(arrival_hour = ceiling_date(arrival_dt, unit = "4 hour")) %>%
-  filter(!between(arrival_hour, ymd("2022-04-01"), ymd("2022-07-10"))) %>%
+  # filter(!between(arrival_hour, ymd("2022-04-01"), ymd("2022-07-10"))) %>%
   # Remove rows for weston out of hours
   filter(!(site == "WESTON GENERAL HOSPITAL" & hour(arrival_dt) %in% c(10:12, 1:7))) %>%
   group_by(site, arrival_hour) %>%
@@ -732,7 +735,7 @@ mortality_df <- local({
 
 bed_occ_df <- local({
   string_bed <- glue::glue("SELECT
-    CAST(t.report_date AS DATE) AS report_date, -- Cast to DATE to remove time component
+        CAST(t.report_date AS DATE) AS report_date,
     t.provider,
     MAX(CASE
         WHEN t.metric_id = 347347 AND t.provider = 'BRI' THEN t.value
@@ -746,6 +749,13 @@ bed_occ_df <- local({
         WHEN t.metric_id = 346117 AND t.provider = 'WGH' THEN t.value
         ELSE NULL
     END) AS beds_occupied,
+    -- New column: Escalation Beds Open
+    MAX(CASE
+        WHEN t.metric_id = 347348 AND t.provider = 'BRI' THEN t.value
+        WHEN t.metric_id = 346200 AND t.provider = 'NBT' THEN t.value
+        WHEN t.metric_id = 346114 AND t.provider = 'WGH' THEN t.value
+        ELSE NULL
+    END) AS escalation_beds_open,
     CAST(
         (MAX(CASE
             WHEN t.metric_id = 347351 AND t.provider = 'BRI' THEN t.value
@@ -759,13 +769,35 @@ bed_occ_df <- local({
             WHEN t.metric_id = 346113 AND t.provider = 'WGH' THEN t.value
             ELSE NULL
         END), 0)
-    AS DECIMAL(5, 2)) AS percentage_beds_occupied
+    AS DECIMAL(5, 2)) AS percentage_beds_occupied,
+    -- New column: Percentage beds occupied (as a percentage of total + escalation)
+    CAST(
+        (MAX(CASE
+            WHEN t.metric_id = 347351 AND t.provider = 'BRI' THEN t.value
+            WHEN t.metric_id = 346203 AND t.provider = 'NBT' THEN t.value
+            WHEN t.metric_id = 346117 AND t.provider = 'WGH' THEN t.value
+            ELSE NULL
+        END) * 100.0) /
+        NULLIF(
+            (MAX(CASE
+                WHEN t.metric_id = 347347 AND t.provider = 'BRI' THEN t.value
+                WHEN t.metric_id = 346199 AND t.provider = 'NBT' THEN t.value
+                WHEN t.metric_id = 346113 AND t.provider = 'WGH' THEN t.value
+                ELSE NULL
+            END) +
+            MAX(CASE -- Summing total_beds and escalation_beds_open for the denominator
+                WHEN t.metric_id = 347348 AND t.provider = 'BRI' THEN t.value
+                WHEN t.metric_id = 346200 AND t.provider = 'NBT' THEN t.value
+                WHEN t.metric_id = 346114 AND t.provider = 'WGH' THEN t.value
+                ELSE NULL
+            END)), 0)
+    AS DECIMAL(5, 2)) AS percentage_beds_occupied_total_plus_escalation
 FROM
     [Analyst_SQL_Area].[dbo].[tbl_BNSSG_Datasets_UrgentCare_Daily] AS t
 WHERE
-    ((t.provider = 'BRI' AND t.metric_id IN (347351, 347347)) OR
-    (t.provider = 'NBT' AND t.metric_id IN (346203, 346199)) OR
-    (t.provider = 'WGH' AND t.metric_id IN (346117, 346113)))
+    ((t.provider = 'BRI' AND t.metric_id IN (347351, 347347, 347348)) OR
+    (t.provider = 'NBT' AND t.metric_id IN (346203, 346199, 346200)) OR
+    (t.provider = 'WGH' AND t.metric_id IN (346117, 346113, 346114)))
 AND t.report_date between '{lubridate::ymd(report_start)}' AND '{lubridate::ymd(report_end)}'
 GROUP BY
     CAST(t.report_date AS DATE), -- Group by report_date (as DATE)
@@ -776,14 +808,23 @@ ORDER BY
   
   con<-odbcDriverConnect("driver={SQL Server};\n  server=Xsw-00-ash01;\n  trusted_connection=true")
   
-  sqlQuery(con, string_bed)
+  sqlQuery(con, string_bed) %>%
+  mutate(date = ymd(report_date),
+         bed_occ = percentage_beds_occupied,
+         site = recode(provider, 
+                       "NBT" = "SOUTHMEAD HOSPITAL",
+                       "BRI" = "BRISTOL ROYAL INFIRMARY",
+                       "WGH" = "WESTON GENERAL HOSPITAL",
+                       )
+         ) %>%
+    select(date, site, bed_occ)
   
   })
 
 dat_adm <- dat_ecds %>%
   # remove arrivals that dont have full outcome window
   filter(arrival_dt < ymd(report_end) - ddays(days_outcome_window)) %>%
-  filter(!between(dta_dt, ymd("2022-04-01"), ymd("2022-07-10"))) %>%
+  # filter(!between(dta_dt, ymd("2022-04-01"), ymd("2022-07-10"))) %>%
   left_join(dat_spec) %>% 
   filter(spec == "medical") %>%
   mutate(nhs_number = as.character(nhs_number)) %>% #%T>% nrow() %>%
@@ -803,6 +844,7 @@ dat_adm <- dat_ecds %>%
     arrival_dt,
     dta_dt,
     departure_dt,
+    time_to_dta,
     dta_time,
     ed_time,
     Acuity_Desc,
@@ -812,6 +854,8 @@ dat_adm <- dat_ecds %>%
     # investigation
   ) %>%
   mutate(arrival_hour = ceiling_date(arrival_dt, "4 hour")) %>%
+  mutate(arrival_date = ceiling_date(arrival_dt, "1 day")) %>%
+  # left_join(bed_occ_df, by = join_by(arrival_date == date, site == site)) %>%
   left_join(dat_ecds_perf) %>%
   left_join(dat_ecds_n_ed) %>%
   left_join(dat_scores) %>%
@@ -823,8 +867,8 @@ dat_adm <- dat_ecds %>%
   na.omit() %>%
   distinct()
 
-saveRDS(dat_adm, "data/dat_adm_final.RDS")
-dat_adm <- readRDS("data/dat_adm_final.RDS")
+saveRDS(dat_adm, "data/dat_adm_202505.RDS")
+dat_adm <- readRDS("data/dat_adm_202505.RDS")
 
 # imputing missings
 
@@ -841,9 +885,9 @@ t_max <- 24*60
 
 mod_df <- dat_adm %>%
   left_join(mortality_df) %>%
-  left_join(dat_readm) %>%
+  left_join(dat_readm, multiple = "first") %>%
   # filter(site == "SOUTHMEAD HOSPITAL") %>%
-  filter(!between(dta_dt, ymd("2022-04-01"), ymd("2022-07-10"))) %>% # filter bad DQ period for NBT
+  # filter(!between(dta_dt, ymd("2022-04-01"), ymd("2022-07-10"))) %>% # filter bad DQ period for NBT
   filter(dta_time <= t_max) %>%
   filter(dta_time > 0) %>%
   filter(sex %in% 1:2) %>%
@@ -890,7 +934,8 @@ mod_df <- dat_adm %>%
     arrival_time,
     arrival_month,
     arrival_year,
-    perf,
+    # perf,
+    #bed_occ,
     age,
     n_ed,
     Acuity_Desc,
@@ -901,6 +946,7 @@ mod_df <- dat_adm %>%
     vw_score,
     mort_30,
     readm,
+    time_to_dta,
     dta_time,
     ed_time
   ) %>%
@@ -908,4 +954,4 @@ mod_df <- dat_adm %>%
   distinct() %>%
   select(-nhs_number)
   
-saveRDS(mod_df, "data/mort_mod_df_final.RDS")
+saveRDS(mod_df, "data/mort_mod_df_202505.RDS")

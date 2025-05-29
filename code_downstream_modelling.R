@@ -1,7 +1,7 @@
 library(tidyverse)
 library(tidymodels)
 
-mod_df <- readRDS("data/mort_mod_df_final.RDS")
+mod_df <- readRDS("data/mort_mod_df_202505.RDS")
 mod_df <- mod_df %>%
   mutate(dta_time = dta_time/60) %>% # convert minutes to hours
   # filter(ed_time < 60*30) %>%
@@ -32,7 +32,8 @@ roc_stability <- map(mod_folds$splits, \(x) {
     formula = mort_30 ~ .
     # + I(dta_time ^ 2)+I(age ^ 2)+I(perf ^ 2)
     # + I(age ^ 2)
-    + I(perf ^ 2)
+    + I(time_to_dta ^ 2)
+    # + I(bed_occ ^ 2)
     + I(n_ed ^ 2)
     + I(vw_score ^2),
     data = training(x),
@@ -63,7 +64,8 @@ mod_raw <- glm(
   formula = mort_30 ~ . 
   # + I(dta_time ^ 2)
   # + I(age ^ 2)
-  + I(perf ^ 2)
+  + I(time_to_dta ^ 2)
+  # + I(bed_occ ^ 2)
   + I(n_ed ^ 2)
   + I(vw_score ^2),
   data = mod_df_raw,
@@ -124,7 +126,7 @@ saveRDS(list(mod_df = mod_df_raw,
       formula = readm ~ . 
       # -n_ed
       # + I(age ^ 2)
-      + I(perf ^ 2)
+      # + I(bed_occ ^ 2)
       + I(n_ed ^ 2)
       + I(vw_score ^2),
       data = training(x),
@@ -154,13 +156,12 @@ saveRDS(list(mod_df = mod_df_raw,
     formula = readm ~ . 
     # -n_ed
     # + I(age ^ 2)
-    + I(perf ^ 2)
+    # + I(bed_occ ^ 2)
     + I(n_ed ^ 2)
     + I(vw_score ^2),
     data = mod_df_raw,
     family = binomial(link = "logit")
   ) 
-  
   
   lvl_props <- mod_df_raw %>%
     select(arrival_time, wkend, arrival_month, sex, imd) %>%
@@ -234,7 +235,8 @@ saveRDS(list(mod_df = mod_df_raw,
     mod_std <- lm(los ~ . 
                   # + I(age^2)
                   + I(n_ed^2)
-                  + I(perf^2)
+                  + I(time_to_dta ^ 2)
+                  # + I(bed_occ^2)
                   + I(vw_score^2)
                   -dta_time
                   -ed_time
@@ -249,8 +251,10 @@ saveRDS(list(mod_df = mod_df_raw,
                                                arrival_time = "Time of arrival",
                                                arrival_month = "Month of arrival",
                                                # arrival_year = "Year of arrival",
-                                               perf = "4-hour ED performance",
-                                               `I(perf^2)` = "4-hour ED performance (squared)",
+                                               time_to_dta = "Time to DTA",
+                                               `I(time_to_dta^2)` = "Time to DTA (squared)",
+                                               # bed_occ = "Percentage of bed stock occupied",
+                                               # `I(bed_occ^2)` = "Percentage of bed stock occupied (squared)",
                                                age = "Age",
                                                # `I(age^2)` = "Age (squared)",
                                                n_ed = "Number of previous ED attendances",
@@ -275,13 +279,15 @@ saveRDS(list(mod_df = mod_df_raw,
                    + sex
                    + imd
                    + vw_score
-                   + perf
+                   # + bed_occ
+                   + time_to_dta
                    + n_ed
                    + arrival_time
                    + arrival_month
                    + wkend
                    + I(n_ed^2)
-                   + I(perf^2)
+                   # + I(bed_occ^2)
+                   + I(time_to_dta^2)
                    + I(vw_score^2)
                    , plot_df)
     
@@ -293,8 +299,10 @@ saveRDS(list(mod_df = mod_df_raw,
         wkend = "Weekend",
         arrival_month = "Month of arrival",
         # arrival_year = "Year of arrival",
-        perf = "4-hour ED performance",
-        `I(perf^2)` = "4-hour ED performance (squared)",
+        time_to_dta = "Time to DTA",
+        `I(time_to_dta^2)` = "Time to DTA (squared)",
+        # bed_occ = "Percentage of bed stock occupied",
+        # `I(bed_occ^2)` = "Percentage of bed stock occupied (squared)",
         age = "Age",
         # `I(age^2)` = "Age (squared)",
         n_ed = "Number of previous ED attendances",
@@ -349,7 +357,6 @@ saveRDS(list(mod_df = mod_df_raw,
          reg_tab_full = reg_tab_full)
     
   })
-  
   saveRDS(los_outputs, "data/los_outputs_reformulated.RDS")
   
   
@@ -383,6 +390,6 @@ saveRDS(list(mod_df = mod_df_raw,
   saveRDS(list(mod_df = los_outputs$mod_df,los_mod = los_outputs$mod_full, los_mod_df = los_outputs$mod_df, los_effect_plot = los_effects_plot), "data/los_effect_output_reformulated.RDS")
   
   
-  los_outputs <- readRDS("data/los_outputs.RDS") 
+  # los_outputs <- readRDS("data/los_outputs.RDS") 
   
 }

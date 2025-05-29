@@ -214,6 +214,9 @@ trt_df <- local({
   
   # max_dt <- max(dat_ecds$dta_dt, na.rm = TRUE)
   # dta_seq <- seq.POSIXt(from = as.POSIXct(lubridate::ymd(report_start)), to = max_dt, by = glue::glue("{n_hour} hours"))
+  
+  browser()
+  
   dat_trt <- dat_ecds %>%
     # take only non-admits
     filter(is.na(dta_dt), departure_int > 0) %>%
@@ -457,7 +460,6 @@ minor_time_in_ed_df <- local({
 # amb response time
 
 resp_time_df <- local({
-  browser()
   string_actv_swafst <- glue::glue(
     "SELECT DISTINCT
     [ID]
