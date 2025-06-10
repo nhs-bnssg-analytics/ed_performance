@@ -15,8 +15,11 @@ con_string <- "driver={SQL Server};\n  server=xsw-000-sp09;\n  trusted_connectio
 con<-odbcDriverConnect(con_string)
 
 
-report_start <- '2021-06-01'
-report_end <- '2024-06-01'
+# report_start <- '2021-06-01'
+# report_end <- '2024-06-01'
+
+report_start <- '2023-07-01'
+report_end <- '2025-05-01'
 pre_window_days <- 60
 
 days_outcome_window <- 30
@@ -400,103 +403,103 @@ string_apc <- {glue::glue("SELECT
       ,[SexOfPatients1]
       ,[WardDayPeriodAvailability1]
       ,[WardNightPeriodAvailability1]
-      ,[StartDate1]
-      ,[StartTime_WardStay1]
-      ,[EndDate1]
-      ,[EndTime_WardStay1]
-      ,[WardCode2]
-      ,[WardSecurityLevel2]
-      ,[StartTime_WardStay2]
-      ,[EndTime_WardStay2]
-      ,[WardCode3]
-      ,[WardSecurityLevel3]
-      ,[StartTime_WardStay3]
-      ,[EndTime_WardStay3]
-      ,[WardCode4]
-      ,[WardSecurityLevel4]
-      ,[StartTime_WardStay4]
-      ,[EndTime_WardStay4]
-      ,[WardCode5]
-      ,[WardSecurityLevel5]
-      ,[StartTime_WardStay5]
-      ,[EndTime_WardStay5]
-      ,[WardCode6]
-      ,[WardSecurityLevel6]
-      ,[StartTime_WardStay6]
-      ,[EndTime_WardStay6]
-      ,[WardCode7]
-      ,[WardSecurityLevel7]
-      ,[StartTime_WardStay7]
-      ,[EndTime_WardStay7]
-      ,[WardCode8]
-      ,[WardSecurityLevel8]
-      ,[StartTime_WardStay8]
-      ,[EndTime_WardStay8]
-      ,[WardCode9]
-      ,[WardSecurityLevel9]
-      ,[StartTime_WardStay9]
-      ,[EndTime_WardStay9]
-      ,[WardCode10]
-      ,[WardSecurityLevel10]
-      ,[StartTime_WardStay10]
-      ,[EndTime_WardStay10]
-      ,[WardCode11]
-      ,[WardSecurityLevel11]
-      ,[StartTime_WardStay11]
-      ,[EndTime_WardStay11]
-      ,[WardCode12]
-      ,[WardSecurityLevel12]
-      ,[StartTime_WardStay12]
-      ,[EndTime_WardStay12]
-      ,[WardCode13]
-      ,[WardSecurityLevel13]
-      ,[StartTime_WardStay13]
-      ,[EndTime_WardStay13]
-      ,[WardCode14]
-      ,[WardSecurityLevel14]
-      ,[StartTime_WardStay14]
-      ,[EndTime_WardStay14]
-      ,[WardCode15]
-      ,[WardSecurityLevel15]
-      ,[StartTime_WardStay15]
-      ,[EndTime_WardStay15]
-      ,[WardCode16]
-      ,[WardSecurityLevel16]
-      ,[StartTime_WardStay16]
-      ,[EndTime_WardStay16]
-      ,[WardCode17]
-      ,[WardSecurityLevel17]
-      ,[StartTime_WardStay17]
-      ,[EndTime_WardStay17]
-      ,[WardCode18]
-      ,[WardSecurityLevel18]
-      ,[StartTime_WardStay18]
-      ,[EndTime_WardStay18]
-      ,[WardCode19]
-      ,[WardSecurityLevel19]
-      ,[StartTime_WardStay19]
-      ,[EndTime_WardStay19]
-      ,[WardCode20]
-      ,[WardSecurityLevel20]
-      ,[StartTime_WardStay20]
-      ,[EndTime_WardStay20]
-      ,[WardCode21]
-      ,[WardSecurityLevel21]
-      ,[StartTime_WardStay21]
-      ,[EndTime_WardStay21]
-      ,[WardCode22]
-      ,[WardSecurityLevel22]
-      ,[StartTime_WardStay22]
-      ,[EndTime_WardStay22]
-      ,[WardCode23]
-      ,[WardSecurityLevel23]
-      ,[StartTime_WardStay23]
-      ,[EndTime_WardStay23]
-      ,[WardCode24]
-      ,[WardSecurityLevel24]
-      ,[StartTime_WardStay24]
-      ,[EndTime_WardStay24]
-      ,[WardCodeatEpisodeEndDate]
+--      ,[StartDate1]
+--      ,[StartTime_WardStay1]
+--      ,[EndDate1]
+--      ,[EndTime_WardStay1]
+--      ,[WardCode2]
+--      ,[WardSecurityLevel2]
+--      ,[StartTime_WardStay2]
+--      ,[EndTime_WardStay2]
+--      ,[WardCode3]
+--      ,[WardSecurityLevel3]
+--      ,[StartTime_WardStay3]
+--      ,[EndTime_WardStay3]
+--      ,[WardCode4]
+--      ,[WardSecurityLevel4]
+--      ,[StartTime_WardStay4]
+--      ,[EndTime_WardStay4]
+--      ,[WardCode5]
+--      ,[WardSecurityLevel5]
+--      ,[StartTime_WardStay5]
+--      ,[EndTime_WardStay5]
+--      ,[WardCode6]
+--      ,[WardSecurityLevel6]
+--      ,[StartTime_WardStay6]
+--      ,[EndTime_WardStay6]
+--      ,[WardCode7]
+--      ,[WardSecurityLevel7]
+--      ,[StartTime_WardStay7]
+--      ,[EndTime_WardStay7]
+--      ,[WardCode8]
+--      ,[WardSecurityLevel8]
+--      ,[StartTime_WardStay8]
+--      ,[EndTime_WardStay8]
+--      ,[WardCode9]
+--      ,[WardSecurityLevel9]
+--      ,[StartTime_WardStay9]
+--      ,[EndTime_WardStay9]
+--      ,[WardCode10]
+--      ,[WardSecurityLevel10]
+--      ,[StartTime_WardStay10]
+--      ,[EndTime_WardStay10]
+--      ,[WardCode11]
+--      ,[WardSecurityLevel11]
+--      ,[StartTime_WardStay11]
+--      ,[EndTime_WardStay11]
+--      ,[WardCode12]
+--      ,[WardSecurityLevel12]
+--      ,[StartTime_WardStay12]
+--      ,[EndTime_WardStay12]
+--      ,[WardCode13]
+--      ,[WardSecurityLevel13]
+--      ,[StartTime_WardStay13]
+--      ,[EndTime_WardStay13]
+--      ,[WardCode14]
+--      ,[WardSecurityLevel14]
+--      ,[StartTime_WardStay14]
+--      ,[EndTime_WardStay14]
+--      ,[WardCode15]
+--      ,[WardSecurityLevel15]
+--      ,[StartTime_WardStay15]
+--      ,[EndTime_WardStay15]
+--      ,[WardCode16]
+--      ,[WardSecurityLevel16]
+--      ,[StartTime_WardStay16]
+--      ,[EndTime_WardStay16]
+--      ,[WardCode17]
+--      ,[WardSecurityLevel17]
+--      ,[StartTime_WardStay17]
+--      ,[EndTime_WardStay17]
+--      ,[WardCode18]
+--      ,[WardSecurityLevel18]
+--      ,[StartTime_WardStay18]
+--      ,[EndTime_WardStay18]
+--      ,[WardCode19]
+--      ,[WardSecurityLevel19]
+--      ,[StartTime_WardStay19]
+--      ,[EndTime_WardStay19]
+--      ,[WardCode20]
+--      ,[WardSecurityLevel20]
+--      ,[StartTime_WardStay20]
+--      ,[EndTime_WardStay20]
+--      ,[WardCode21]
+--      ,[WardSecurityLevel21]
+--      ,[StartTime_WardStay21]
+--      ,[EndTime_WardStay21]
+--      ,[WardCode22]
+--      ,[WardSecurityLevel22]
+--      ,[StartTime_WardStay22]
+--      ,[EndTime_WardStay22]
+--      ,[WardCode23]
+--      ,[WardSecurityLevel23]
+--      ,[StartTime_WardStay23]
+--      ,[EndTime_WardStay23]
+--      ,[WardCode24]
+--      ,[WardSecurityLevel24]
+--      ,[StartTime_WardStay24]
+--      ,[EndTime_WardStay24]
+--      ,[WardCodeatEpisodeEndDate]
       ,[WardSecurityLevelatEpisodeEndDate]
       ,[VGP_WardCodeAtEndOfEpisode]
       ,[EpisodeNumber]
@@ -572,14 +575,14 @@ string_apc <- {glue::glue("SELECT
       ,[PresentOnAdmissionIndicatorDiag23]
       ,[Diagnosis23rdSecondary_ICD]
   FROM [ABI].[dbo].[vw_APC_SEM_001]
-  where cast(StartDate_HospitalProviderSpell as date) between '{report_start}' and '{report_end}'")
+  where cast(StartDate_HospitalProviderSpell as date) between '{ymd(report_start) - dmonths(3)}' and '{ymd(report_end) + dmonths(3)}'")
 }
 
-# dat_apc <- sqlQuery(con,string_apc) %>%
-#   mutate(AIMTC_Pseudo_NHS = as.character(AIMTC_Pseudo_NHS))
+dat_apc <- sqlQuery(con,string_apc) %>%
+  mutate(AIMTC_Pseudo_NHS = as.character(AIMTC_Pseudo_NHS))
 # 
-# saveRDS(dat_apc, "data/dat_apc_new.RDS")
-dat_apc <- readRDS("data/dat_apc_new.RDS")
+saveRDS(dat_apc, "data/dat_apc_2025_06.RDS")
+# dat_apc <- readRDS("data/dat_apc_new.RDS")
 
 # calculate the number of missing ICD-10 codes
 is_na_or_blank <- \(x) is.na(x) | x == ""  
@@ -821,6 +824,116 @@ ORDER BY
   
   })
 
+dat_long_stays <- local({
+  
+  con<-odbcDriverConnect("driver={SQL Server};\n  server=Xsw-00-ash01;\n  trusted_connection=true")
+  
+  dat <- sqlQuery(con, 
+                  glue::glue("
+                             select distinct
+ [Site_Name]
+,[AIMTC_ProviderSpell_End_Date]
+,[AIMTC_ProviderSpell_Start_Date]
+,[DischargeDate_FromHospitalProviderSpell]
+,[UniqueCDSidentifier]
+,[LOS_GRP_1]
+  FROM [Analyst_SQL_Area].[dbo].[tbl_BNSSG_Datasets_Standard_SUS_APC_Spells]
+  where cast(AIMTC_ProviderSpell_Start_Date as date) between '{ymd(report_start) - dmonths(3)}' and '{ymd(report_end) + dmonths(3)}'
+  and [MainSpecialtyCode] in (300, 326, 430)
+                             ")
+  )
+  
+  date_seq <- seq.Date(ymd(report_start), ymd(report_end), by = "days")
+  
+  dat %>%
+    select(id = UniqueCDSidentifier,   start = AIMTC_ProviderSpell_Start_Date,
+           end = AIMTC_ProviderSpell_End_Date,
+           org = Site_Name) %>%
+    distinct() %>%
+    mutate(interval = interval(start+ddays(1), end)#, # shift start point origin to not include spells starting on the day of admission
+           # org = case_when(
+           #   org == "RA3" ~ "WESTON GENERAL HOSPITAL",
+           #   org == "RA7" ~ "BRISTOL ROYAL INFIRMARY",
+           #   org == "RVJ" ~ "SOUTHMEAD HOSPITAL",
+           #   )
+           ) %>%
+    filter(interval/ddays(1) >= (28 - 1), # -1 because of origin shift
+           org %in% c(
+             "WESTON GENERAL HOSPITAL",
+             "BRISTOL ROYAL INFIRMARY",
+             "SOUTHMEAD HOSPITAL"
+             )) %>%
+    group_by(site = org) %>%
+    nest() %>%
+    mutate(long_stays = list(
+      map2_dbl(date_seq, data, \(d, dat) {
+      dat %>% filter(d %within% interval) %>% nrow()
+      })
+      )
+    ) %>%
+    select(site, long_stays) %>%
+    unnest(long_stays) %>%
+    ungroup() %>%
+    mutate(date = rep(date_seq, 3))
+  })
+
+
+dat_nctr <- local({
+
+  # latest nctr data
+  nctr_df <-
+    RODBC::sqlQuery(
+      con,
+      "SELECT
+       [RN]
+      ,[Organisation_Code_Provider]
+      ,[Organisation_Code_Commissioner]
+      ,[Census_Date]
+      ,[Month_Date]
+      ,[Month]
+      ,[Day_Of_Week]
+      ,[Week_Start_Date]
+      ,[NHS_Number]
+      ,[Person_Stated_Gender_Code]
+      ,[Person_Age]
+      ,[CDS_Unique_Identifier]
+      ,[Sub_ICB_Location]
+      ,[Organisation_Site_Code]
+      ,[Current_Ward]
+      ,[Specialty_Code]
+      ,[Bed_Type]
+      ,[Date_Of_Admission]
+      ,[BNSSG]
+      ,[Local_Authority]
+      ,[Criteria_To_Reside]
+      ,[Date_NCTR]
+      ,[Current_LOS]
+      ,[Days_NCTR]
+      ,[Days_NCTR_On_Current_Code]
+      ,[Current_Delay_Code]
+      ,[Local_Authority_grouped]
+      ,[Site_Name]
+      ,[Current_Delay_Code_Standard]
+      ,[Current_Delay_Code_Detailed]
+      ,[Acute Community split]
+      ,[Current_Covid_Status]
+      ,[Planned_Date_Of_Discharge]
+      ,[Date_Toc_Form_Completed]
+      ,[Toc_Form_Status]
+      ,[Discharge_Pathway]
+      ,[DER_File_Name]
+      ,[DER_Load_Timestamp]
+  FROM Analyst_SQL_Area.dbo.vw_NCTR_Status_Report_Daily_JI"
+    )
+  nctr_df %>%
+    group_by(date = ymd(Census_Date), site = Site_Name) %>%
+    summarise(nctr = sum(Criteria_To_Reside == "N", na.rm = TRUE)) %>%
+    ungroup() %>%
+    filter(between(date, ymd(report_start), ymd(report_end)))
+  
+  })
+
+
 dat_adm <- dat_ecds %>%
   # remove arrivals that dont have full outcome window
   filter(arrival_dt < ymd(report_end) - ddays(days_outcome_window)) %>%
@@ -855,6 +968,8 @@ dat_adm <- dat_ecds %>%
   ) %>%
   mutate(arrival_hour = ceiling_date(arrival_dt, "4 hour")) %>%
   mutate(arrival_date = ceiling_date(arrival_dt, "1 day")) %>%
+  left_join(dat_nctr, by = join_by(arrival_date == date, site == site)) %>%
+  # left_join(dat_long_stays, by = join_by(arrival_date == date, site == site)) %>%
   # left_join(bed_occ_df, by = join_by(arrival_date == date, site == site)) %>%
   left_join(dat_ecds_perf) %>%
   left_join(dat_ecds_n_ed) %>%
@@ -934,8 +1049,10 @@ mod_df <- dat_adm %>%
     arrival_time,
     arrival_month,
     arrival_year,
+    nctr,
     # perf,
     #bed_occ,
+    # long_stays,
     age,
     n_ed,
     Acuity_Desc,

@@ -9,15 +9,15 @@ resp_outputs <- readRDS("data/resp_outputs.RDS")
 ed_time_outputs <- readRDS("data/time_ed_outputs.RDS")
 
 bin_acc <- 0.05
-cut_off <- 1.1
+cut_off <- 1.0
 x_lab <- str_wrap("Medicine boarding as a percentage of ED bedded capacity", 40)
 
 targets <- tribble(~outcome, ~measure, ~target, ~quantile,
-                   "Time until ED treatment for non-admitted patients (OM3)", "(OM3)", 240, .78,
-                   "Ambulance handover time (OM2)", "(OM2)", 30, .90,
-                   "Ambulance response time [Category 1]", "(OM1a)", 15, .9,
-                   "Ambulance response time [Category 2]", "(OM1b)", 40, .9,
-                   "Ambulance response time [Category 3]", "(OM1c)", 120, .9
+                   "Time until ED treatment for non-admitted patients", "", 240, 0.9,#.78,
+                   "Ambulance handover time", "", 30, .90,
+                   "Ambulance response time [Category 1]", "", 15, .9,
+                   "Ambulance response time [Category 2]", "", 40, .9,
+                   "Ambulance response time [Category 3]", "", 120, .9
 )
 
 upstream_plots <- resp_outputs$plot_dat %>%
@@ -37,15 +37,15 @@ upstream_plots <- resp_outputs$plot_dat %>%
   bind_rows(
     handover_outputs$plot_df %>%
       select(n_dta_norm, response = handover_adj_inv) %>%
-      mutate(response = response/60, outcome = "Ambulance handover time (OM2)")
+      mutate(response = response/60, outcome = "Ambulance handover time")
   ) %>%
   bind_rows(
     ed_time_outputs$plot_df %>%
       select(n_dta_norm, response = trt_adj_inv) %>%
-      mutate(outcome = "Time until ED treatment for non-admitted patients (OM3)")
+      mutate(outcome = "Time until ED treatment for non-admitted patients")
   )  %>% 
   mutate(n_dta_norm = plyr::round_any(n_dta_norm, accuracy = bin_acc, f = \(x) floor(0.5 + x))) %>%
-  filter(n_dta_norm >= 0.05) %>%
+  filter(between(n_dta_norm, 0.05, cut_off+0.05)) %>%
   group_by(outcome) %>%
   nest() %>%
   left_join(targets) %>%
@@ -56,18 +56,18 @@ upstream_plots <- resp_outputs$plot_dat %>%
     \(data, target)
     ggplot(data = data, ,mapping = aes(x = n_dta_norm, y = response)) +
       geom_boxplot(mapping = aes(group = cut_width(n_dta_norm, width = bin_acc)), outliers = FALSE, fatten = NULL) +
-      geom_hline(aes(yintercept = target), col = "red", linetype = 2) +
-      geom_point(aes(y = target, col = "National target threshold")) +
+      geom_hline(aes(yintercept = target, col = "National target threshold" ), linetype = 2) +
+      # geom_point(aes(y = target, col = "National target threshold")) +
       stat_summary(
         fun = ~ mean(.x),
         geom = "point",
         col = "black",
         aes(col = "Empirical data, mean", shape = "Empirical data, mean")
       ) +
-      geom_point(aes(y = response_q, shape = "Empirical data, evaluated at target quantile"), col = "black") +
+      geom_point(aes(y = response_q, shape = "Empirical data, 90th percentile"), col = "black") +
       theme_minimal() +
       scale_colour_manual(
-        values = c("Empirical data, mean" = "black", "Empirical data, evaluated at target quantile"= "black", "National target threshold" = "red"),
+        values = c("Empirical data, mean" = "black", "Empirical data, 90th percentile"= "black", "National target threshold" = "red"),
       ) +
       scale_x_continuous(labels = scales::percent,
                          breaks = scales::breaks_width(0.25)) +
@@ -76,7 +76,7 @@ upstream_plots <- resp_outputs$plot_dat %>%
       ) +
       scale_y_continuous(limits = c(0, NA), expand = expansion(mult = c(0, 0.05))) +
       scale_shape_manual(values = c(17, 19),
-                         breaks = c("Empirical data, mean", "Empirical data, evaluated at target quantile"),
+                         breaks = c("Empirical data, mean", "Empirical data, 90th percentile"),
                          # guide = guide_legend(override.aes = list(size = 3, alpha = 1))
       ) +
       theme(panel.grid.major.x = element_line(color = "grey65", size = 0.3)) +
@@ -86,17 +86,17 @@ upstream_plots <- resp_outputs$plot_dat %>%
 
 
 
-upstream_plots$plot <- modify_at(upstream_plots$plot, .at = c(2), .f = \(x) x +  scale_y_continuous(limits = c(0, NA),
-                                                                 expand = expansion(mult = c(0, 0.05)),
-                                                                 breaks = breaks_width(width = 240)))
-
-upstream_plots$plot <- modify_at(upstream_plots$plot, .at = c(5), .f = \(x) x +  scale_y_continuous(limits = c(0, NA),
-                                                                 expand = expansion(mult = c(0, 0.05)),
-                                                                 breaks = breaks_width(width = 120)))
-
-upstream_plots$plot <- modify_at(upstream_plots$plot, .at = c(1, 4), .f = \(x) x +  scale_y_continuous(limits = c(0, NA),
-                                                                 expand = expansion(mult = c(0, 0.05)),
-                                                                 breaks = breaks_width(width = 60)))
+# upstream_plots$plot <- modify_at(upstream_plots$plot, .at = c(2), .f = \(x) x +  scale_y_continuous(limits = c(0, NA),
+#                                                                  expand = expansion(mult = c(0, 0.05)),
+#                                                                  breaks = breaks_width(width = 240)))
+# 
+# upstream_plots$plot <- modify_at(upstream_plots$plot, .at = c(5), .f = \(x) x +  scale_y_continuous(limits = c(0, NA),
+#                                                                  expand = expansion(mult = c(0, 0.05)),
+#                                                                  breaks = breaks_width(width = 120)))
+# 
+# upstream_plots$plot <- modify_at(upstream_plots$plot, .at = c(1, 4), .f = \(x) x +  scale_y_continuous(limits = c(0, NA),
+#                                                                  expand = expansion(mult = c(0, 0.05)),
+#                                                                  breaks = breaks_width(width = 60)))
 
 ptc_1 <- upstream_plots %>%
   filter(!str_detect(outcome, "Category")) %>%
@@ -125,12 +125,19 @@ upstream_out <- wrap_plots(ptc_2 | ptc_1,
         legend.spacing.x = unit(0, "cm")) 
 
 
-ggplot2::ggsave("materials/upstream_standard_110_pres.png",
+ggplot2::ggsave("materials/upstream_standard_110_pres_202505.png",
                 upstream_out,
                 bg = "white",
                 height = 12.5,
                 width = 15.0, 
                 scale = 0.55)
+
+ggplot2::ggsave("materials/upstream_standard_110_202505.png",
+                upstream_out,
+                bg = "white",
+                height = 12.5,
+                width = 15.0, 
+                scale = 0.65)
 
 
 # Headline outputs

@@ -32,6 +32,7 @@ roc_stability <- map(mod_folds$splits, \(x) {
     formula = mort_30 ~ .
     # + I(dta_time ^ 2)+I(age ^ 2)+I(perf ^ 2)
     # + I(age ^ 2)
+    + I(nctr ^ 2)
     + I(time_to_dta ^ 2)
     # + I(bed_occ ^ 2)
     + I(n_ed ^ 2)
@@ -65,7 +66,7 @@ mod_raw <- glm(
   # + I(dta_time ^ 2)
   # + I(age ^ 2)
   + I(time_to_dta ^ 2)
-  # + I(bed_occ ^ 2)
+  + I(nctr ^ 2)
   + I(n_ed ^ 2)
   + I(vw_score ^2),
   data = mod_df_raw,
@@ -83,6 +84,7 @@ lvl_props <- mod_df %>%
 # # remove new base-level because mort analysis doesn't have any admits under 13
 # lvl_props <- lvl_props[setdiff(names(lvl_props), c("age10-19 years old"))]
 # lvl_props <- lvl_props[setdiff(names(lvl_props), c("age10-19 years old", "age20-29 years old"))]
+
 
 mod_eff <- effects::predictorEffect("dta_time", mod_raw, fixed.predictors = list(given.values = lvl_props))
 
@@ -104,11 +106,29 @@ mort_effects_plot <- mod_eff[c("x", "fit", "upper", "lower")] %>%
   theme_minimal() +
   theme(panel.grid.major.x = element_line(color = "grey65", size = 0.3))
   # geom_text(data = tibble(), aes(label = mort_roc_lab, x = 0, y = Inf), vjust = +3, hjust = -0.1)
+
+mort_margins_plot <- ggplot(margins::cplot(mod_raw, "dta_time",
+                                             draw = FALSE),
+                              aes(x = xvals,
+                                  y = yvals,
+                                  ymin = lower,
+                                  ymax = upper))  +
+  geom_ribbon(alpha = 0.25) +
+  geom_line(linewidth = 1) +
+  scale_x_continuous(limits = c(0, NA), breaks = scales::breaks_width(width = 4), expand = c(0, 0)) +
+  # scale_y_continuous(labels = function(x) x * 100, breaks = seq(0, .5, .05)) +
+  scale_y_continuous(labels = \(x) scales::percent(x, accuracy = 1), breaks = scales::breaks_width(width = 0.01)) +
+  labs(x = "Time spent DTA (hours)",
+       # y = str_wrap("Out of 100 patients, the number who die within 30 days due to delay related harm", 50)) +
+       y = str_wrap("Model estimated 30-day mortality rate.", 50)) +
+  theme_minimal() +
+  theme(panel.grid.major.x = element_line(color = "grey65", size = 0.3))
   
 
 saveRDS(list(mod_df = mod_df_raw,
              mort_mod_raw = mod_raw,
              mort_effects_plot = mort_effects_plot,
+             mort_margins_plot = mort_margins_plot,
              mort_roc_lab = mort_roc_lab), "data/mort_effects_output.RDS")
 
 }
@@ -126,6 +146,7 @@ saveRDS(list(mod_df = mod_df_raw,
       formula = readm ~ . 
       # -n_ed
       # + I(age ^ 2)
+      + I(nctr ^ 2)
       # + I(bed_occ ^ 2)
       + I(n_ed ^ 2)
       + I(vw_score ^2),
@@ -156,6 +177,7 @@ saveRDS(list(mod_df = mod_df_raw,
     formula = readm ~ . 
     # -n_ed
     # + I(age ^ 2)
+    + I(nctr ^ 2)
     # + I(bed_occ ^ 2)
     + I(n_ed ^ 2)
     + I(vw_score ^2),
@@ -191,22 +213,42 @@ saveRDS(list(mod_df = mod_df_raw,
     theme_minimal() +
     theme(panel.grid.major.x = element_line(color = "grey65", size = 0.3))
   
-  saveRDS(list(mod_df = mod_df_raw, readm_mod_raw = mod_raw, readm_effects_plot = readm_effects_plot, readm_roc_lab = readm_roc_lab), "data/readm_effects_output.RDS")
+  
+  readm_marginal_plot <- ggplot(margins::cplot(mod_raw, "dta_time",
+                                               draw = FALSE),
+                                aes(x = xvals,
+                                    y = yvals,
+                                    ymin = lower,
+                                    ymax = upper))  +
+    geom_ribbon(alpha = 0.25) +
+    geom_line(linewidth = 1) +
+    scale_x_continuous(limits = c(0, NA), breaks = scales::breaks_width(width = 4), expand = c(0, 0)) +
+    # scale_y_continuous(labels = function(x) x * 100, breaks = seq(0, .5, .05)) +
+    scale_y_continuous(labels = \(x) scales::percent(x, accuracy = 1), breaks = scales::breaks_width(width = 0.01)) +
+    labs(x = "Time spent DTA (hours)",
+         # y = str_wrap("Out of 100 patients, the number who die within 30 days due to delay related harm", 50)) +
+         y = str_wrap("Model-Estimated 30-Day Readmission Rate.", 50)) +
+    theme_minimal() +
+    theme(panel.grid.major.x = element_line(color = "grey65", size = 0.3))
+  
+  saveRDS(list(mod_df = mod_df_raw, readm_mod_raw = mod_raw, readm_effects_plot = readm_effects_plot, readm_marginal_plot = readm_marginal_plot, readm_roc_lab = readm_roc_lab), "data/readm_effects_output.RDS")
   
 }
 
 # LOS model
 
-{
-  mod_df_raw <- mod_df %>%
-    select(-mort_30, -readm)
+# {
+
   
   los_outputs <- local({
     
-    plot_df <- mod_df_raw
+    mod_df_raw <- mod_df %>%
+      select(-mort_30, -readm)
+    
+    mod_df <- mod_df_raw
     
     
-    p_raw <- plot_df %>%
+    p_raw <- mod_df %>%
       mutate(dta_time = factor(dta_time %/% 1, levels = 0:24)) %>%
       ggplot(aes(
         x = dta_time,
@@ -236,6 +278,7 @@ saveRDS(list(mod_df = mod_df_raw,
                   # + I(age^2)
                   + I(n_ed^2)
                   + I(time_to_dta ^ 2)
+                  + I(nctr ^ 2)
                   # + I(bed_occ^2)
                   + I(vw_score^2)
                   -dta_time
@@ -244,7 +287,7 @@ saveRDS(list(mod_df = mod_df_raw,
                   -Acuity_Desc
                   -arrival_mode
                   -arrival_cat
-                  , plot_df)
+                  , mod_df)
     
     reg_tab_std <- gtsummary::tbl_regression(mod_std,
                                              label = list(
@@ -271,7 +314,7 @@ saveRDS(list(mod_df = mod_df_raw,
       gt::tab_header(
         title = gt::md("**In Hospital Length of Stay (days)**"))
     
-    plot_df <- plot_df %>% mutate(dta_time = dta_time)
+    mod_df <- mod_df %>% mutate(dta_time = dta_time)
     
     mod_full <- lm(los ~  
                    dta_time
@@ -279,6 +322,7 @@ saveRDS(list(mod_df = mod_df_raw,
                    + sex
                    + imd
                    + vw_score
+                   + nctr
                    # + bed_occ
                    + time_to_dta
                    + n_ed
@@ -286,10 +330,11 @@ saveRDS(list(mod_df = mod_df_raw,
                    + arrival_month
                    + wkend
                    + I(n_ed^2)
+                   + I(nctr ^ 2)
                    # + I(bed_occ^2)
                    + I(time_to_dta^2)
                    + I(vw_score^2)
-                   , plot_df)
+                   , mod_df)
     
     reg_tab_full <- gtsummary::tbl_regression(
       mod_full,
@@ -319,9 +364,9 @@ saveRDS(list(mod_df = mod_df_raw,
       gt::tab_header(
         title = gt::md("**In Hospital Length of Stay (days)**"))
     
-    los_pred <- predict(mod_std, plot_df)
+    los_pred <- predict(mod_std, mod_df)
     
-    p_std <- plot_df %>%
+    p_std <- mod_df %>%
       mutate(los_adj = los_pred, 
              dta_time = factor(dta_time %/% 1, levels = 0:24)) %>%
       ggplot(aes(
@@ -348,48 +393,68 @@ saveRDS(list(mod_df = mod_df_raw,
         colour = "Total length of stay"
       )
     
+    
+    lvl_props <- mod_df %>%
+      select(arrival_time, wkend, age, arrival_month, sex, imd) %>%
+      map(table) %>%
+      map(proportions) %>%
+      map(\(x) x[-1]) %>%
+      imap(\(x, idx) set_names(x, str_c(idx, names(x)))) %>%
+      reduce(c)
+    
+    mod_eff <- effects::predictorEffect("dta_time", mod_full, fixed.predictors = list(given.values = lvl_props))
+    
+    
+    los_effects_plot <- mod_eff[c("x", "fit", "upper", "lower")] %>%
+      as.data.frame() %>%
+      mutate(across(-dta_time, \(x) mod_eff$link$linkinv(x))) %>%
+      ggplot(aes(x = dta_time, y = fit)) +
+      geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.25) +
+      geom_line(linewidth = 1) +
+      scale_x_continuous(limits = c(0, 24), breaks = scales::breaks_width(width = 4),  expand = c(0, 0)) +
+      scale_y_continuous(breaks = scales::breaks_width(1)) +
+      labs(x = "Time spent DTA (hours)",
+           # y = str_wrap("Out of 100 patients, the number who die within 30 days due to delay related harm", 50)) +
+           y = str_wrap("Model-Estimated In-Hospital Length of Stay", 50)) +
+      theme_minimal() +
+      theme(panel.grid.major.x = element_line(color = "grey65", size = 0.3))
+    
+    
+    los_margins_plot <- ggplot(margins::cplot(mod_full, "dta_time", data = mod_df,
+                                              draw = FALSE), aes(x = xvals, y = yvals, ymin = lower, ymax = upper))  +
+      geom_ribbon(alpha = 0.25) +
+      geom_line(linewidth = 1) +
+      scale_x_continuous(limits = c(0, NA), breaks = scales::breaks_width(width = 4), expand = c(0, 0)) +
+      # scale_y_continuous(labels = function(x) x * 100, breaks = seq(0, .5, .05)) +
+      scale_y_continuous(breaks = scales::breaks_width(1)) +
+      labs(x = "Time spent DTA (hours)",
+           # y = str_wrap("Out of 100 patients, the number who die within 30 days due to delay related harm", 50)) +
+           y = str_wrap("Model-Estimated In-Hospital Length of Stay", 50)) +
+      theme_minimal() +
+      theme(panel.grid.major.x = element_line(color = "grey65", size = 0.3))
+    
+    
+    
     list(p_raw = p_raw, 
          p_std = p_std,
-         mod_df = plot_df,
+         mod_df = mod_df,
          mod_std = mod_std,
          mod_full = mod_full,
+         los_effects_plot = los_effects_plot,
+         los_margins_plot = los_margins_plot,
          reg_tab_std = reg_tab_std,
          reg_tab_full = reg_tab_full)
     
   })
   saveRDS(los_outputs, "data/los_outputs_reformulated.RDS")
   
-  
-  lvl_props <- los_outputs$mod_df %>%
-    select(arrival_time, wkend, age, arrival_month, sex, imd) %>%
-    map(table) %>%
-    map(proportions) %>%
-    map(\(x) x[-1]) %>%
-    imap(\(x, idx) set_names(x, str_c(idx, names(x)))) %>%
-    reduce(c)
-  
-  mod_eff <- effects::predictorEffect("dta_time", los_outputs$mod_full, fixed.predictors = list(given.values = lvl_props))
-  
-  
-  los_effects_plot <- mod_eff[c("x", "fit", "upper", "lower")] %>%
-    as.data.frame() %>%
-    mutate(across(-dta_time, \(x) mod_eff$link$linkinv(x))) %>%
-    ggplot(aes(x = dta_time, y = fit)) +
-    geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.25) +
-    geom_line(linewidth = 1) +
-    scale_x_continuous(limits = c(0, 24), breaks = scales::breaks_width(width = 4),  expand = c(0, 0)) +
-    scale_y_continuous(breaks = scales::breaks_width(1)) +
-    labs(x = "Time spent DTA (hours)",
-         # y = str_wrap("Out of 100 patients, the number who die within 30 days due to delay related harm", 50)) +
-         y = str_wrap("Model-Estimated In-Hospital Length of Stay", 50)) +
-    theme_minimal() +
-    theme(panel.grid.major.x = element_line(color = "grey65", size = 0.3))
-  
-  
-  
-  saveRDS(list(mod_df = los_outputs$mod_df,los_mod = los_outputs$mod_full, los_mod_df = los_outputs$mod_df, los_effect_plot = los_effects_plot), "data/los_effect_output_reformulated.RDS")
-  
-  
-  # los_outputs <- readRDS("data/los_outputs.RDS") 
-  
-}
+#   
+# 
+#   
+#   
+#   saveRDS(list(mod_df = los_outputs$mod_df,los_mod = los_outputs$mod_full, los_mod_df = los_outputs$mod_df, los_effect_plot = los_effects_plot, los_margins_plot = los_margins_plot), "data/los_effect_output_reformulated.RDS")
+#   
+#   
+#   # los_outputs <- readRDS("data/los_outputs.RDS") 
+#   
+# }

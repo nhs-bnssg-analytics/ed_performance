@@ -188,6 +188,8 @@ bin_acc <- 0.05
 
 handover_outputs <- local({
   
+  browser()
+  
   handover_df <- handover_df %>% select(-nhs_number)
   
   # bin_acc <- 0.1
@@ -252,7 +254,7 @@ handover_outputs <- local({
     mutate(age = factor(age)) %>%
     ungroup() %>%
     na.omit() %>%
-    filter(!between(dt, ymd("2022-04-01"), ymd("2022-07-10"))) %>%
+    # filter(!between(dt, ymd("2022-04-01"), ymd("2022-07-10"))) %>%
     filter(handover_time > 0) %>%
     filter(n_dta_norm <= n_dta_cutoff) %>%
     mutate(wkend = factor(ifelse(wday(dt, week_start = 1) < 6, "No", "Yes")),

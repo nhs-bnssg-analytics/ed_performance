@@ -12,8 +12,11 @@ source("colour_functions.R")
 con_string <- "driver={SQL Server};\n  server=Xsw-00-ash01;\n  trusted_connection=true"
 con<-odbcDriverConnect(con_string)
 
-report_start <- '2021-06-01'
-report_end <- '2024-06-01'
+# report_start <- '2021-06-01'
+# report_end <- '2024-06-01'
+
+report_start <- '2023-07-01'
+report_end <- '2025-05-01'
 n_hour <- 2
 
 # Site normalisation data
@@ -57,6 +60,8 @@ imd_df <- local({
   na.omit()
 
 dta_df <- local({
+  
+  browser()
   
   string_ecds<-glue::glue("select 
                         nhs_number,
@@ -128,7 +133,7 @@ dta_df <- local({
       departure_dt = as.Date(departure_dt)[1]
     )
   
-  dat_apc <- readRDS("data/dat_apc_new.RDS")
+  dat_apc <- readRDS("data/dat_apc_2025_06.RDS")
   
   dat_spec <- arrivals %>%
     left_join(
@@ -215,7 +220,6 @@ trt_df <- local({
   # max_dt <- max(dat_ecds$dta_dt, na.rm = TRUE)
   # dta_seq <- seq.POSIXt(from = as.POSIXct(lubridate::ymd(report_start)), to = max_dt, by = glue::glue("{n_hour} hours"))
   
-  browser()
   
   dat_trt <- dat_ecds %>%
     # take only non-admits
@@ -295,7 +299,7 @@ ed_df <- local({
 })
 
 handover_df <- local({
-  browser()
+
   string_actv_swafst <- glue::glue(
     "SELECT DISTINCT
     [ID]
