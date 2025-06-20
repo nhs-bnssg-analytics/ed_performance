@@ -4,8 +4,8 @@ mort_effect_output <- readRDS("data/mort_effects_output.RDS")
 readm_effect_output <- readRDS("data/readm_effects_output.RDS")
 mort_effect_plot <- mort_effect_output$mort_effects_plot
 readm_effect_plot <- readm_effect_output$readm_effects_plot
-mort_condn_plot <- mort_effect_output$mort_margins_plot
-readm_condn_plot <- readm_effect_output$mort_margins_plot
+mort_margins_plot <- mort_effect_output$mort_margins_plot
+readm_margins_plot <- readm_effect_output$readm_marginal_plot
 mort_roc_lab <- mort_effect_output$mort_roc_lab
 readm_roc_lab <- readm_effect_output$readm_roc_lab
 los_effect_output <- readRDS("data/los_outputs_reformulated.RDS")
@@ -39,9 +39,9 @@ ggsave("materials/effects_plot_patch_1row_pres_202505.png",
        scale = 0.5)
 
 patchwork::wrap_plots(
-  los_effect_output$los_margins_plot + facet_grid(.~str_wrap("Inpatient length of stay", 20)) + scale_y_continuous(limits = c(5, NA)) + labs(y = "", x = xlab),
-  readm_marginal_plot + facet_grid(.~str_wrap("30-day readmission rate", 20)) + scale_y_continuous(limits = c(0, NA), labels = scales::percent) + labs(y = "", x = xlab),
-  mort_margins_plot + facet_grid(.~str_wrap("30-day mortality rate", 20)) + scale_y_continuous(limits = c(0, NA), labels = scales::percent) + labs(y = "", x = xlab),
+  los_effect_output$los_margins_plot + facet_grid(.~str_wrap("Inpatient length of stay", 25)) + scale_y_continuous(limits = c(5, NA)) + labs(y = "", x = xlab),
+  readm_margins_plot + facet_grid(.~str_wrap("30-day readmission rate", 25)) + scale_y_continuous(limits = c(0, NA), labels = scales::percent) + labs(y = "", x = xlab),
+  mort_margins_plot + facet_grid(.~str_wrap("30-day mortality rate", 25)) + scale_y_continuous(limits = c(0, NA), labels = scales::percent) + labs(y = "", x = xlab),
   nrow = 1, axes = "collect_x")
 
 
@@ -50,7 +50,7 @@ ggsave("materials/condn_pred_plot_patch_1row_pres_202505.png",
        bg = "white",
        height = 4.75,
        width = 10, 
-       scale = 0.5)
+       scale = 0.6)
 
 # mort_effect_output$mort_mod_raw %>%
 #   tidy() %>%
@@ -61,8 +61,8 @@ label_list_downstream <- list(
   dta_time = "Time waiting for admission (hours)",
   # perf = "Four-hour breach rate in ED at the patient’s time of arrival",
   # `I(perf^2)` = "Four-hour breach rate in ED at the patient’s time of arrival (squared)",
-  nctr = "Number of patients with no criteria to reside",
-  `I(nctr^2)` = "Number of patients with no criteria to reside (squared)",
+  nctr = "Number of patients with no criteria to reside as a proportion of ED bedded capacity",
+  `I(nctr^2)` = "Number of patients with no criteria to reside as a proportion of ED bedded capacity (squared)",
   age = "Age",
   sex = "Sex",
   vw_score = "Elixhauser comorbidity index (vWs)",
@@ -116,7 +116,8 @@ reg_table_readm <- readm_effect_output$readm_mod_raw %>% gtsummary::tbl_regressi
   ) %>% gtsummary::add_glance_table(include = c(nobs))
 
 
-reg_table_los <- los_effect_output$los_mod %>% gtsummary::tbl_regression(intercept = TRUE,estimate_fun = purrr::partial(gtsummary::style_ratio, digits = 2),
+reg_table_los <- los_effect_output$los_mod %>%
+  gtsummary::tbl_regression(intercept = TRUE,estimate_fun = purrr::partial(gtsummary::style_ratio, digits = 2),
   label = label_list_downstream
 ) %>% gtsummary::add_glance_table(include = c(nobs)) 
 
@@ -149,25 +150,54 @@ mort_or[1, 1:3] %>% flatten() %>% as.numeric() - 1
 mod_df_raw <- readm_effect_output$mod_df
 readm_or <- readm_effect_output$readm_mod_raw %>%
   update(. ~ . -dta_time + I(dta_time/(4))) %>%
-  broom::tidy(conf.int = TRUE) %>%
-  filter(str_detect(term, "dta_time"))%>%
+  broom::tidy(conf.int = TRUE, exponentiate = TRUE) %>%
+  filter(str_detect(term, "dta_time")) %>%
   select(estimate, conf.low, conf.high, p.value)
 
 
 readm_or[1, 1:3] %>% flatten() %>% as.numeric() - 1 
     
-mort_or %>%
-  mutate(across(-p.value, exp)) %>%
-  mutate(across(-p.value, \(x) 100*(rr_fn(x, 0.04)-1), .names = "rr_{.col}"))
+# mort_or %>%
+#   mutate(across(-p.value, exp)) %>%
+#   mutate(across(-p.value, \(x) 100*(rr_fn(x, 0.04)-1), .names = "rr_{.col}"))
+# 
+# readm_or %>%
+#   mutate(across(-p.value, exp)) %>%
+#   mutate(across(-p.value, \(x) 100*(rr_fn(x, 0.1)-1), .names = "rr_{.col}"))
 
-readm_or %>%
-  mutate(across(-p.value, exp)) %>%
-  mutate(across(-p.value, \(x) 100*(rr_fn(x, 0.1)-1), .names = "rr_{.col}"))
 
+mod_df <- los_effect_output$mod_df
 
-los_effect_output$mod_full %>%
+los_eff <- los_effect_output$mod_full %>%
   update(. - los + I(24*los) ~ . -dta_time + I(dta_time/(4))) %>%
   broom::tidy(conf.int = TRUE) %>%
-  filter(str_detect(term, "dta_time"))
+  filter(str_detect(term, "dta_time")) %>%
+  select(estimate, conf.low, conf.high, p.value)
 
+bind_rows(
+los_eff %>%
+  mutate(
+    Exposure = "+4 hours boarding time for medical patients",
+    Outcome = "Inpatient lenght of stay",
+    `Effect size (95% CI)` = str_c(round(estimate, 1), " (", round(conf.low, 1), ", ",  round(conf.high, 1), ") hours additional LOS"),
+    `P-value` = gtsummary::style_pvalue(p.value)) %>%
+  select(Exposure, Outcome, `Effect size (95% CI)`, `P-value`),
+
+readm_or %>%
+  mutate(
+    Exposure = "+4 hours boarding time for medical patients",
+    Outcome = "30-day readmission rate",
+    `Effect size (95% CI)` = str_c(percent(estimate-1, accuracy = 0.1), " (", percent(conf.low-1, accuracy =  0.1), ", ",  percent(conf.high-1, accuracy = 0.1), ") increase in odds of readmission within 30 days"),
+    `P-value` = gtsummary::style_pvalue(p.value)) %>%
+  select(Exposure, Outcome, `Effect size (95% CI)`, `P-value`),
+
+mort_or %>%
+  mutate(
+    Exposure = "+4 hours boarding time for medical patients",
+    Outcome = "30-day mortality rate",
+    `Effect size (95% CI)` = str_c(percent(estimate-1, accuracy = 0.1), " (", percent(conf.low-1, accuracy =  0.1), ", ",  percent(conf.high-1, accuracy = 0.1), ") increase in odds of mortality within 30 days"),
+    `P-value` = gtsummary::style_pvalue(p.value)) %>%
+  select(Exposure, Outcome, `Effect size (95% CI)`, `P-value`)
+) %>%
+  show_in_excel()
   

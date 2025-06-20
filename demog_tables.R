@@ -38,14 +38,14 @@ time_ed_mod_df <- readRDS("data/time_ed_outputs.RDS") %>%
 
 
 label_list <- list(
-  n_dta_norm = "DTA queue at the patient’s time of arrival as a percentage of cubicle capacity",
-  n_ed_norm = "Number in ED (excluding DTA) as a percentage of cubicle capacity",
+  n_dta_norm = "Number of medical boarders, as a percentage of ED bedded capacity (at times of events)",
+  n_ed_norm = "Number in ED (excluding medical boarders) as a percentage of cubicle capacity (at times of events)",
   age = "Age",
   sex = "Sex",
-  imd = "Index of multiple deprivation decile",
-  wkend = "Weekend",
-  arrival_time = "Time of arrival",
-  arrival_month = "Month of arrival"#,
+  imd = "Deprivation decile",
+  wkend = "Event on weekend",
+  arrival_time = "Time of event",
+  arrival_month = "Month of event"#,
   # arrival_year = "Year of Arrival"
 )
 
@@ -73,7 +73,7 @@ handover_demo_tbl <- handover_mod_df %>%
     age,
     sex,
     imd,
-    hour,
+    arrival_time,
     arrival_month,
     wkend
   ),
@@ -90,7 +90,7 @@ time_ed_demo_tbl <- time_ed_mod_df %>%
     age,
     sex,
     imd,
-    hour,
+    arrival_time,
     arrival_month,
     wkend
   ),
@@ -112,7 +112,7 @@ resp_demo_tbl <- resp_mod_df %>%
     age,
     sex,
     imd,
-    hour,
+    arrival_time,
     arrival_month,
     wkend
   ),
@@ -121,6 +121,7 @@ resp_demo_tbl <- resp_mod_df %>%
   label = label_list,
   statistic = list(c(n_dta_norm, n_ed_norm) ~ "{median_pct} ({p25_pct}, {p75_pct})%"),
   by = "call_category")
+
 
 tbl_merge(list(time_ed_demo_tbl, handover_demo_tbl, resp_demo_tbl),
           tab_spanner = c("Patients in ED, non-admits", "Ambulance handovers", "Ambulance reponses")
@@ -132,25 +133,31 @@ tbl_merge(list(time_ed_demo_tbl, handover_demo_tbl, resp_demo_tbl),
 # DOWNSTREAM TABLES
 
 downstream_mod_df <- readRDS("data/mort_effects_output.RDS") %>%
-  `[[`("mod_df")
+  `[[`("mod_df") %>%
+  mutate(imd = fct_drop(imd)) %>%
+  mutate(sex = factor(sex))
 
 label_list_downstream <- list(
-  dta_time = "Time waiting for admission (hours)",
-  perf = "Four-hour breach rate in ED at the patient’s time of arrival",
+  dta_time = "Medical boarding time (hours)",
+  time_to_dta = "Time to decision to admit (hours)",
+  nctr = "Number of patients with 'No Criteria To Reside' (at time of event)",
+  # perf = "Four-hour breach rate in ED at the patient’s time of arrival",
   age = "Age",
   sex = "Sex",
-  vw_score = "Elixhauser comorbidity index (vWs)",
-  imd = "Index of multiple deprivation decile",
-  wkend = "Weekend",
-  arrival_time = "Time of arrival",
-  arrival_month = "Month of arrival"#,
+  vw_score = "Van Walraven Elixhauser comorbidity score",
+  imd = "Deprivation decile",
+  wkend = "Event on weekend",
+  arrival_time = "Time of event",
+  arrival_month = "Month of event",
+  n_ed = "Number of ED attendances within past 60 days"
   # arrival_year = "Year of Arrival"
 )
 
 
 downstream_demo_tbl <- tbl_summary(downstream_mod_df,
             include = c(dta_time,
-                        perf,
+                        time_to_dta,
+                        nctr,
                         age,
                         sex,
                         vw_score,
@@ -159,9 +166,9 @@ downstream_demo_tbl <- tbl_summary(downstream_mod_df,
                         arrival_month,
                         n_ed,
                         wkend),
-            label = label_list_downstream,
-            digits = list(perf = 1),
-            statistic = list(c(perf) ~ "{median_pct} ({p25_pct}, {p75_pct})%")
+            label = label_list_downstream#,
+            # digits = list(perf = 1),
+            # statistic = list(c(perf) ~ "{median_pct} ({p25_pct}, {p75_pct})%")
             ) 
 
 
@@ -171,10 +178,10 @@ downstream_demo_tbl <- tbl_summary(downstream_mod_df,
 tbl_merge(
   list(resp_demo_tbl, handover_demo_tbl, time_ed_demo_tbl, downstream_demo_tbl),
           tab_spanner = c(
-                          "Ambulance responses",
-                          "Ambulance handovers",
-                          "Patients in ED, non-admits",
-                          "IPLOS, 30-day readmission rate, 30-day mortality rate")
+                          "Ambulance response time",
+                          "Ambulance handover time",
+                          "ED length of stay for non-admitted patients",
+                          "Inpatient LOS, 30-day readmission rate, 30-day mortality rate")
 ) %>%
   as_gt() %>%
   gt::gtsave("materials/merged_demog_tab.html")

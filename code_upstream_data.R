@@ -16,7 +16,7 @@ con<-odbcDriverConnect(con_string)
 # report_end <- '2024-06-01'
 
 report_start <- '2023-07-01'
-report_end <- '2025-05-01'
+report_end <- '2025-04-01'
 n_hour <- 2
 
 # Site normalisation data
@@ -61,7 +61,7 @@ imd_df <- local({
 
 dta_df <- local({
   
-  browser()
+
   
   string_ecds<-glue::glue("select 
                         nhs_number,
@@ -113,6 +113,7 @@ dta_df <- local({
     rowwise() %>%
     mutate(departure_dt=max(dta_dt,departure_dt,na.rm=TRUE)) %>%
     ungroup() %>%
+    mutate(time_to_dta = interval(arrival_dt, dta_dt)/dminutes(1)) %>%
     mutate(dta_int = interval(dta_dt, departure_dt)) %>%
     mutate(dta_time = dta_int/dminutes(1)) %>%
     mutate(trt_time = interval(arrival_dt, treatment_dt)/dminutes(1)) %>%
@@ -156,6 +157,8 @@ dta_df <- local({
     mutate(spec = ifelse(tfc == "medical" | MainSpecialtyCode == "medical", "medical", "not medical")) %>%
     select(nhs_number, arr_id, spec)
   
+  
+  browser()
   
   dat_dtas <- dat_ecds %>%
     left_join(dat_spec) %>%
@@ -221,9 +224,10 @@ trt_df <- local({
   # dta_seq <- seq.POSIXt(from = as.POSIXct(lubridate::ymd(report_start)), to = max_dt, by = glue::glue("{n_hour} hours"))
   
   
+  
   dat_trt <- dat_ecds %>%
     # take only non-admits
-    filter(is.na(dta_dt), departure_int > 0) %>%
+    filter(is.na(dta_dt), trt_time > 0) %>%
     group_by(site = Site_Name) %>%
     nest() %>%
     mutate(departure_time = list(map2(
@@ -246,6 +250,7 @@ trt_df <- local({
 })
 
 ed_df <- local({
+  
   string_ecds<-glue::glue("select Arrival_Date,
                         Arrival_Time,
                         Initial_Assessment_Date,
@@ -279,7 +284,9 @@ ed_df <- local({
     mutate(trt_time = interval(arrival_dt, treatment_dt)/dminutes(1)) %>%
     mutate(date=floor_date(departure_dt,"day")) %>%
     mutate(ed_category=case_when(Acuity_Desc %in% c("Non-urgent level emergency care","Standard level emergency care") ~ "minor",
-                                 TRUE~"major"))
+                                 TRUE~"major")) %>%
+    # remove any admits
+    filter(is.na(dta_dt))
   
   
   

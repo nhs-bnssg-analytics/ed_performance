@@ -4,6 +4,7 @@ library(tidymodels)
 mod_df <- readRDS("data/mort_mod_df_202505.RDS")
 mod_df <- mod_df %>%
   mutate(dta_time = dta_time/60) %>% # convert minutes to hours
+  mutate(time_to_dta = time_to_dta/60) %>% # convert minutes to hours
   # filter(ed_time < 60*30) %>%
   mutate(age = cut(age, breaks = c(0 , seq(30, 100, 10), Inf), right = FALSE, labels = c(
     "29 years old or under",
@@ -107,6 +108,8 @@ mort_effects_plot <- mod_eff[c("x", "fit", "upper", "lower")] %>%
   theme(panel.grid.major.x = element_line(color = "grey65", size = 0.3))
   # geom_text(data = tibble(), aes(label = mort_roc_lab, x = 0, y = Inf), vjust = +3, hjust = -0.1)
 
+
+browser()
 mort_margins_plot <- ggplot(margins::cplot(mod_raw, "dta_time",
                                              draw = FALSE),
                               aes(x = xvals,
@@ -316,6 +319,7 @@ saveRDS(list(mod_df = mod_df_raw,
     
     mod_df <- mod_df %>% mutate(dta_time = dta_time)
     
+    
     mod_full <- lm(los ~  
                    dta_time
                    + age
@@ -323,6 +327,7 @@ saveRDS(list(mod_df = mod_df_raw,
                    + imd
                    + vw_score
                    + nctr
+                   # + poly(nctr, 2, raw = TRUE)
                    # + bed_occ
                    + time_to_dta
                    + n_ed

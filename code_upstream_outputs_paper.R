@@ -13,7 +13,7 @@ cut_off <- 1.0
 x_lab <- str_wrap("Medicine boarding as a percentage of ED bedded capacity", 40)
 
 targets <- tribble(~outcome, ~measure, ~target, ~quantile,
-                   "Time until ED treatment for non-admitted patients", "", 240, 0.9,#.78,
+                   "ED length of stay for non-admitted patients", "", 240, 0.9,#.78,
                    "Ambulance handover time", "", 30, .90,
                    "Ambulance response time [Category 1]", "", 15, .9,
                    "Ambulance response time [Category 2]", "", 40, .9,
@@ -42,7 +42,7 @@ upstream_plots <- resp_outputs$plot_dat %>%
   bind_rows(
     ed_time_outputs$plot_df %>%
       select(n_dta_norm, response = trt_adj_inv) %>%
-      mutate(outcome = "Time until ED treatment for non-admitted patients")
+      mutate(outcome = "ED length of stay for non-admitted patients")
   )  %>% 
   mutate(n_dta_norm = plyr::round_any(n_dta_norm, accuracy = bin_acc, f = \(x) floor(0.5 + x))) %>%
   filter(between(n_dta_norm, 0.05, cut_off+0.05)) %>%
@@ -125,12 +125,12 @@ upstream_out <- wrap_plots(ptc_2 | ptc_1,
         legend.spacing.x = unit(0, "cm")) 
 
 
-ggplot2::ggsave("materials/upstream_standard_110_pres_202505.png",
-                upstream_out,
-                bg = "white",
-                height = 12.5,
-                width = 15.0, 
-                scale = 0.55)
+# ggplot2::ggsave("materials/upstream_standard_110_pres_202505.png",
+#                 upstream_out,
+#                 bg = "white",
+#                 height = 12.5,
+#                 width = 15.0, 
+#                 scale = 0.55)
 
 ggplot2::ggsave("materials/upstream_standard_110_202505.png",
                 upstream_out,
@@ -142,25 +142,62 @@ ggplot2::ggsave("materials/upstream_standard_110_202505.png",
 
 # Headline outputs
 
-ed_time_outputs$full_mod %>%
-  tidy(conf.int = TRUE) %>%
-  filter(term == "n_dta_norm") %>%
-  dplyr::select(estimate, conf.low, conf.high, p.value) %>%
-  mutate(across(-p.value, \(x) x/5))
+show_in_excel <- function(.data){
+  if(interactive()){
+    tmp <- tempfile(fileext = ".csv")
+    readr::write_excel_csv(.data, tmp)
+    fs::file_show(tmp)
+  }
+  invisible(.data)
+}
+
+
+bind_rows(
+resp_outputs$full_mod %>% map(\(x) {
+  broom::tidy(x, conf.int = TRUE) %>%
+    filter(term == "n_dta_norm") %>%
+    dplyr::select(estimate, conf.low, conf.high, p.value) %>%
+    mutate(across(-p.value, \(x) x/5))
+}
+) %>%
+  bind_rows() %>%
+  mutate(
+    Exposure = "+20% increase in the number of medical boarders, as a % of ED majors and resus capacity",
+    Outcome = str_c("Ambulance response time Category ", 1:3),
+    `Effect size (95% CI)` = str_c(round(estimate, 1), " (", round(conf.low, 1), ", ",  round(conf.high, 1), ") minutes additional response time"),
+    `P-value` = gtsummary::style_pvalue(p.value)) %>%
+  select(Exposure, Outcome, `Effect size (95% CI)`, `P-value`),
+
 
 handover_outputs$full_mod %>%
   tidy(conf.int = TRUE) %>%
   filter(term == "n_dta_norm") %>%
   dplyr::select(estimate, conf.low, conf.high, p.value) %>%
-  mutate(across(-p.value, \(x) x/5))
+  mutate(across(-p.value, \(x) x/5)) %>%
+  mutate(
+    Exposure = "+20% increase in the number of medical boarders, as a % of ED majors and resus capacity",
+    Outcome = "Ambulance handover time",
+    `Effect size (95% CI)` = str_c(round(estimate, 1), " (", round(conf.low, 1), ", ",  round(conf.high, 1), ") minutes additional handover time"),
+    `P-value` = gtsummary::style_pvalue(p.value)) %>%
+  select(Exposure, Outcome, `Effect size (95% CI)`, `P-value`), 
 
-resp_outputs$full_mod %>% map(\(x) {
-  broom::tidy(x, conf.int = TRUE) %>%
+ed_time_outputs$full_mod %>%
+  tidy(conf.int = TRUE) %>%
   filter(term == "n_dta_norm") %>%
   dplyr::select(estimate, conf.low, conf.high, p.value) %>%
-  mutate(across(-p.value, \(x) x/5))
-  }
-)
+  mutate(across(-p.value, \(x) x/5)) %>%
+  mutate(
+    Exposure = "+20% increase in the number of medical boarders, as a % of ED majors and resus capacity",
+    Outcome = "ED length of stay for non-admitted patients",
+    `Effect size (95% CI)` = str_c(round(estimate, 1), " (", round(conf.low, 1), ", ",  round(conf.high, 1), ") minutes additional time in the ED"),
+    `P-value` = gtsummary::style_pvalue(p.value)) %>%
+  select(Exposure, Outcome, `Effect size (95% CI)`, `P-value`)
+) %>%
+  show_in_excel()
+
+
+
+
 
 handover_tab <- handover_outputs$full_mod_tab 
 ed_time_tab <- ed_time_outputs$full_mod_tab 

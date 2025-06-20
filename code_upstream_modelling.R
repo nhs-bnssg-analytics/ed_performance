@@ -12,8 +12,11 @@ source("colour_functions.R")
 con_string <- "driver={SQL Server};\n  server=Xsw-00-ash01;\n  trusted_connection=true"
 con<-odbcDriverConnect(con_string)
 
-report_start <- '2021-06-01'
-report_end <- '2024-06-01'
+# report_start <- '2021-06-01'
+# report_end <- '2024-06-01'
+
+report_start <- '2023-07-01'
+report_end <- '2025-04-01'
 n_hour <- 2
 
 # Site normalisation data
@@ -188,7 +191,6 @@ bin_acc <- 0.05
 
 handover_outputs <- local({
   
-  browser()
   
   handover_df <- handover_df %>% select(-nhs_number)
   
@@ -268,7 +270,8 @@ handover_outputs <- local({
     select(-dt, -maj, -resus, -total) %>%
     ungroup() 
   
-  handover_mod <- lm(handover_time ~ . -n_dta -n_dta_norm -n_ed -site, data = mod_dat)
+  # handover_mod <- lm(handover_time ~ . -n_dta -n_dta_norm -n_ed -site, data = mod_dat)
+  handover_mod <- lm(handover_time ~ age + sex + imd + n_ed_norm + I(n_ed_norm^2) + wkend + hour + arrival_month -site, data = mod_dat)
   handover_pred <- predict(handover_mod, mod_dat)
   
   std_mod <- handover_mod
@@ -289,7 +292,7 @@ handover_outputs <- local({
   # gtsummary::as_gt() %>%
   # gt::tab_header(title = gt::md(glue::glue('**Ambulance Handover Time (min)**')))#,
   
-  full_mod <- lm(handover_time/60 ~ age + sex + imd + n_ed_norm + n_dta_norm + wkend + hour + arrival_month -site, data = mod_dat)
+  full_mod <- lm(handover_time/60 ~ n_dta_norm + age + sex + imd + n_ed_norm + I(n_ed_norm^2) + wkend + hour + arrival_month -site, data = mod_dat)
   
   # This code assesses which transform is best?
   
@@ -300,6 +303,7 @@ handover_outputs <- local({
       label = list(
         n_dta_norm = x_lab,
         n_ed_norm = "Number in ED (excluding DTA) as a percentage of cubicle capacity (Majors + Resus)",
+        `I(n_ed_norm^2)` = "Number in ED (excluding DTA) as a percentage of cubicle capacity (Majors + Resus) (squared)",
         sex = "Sex",
         age = "Age",
         imd = "Index of multiple deprivation decile",
@@ -574,8 +578,8 @@ resp_outputs <- local({
     mod_dat %>%
     group_by(call_category) %>%
     nest() %>%
-    mutate(mod = map(data, ~ lm(response ~ . -n_dta_norm -outcome,  data = .x))) %>%
-    mutate(mod_full = map(data, ~ lm(response ~ . -outcome, data = .x))) %>%
+    mutate(mod = map(data, ~ lm(response ~ age + sex + imd + n_ed_norm + I(n_ed_norm^2) + wkend + hour + arrival_month -n_dta_norm -outcome,  data = .x))) %>%
+    mutate(mod_full = map(data, ~ lm(response ~ + n_dta_norm + age + sex + imd + n_ed_norm + I(n_ed_norm^2) + wkend + hour + arrival_month -outcome, data = .x))) %>%
     mutate(pred = map2(mod, data, predict)) %>%
     mutate(data = pmap(list(data, call_category, pred), ~bind_cols(..1, call_category = ..2, response_pred = ..3)))
   
@@ -606,6 +610,7 @@ resp_outputs <- local({
     select(call_category, tab) %>%
     as.list() 
   
+  
   full_mod_tabs <- resp_mods %>%
     ungroup() %>%
     mutate(call_category = recode(call_category, cat1 = "Category 1", cat2 = "Category 2", cat3 = "Category 3")) %>%
@@ -616,6 +621,7 @@ resp_outputs <- local({
                                 label = list(
                                   n_dta_norm = x_lab,
                                   n_ed_norm = "Number in ED (excluding DTA) as a percentage of cubicle capacity (Majors + Resus)",
+                                  `I(n_ed_norm^2)` = "Number in ED (excluding DTA) as a percentage of cubicle capacity (Majors + Resus) (squared)",
                                   age = "Age",
                                   sex = "Sex",
                                   imd = "Index of multiple deprivation decile",
@@ -729,17 +735,18 @@ saveRDS(resp_outputs, "data/resp_outputs.RDS")
 
 time_ed_outputs <- local({
   
+  
   # bin_acc <- 0.1
   
   x_lab <- "DTA queue as a percentage of cubicle capacity (Majors + Resus)"
-  y_lab <- "Standardised time in ED \n(min)"
+  y_lab <- "Time in ED \n(min)"
   
   # Non standardised plot
   p_raw <-   dta_df %>%
     left_join(trt_df) %>%
     left_join(site_resus_maj) %>%
     # filter(site == "SOUTHMEAD HOSPITAL") %>%
-    filter(!between(dt, ymd("2022-04-01"), ymd("2022-07-10"))) %>%
+    # filter(!between(dt, ymd("2022-04-01"), ymd("2022-07-10"))) %>%
     na.omit() %>%
     mutate(n_dta_norm = n_dta/total,
            standard = 60) %>%
@@ -750,6 +757,7 @@ time_ed_outputs <- local({
     # geom_boxplot(outliers = FALSE) +
     geom_boxplot(mapping = aes(group = cut_width(n_dta_norm, width = bin_acc)), outliers = FALSE, fatten = NULL) +
     # geom_hline(yintercept = 30, linetype = 2) +
+    # geom_smooth(method = lm) +
     scale_y_continuous(breaks = breaks_width(60)) +
     # geom_ribbon(aes(ymin = lwr, ymax = upr, fill = q), col = NA, alpha = 0.25) +
     # geom_line(aes(y = fit, group = q)) +
@@ -788,7 +796,7 @@ time_ed_outputs <- local({
     mutate(n_dta_norm = n_dta/total) %>%
     ungroup() %>%
     na.omit() %>%
-    filter(!between(dt, ymd("2022-04-01"), ymd("2022-07-10"))) %>%
+    # filter(!between(dt, ymd("2022-04-01"), ymd("2022-07-10"))) %>%
     filter(departure_time >= 0) %>%
     filter(n_dta_norm <= n_dta_cutoff) %>%
     mutate(wkend = factor(ifelse(wday(dt, week_start = 1) < 6, "No", "Yes")),
@@ -802,8 +810,45 @@ time_ed_outputs <- local({
     select(-dt, -maj, -resus, -total) %>%
     ungroup() 
   
-  trt_mod <- lm(departure_time ~ . -n_dta -n_dta_norm -n_ed -site, data = mod_dat)
+  trt_mod <- lm(departure_time ~ age + sex + imd + n_ed_norm + I(n_ed_norm^2) + wkend + hour + arrival_month -site, data = mod_dat)
   trt_pred <- predict(trt_mod, mod_dat)
+  
+  tibble(n_dta_norm = mod_dat$n_dta_norm, departure_time = trt_pred) %>%
+    filter(n_dta_norm <= n_dta_cutoff) %>%
+    mutate(standard = 60) %>%
+    # distinct() %>%
+    mutate(n_dta_norm = plyr::round_any(n_dta_norm, accuracy = bin_acc, f = ceiling)) %>%
+    ggplot(aes(x = n_dta_norm, y = departure_time)) +
+    # geom_boxplot(outliers = FALSE) +
+    geom_boxplot(mapping = aes(group = cut_width(n_dta_norm, width = bin_acc)), outliers = FALSE, fatten = NULL) +
+    # geom_hline(yintercept = 30, linetype = 2) +
+    # geom_smooth(method = lm) +
+    scale_y_continuous(breaks = breaks_width(60)) +
+    # geom_ribbon(aes(ymin = lwr, ymax = upr, fill = q), col = NA, alpha = 0.25) +
+    # geom_line(aes(y = fit, group = q)) +
+    geom_point(aes(y = standard, col = "National target")) +
+    stat_summary(fun = ~mean(.x), geom = "point", col = "black", aes(col = "Mean", shape = "Mean")) +
+    stat_summary(fun = ~quantile(.x, 0.95), geom = "point", col = "black", aes(col = "95th percentile", shape = "95th percentile")) +
+    # bnssgtheme() +
+    theme_minimal() +
+    scale_shape_manual(values = c(21, 24, 19), guide = guide_legend(override.aes = list(size = 3,
+                                                                                        alpha = 1))) +
+    scale_colour_manual(values = c("red", "black"), guide = guide_legend(override.aes = list(size = 3,
+                                                                                             alpha = 1))) +
+    scale_x_continuous(labels = scales::percent) +
+    scale_shape_manual(values = c(19, 17),
+                       guide = guide_legend(override.aes = list(size = 3,
+                                                                alpha = 1))) +
+    labs(title = "Raw outcome, normalised dependant",
+         y = y_lab,
+         x = x_lab,
+         shape = "",
+         col = "") +
+    theme(legend.position = "bottom",
+          legend.justification = "center",
+          legend.title = element_blank(),
+          legend.margin = margin(l = 5, unit = "pt"),
+          legend.spacing.x = unit(0, "cm"))
   
   std_mod <- trt_mod
   
@@ -824,7 +869,7 @@ time_ed_outputs <- local({
   # gtsummary::as_gt() %>%
   # gt::tab_header(title = gt::md(glue::glue('**Time in ED (min)**')))#,
   
-  full_mod <- lm(departure_time ~ age + sex + imd + n_ed_norm + n_dta_norm + wkend + hour + arrival_month -site, data = mod_dat)
+  full_mod <- lm(departure_time ~ n_dta_norm + age + sex + imd + n_ed_norm + I(n_ed_norm^2) + wkend + hour + arrival_month -site, data = mod_dat)
   
   # This code assesses which transform is best?
   
@@ -909,6 +954,7 @@ time_ed_outputs <- local({
     std_mod_tab = std_mod_tab,
     full_mod_tab = full_mod_tab
   )
+  
   
 })
 
