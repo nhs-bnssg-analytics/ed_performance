@@ -1,7 +1,9 @@
 library(tidyverse)
 library(tidymodels)
+library(lme4)
 
-mod_df <- readRDS("data/mort_mod_df_202505.RDS")
+# mod_df <- readRDS("data/mort_mod_df_202505.RDS")
+mod_df <- readRDS("data/mort_mod_df_multilvl.RDS")
 mod_df <- mod_df %>%
   mutate(dta_time = dta_time/60) %>% # convert minutes to hours
   mutate(time_to_dta = time_to_dta/60) %>% # convert minutes to hours
@@ -66,34 +68,54 @@ roc_stab <- roc_stability %>%
   summarise(mean_auc = mean(auc), u_auc = quantile(auc, 0.975), l_auc = quantile(auc, 0.025))
 
 
-mod_raw <- glm(
-  formula = mort_30 ~ . 
-  # + I(dta_time ^ 2)
-  # + I(age ^ 2)
+ 
+  
+mod_raw <- glmer(mort_30 ~ 
+  + dta_time
+  + age
+  + sex
+  + time_to_dta
+  + arrival_time
+  + arrival_month
+  + wkend
+  + nctr
+  + n_ed
+  + imd
+  + vw_score
   + I(time_to_dta ^ 2)
   + I(nctr ^ 2)
   + I(n_ed ^ 2)
-  + I(vw_score ^2),
-  data = mod_df_raw,
-  family = binomial(link = "logit")
-) 
+  + I(vw_score ^2) 
+  + (1 | nhs_number), 
+                    data = mod_df_raw,#  data = sample_n(mod_df_raw, 10000), 
+                     family = binomial,
+                    control = lme4::glmerControl(optimizer = "optimx", calc.derivs = FALSE, optCtrl = list(method = "nlminb", starttests = FALSE, kkt = FALSE)))
 
-nnh_or <- glm(
-  formula = mort_30 ~ .
-  -dta_time
+nnh_or <- glmer(mort_30 ~
+   -dta_time
   + I(dta_time > 4) # NNH based on waiting more or less than 4 hr
-  # + I(dta_time ^ 2)
-  # + I(age ^ 2)
+  + age
+  + sex
+  + time_to_dta
+  + arrival_time
+  + arrival_month
+  + wkend
+  + nctr
+  + n_ed
+  + imd
+  + vw_score
   + I(time_to_dta ^ 2)
   + I(nctr ^ 2)
   + I(n_ed ^ 2)
-  + I(vw_score ^2),
+  + I(vw_score ^2) 
+  + (1 | nhs_number),
   data = mod_df_raw,
-  family = binomial(link = "logit")
-) %>%
-  coefficients() %>%
-  `[[`("I(dta_time > 4)TRUE") %>%
-  exp()
+  family = binomial,
+  control = lme4::glmerControl(optimizer = "optimx", calc.derivs = FALSE, optCtrl = list(method = "nlminb", starttests = FALSE, kkt = FALSE))
+)  %>%
+    broom::tidy(exponentiate = TRUE) %>%
+    filter(term == "I(dta_time > 4)TRUE") %>%
+    pull(estimate)
 
 peer <- mod_df %>%
   filter(dta_time <= 4) %>%
@@ -103,7 +125,6 @@ peer <- mod_df %>%
   `[[`("yes")
 
 nnh <- (peer * (nnh_or -1))+1/(peer * (nnh_or -1)*(1-peer))
-
 
 
 lvl_props <- mod_df %>%
