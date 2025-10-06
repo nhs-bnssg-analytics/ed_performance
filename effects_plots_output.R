@@ -21,7 +21,7 @@ ylab_los <- str_wrap("Inpatient length of stay", wrap)
 xlab <- "Medical boarding time, hours"
 
 patchwork::wrap_plots(
-                      los_effect_output$los_effects_plot + facet_grid(.~str_wrap("Inpatient length of stay", 20)) + scale_y_continuous(limits = c(5, NA)) + labs(y = "", x = xlab),
+                      los_effect_output$los_effects_plot + facet_grid(.~str_wrap("Inpatient length of stay", 20)) + scale_y_continuous(limits = c(0, NA)) + labs(y = "", x = xlab),
                       readm_effect_plot + facet_grid(.~str_wrap("30-day readmission rate", 20)) + scale_y_continuous(limits = c(0, NA), labels = scales::percent) + labs(y = "", x = xlab),
                       mort_effect_plot + facet_grid(.~str_wrap("30-day mortality rate", 20)) + scale_y_continuous(limits = c(0, NA), labels = scales::percent) + labs(y = "", x = xlab),
                       nrow = 1, axes = "collect_x")
@@ -39,7 +39,7 @@ ggsave("materials/effects_plot_patch_1row_pres_202505.png",
        scale = 0.5)
 
 patchwork::wrap_plots(
-  los_effect_output$los_margins_plot + facet_grid(.~str_wrap("Inpatient length of stay", 25)) + scale_y_continuous(limits = c(5, NA)) + labs(y = "", x = xlab),
+  los_effect_output$los_margins_plot + facet_grid(.~str_wrap("Inpatient length of stay", 25)) + scale_y_continuous(limits = c(0, NA)) + labs(y = "", x = xlab),
   readm_margins_plot + facet_grid(.~str_wrap("30-day readmission rate", 25)) + scale_y_continuous(limits = c(0, NA), labels = scales::percent) + labs(y = "", x = xlab),
   mort_margins_plot + facet_grid(.~str_wrap("30-day mortality rate", 25)) + scale_y_continuous(limits = c(0, NA), labels = scales::percent) + labs(y = "", x = xlab),
   nrow = 1, axes = "collect_x")
@@ -59,10 +59,12 @@ ggsave("materials/condn_pred_plot_patch_1row_pres_202505.png",
 
 label_list_downstream <- list(
   dta_time = "Time waiting for admission (hours)",
+  time_to_dta = "Time to decision to admit (hours)",
+  `I(time_to_dta^2)` = "Time to decision to admit (hours, squared)",
   # perf = "Four-hour breach rate in ED at the patient’s time of arrival",
   # `I(perf^2)` = "Four-hour breach rate in ED at the patient’s time of arrival (squared)",
-  nctr = "Number of patients with no criteria to reside as a proportion of ED bedded capacity",
-  `I(nctr^2)` = "Number of patients with no criteria to reside as a proportion of ED bedded capacity (squared)",
+  nctr = "Number of patients with no criteria to reside as a proportion of ED bedded capacity (at time of event)",
+  `I(nctr^2)` = "Number of patients with no criteria to reside as a proportion of ED bedded capacity (at time of event, squared)",
   age = "Age",
   sex = "Sex",
   vw_score = "Elixhauser comorbidity index (vWs)",
@@ -116,7 +118,7 @@ reg_table_readm <- readm_effect_output$readm_mod_raw %>% gtsummary::tbl_regressi
   ) %>% gtsummary::add_glance_table(include = c(nobs))
 
 
-reg_table_los <- los_effect_output$los_mod %>%
+reg_table_los <- los_effect_output$mod_full %>%
   gtsummary::tbl_regression(intercept = TRUE,estimate_fun = purrr::partial(gtsummary::style_ratio, digits = 2),
   label = label_list_downstream
 ) %>% gtsummary::add_glance_table(include = c(nobs)) 

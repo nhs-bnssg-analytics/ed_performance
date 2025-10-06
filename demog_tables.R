@@ -140,7 +140,7 @@ downstream_mod_df <- readRDS("data/mort_effects_output.RDS") %>%
 label_list_downstream <- list(
   dta_time = "Medical boarding time (hours)",
   time_to_dta = "Time to decision to admit (hours)",
-  nctr = "Number of patients with 'No Criteria To Reside' (at time of event)",
+  nctr = "Number of patients with 'No Criteria To Reside' as a percentage of cubicle capacity (at time of event)",
   # perf = "Four-hour breach rate in ED at the patient’s time of arrival",
   age = "Age",
   sex = "Sex",
@@ -166,9 +166,9 @@ downstream_demo_tbl <- tbl_summary(downstream_mod_df,
                         arrival_month,
                         n_ed,
                         wkend),
-            label = label_list_downstream#,
-            # digits = list(perf = 1),
-            # statistic = list(c(perf) ~ "{median_pct} ({p25_pct}, {p75_pct})%")
+            label = label_list_downstream,
+            digits = list(nctr = 1),
+            statistic = list(c(nctr) ~ "{median_pct} ({p25_pct}, {p75_pct})%")
             ) 
 
 

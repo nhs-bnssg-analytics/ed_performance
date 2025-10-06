@@ -158,7 +158,6 @@ dta_df <- local({
     select(nhs_number, arr_id, spec)
   
   
-  browser()
   
   dat_dtas <- dat_ecds %>%
     left_join(dat_spec) %>%

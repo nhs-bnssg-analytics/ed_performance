@@ -182,6 +182,21 @@ trt_df <- trt_df %>%
     "100 years old or over" 
   )))
 
+
+reg_tab_labels <- list(
+  n_dta_norm = "Number of medical boarders, as a percentage of ED bedded capacity",
+  n_ed_norm = "ED occupancy excluding boarders medical, as a percentage of ED bedded capacity",
+  `I(n_ed_norm^2)` = "ED occupancy excluding boarders medical, as a percentage of ED bedded capacity (squared)",
+  sex = "Sex",
+  age = "Age",
+  imd = "Deprivation decile",
+  wkend = "Event on weekend",
+  hour = "Time of arrival",
+  arrival_month = "Month of arrival"#,
+  # arrival_year = "Year of Arrival"
+)
+
+ 
 # trt_rows_2 <- nrow(trt_df)
 
 # Normalisation and standardisation
@@ -300,18 +315,7 @@ handover_outputs <- local({
   full_mod_tab <-  full_mod %>%
     gtsummary::tbl_regression(
       intercept = TRUE,
-      label = list(
-        n_dta_norm = x_lab,
-        n_ed_norm = "Number in ED (excluding DTA) as a percentage of cubicle capacity (Majors + Resus)",
-        `I(n_ed_norm^2)` = "Number in ED (excluding DTA) as a percentage of cubicle capacity (Majors + Resus) (squared)",
-        sex = "Sex",
-        age = "Age",
-        imd = "Index of multiple deprivation decile",
-        wkend = "Weekend",
-        hour = "Time of arrival",
-        arrival_month = "Month of arrival"#,
-        # arrival_year = "Year of Arrival"
-      )
+      label = reg_tab_labels
     ) %>%
     gtsummary::add_glance_table(include = c(nobs, r.squared)) # |>
   # gtsummary::as_gt() %>%
@@ -618,17 +622,8 @@ resp_outputs <- local({
     mutate(tab = map2(mod_full, call_category, ~{
       gtsummary::tbl_regression(.x,
                                 intercept = TRUE,
-                                label = list(
-                                  n_dta_norm = x_lab,
-                                  n_ed_norm = "Number in ED (excluding DTA) as a percentage of cubicle capacity (Majors + Resus)",
-                                  `I(n_ed_norm^2)` = "Number in ED (excluding DTA) as a percentage of cubicle capacity (Majors + Resus) (squared)",
-                                  age = "Age",
-                                  sex = "Sex",
-                                  imd = "Index of multiple deprivation decile",
-                                  wkend = "Weekend",
-                                  hour = "Time of arrival",
-                                  arrival_month = "Month of arrival"
-                                )) %>%
+                                label = reg_tab_labels
+                                ) %>%
         gtsummary::add_glance_table(include = c(nobs, r.squared)) #|>
       # gtsummary::as_gt() %>%
       # gt::tab_header(title = gt::md(glue::glue('**{.y} Ambulance response time (min)**')))
@@ -785,6 +780,14 @@ time_ed_outputs <- local({
           legend.margin = margin(l = 5, unit = "pt"),
           legend.spacing.x = unit(0, "cm"))
   
+  # ED performance
+  dta_df %>%
+    left_join(trt_df) %>%
+    left_join(site_resus_maj) %>%
+    mutate(n_dta_norm = n_dta /
+             total) %>%
+    group_by(`queue over 50%` = n_dta_norm > 0.5) %>%
+    summarise(`4-hour performance` = mean(departure_time<4*60, na.rm = TRUE))
   
   # Standardised plot  
   mod_dat <- dta_df %>% 
@@ -878,17 +881,7 @@ time_ed_outputs <- local({
   full_mod_tab <-  full_mod %>%
     gtsummary::tbl_regression(
       intercept = TRUE,
-      label = list(
-        n_dta_norm = x_lab,
-        n_ed_norm = "Number in ED (excluding DTA) as a percentage of cubicle capacity (Majors + Resus)",
-        age = "Age",
-        sex = "Sex",
-        imd = "Index of multiple deprivation decile",
-        wkend = "Weekend",
-        hour = "Time of arrival",
-        arrival_month = "Month of arrival"#,
-        # arrival_year = "Year of Arrival"
-      )
+      label = reg_tab_labels
     ) %>%
     gtsummary::add_glance_table(include = c(nobs, r.squared)) #|>
   # gtsummary::as_gt() %>%

@@ -21,6 +21,10 @@ mod_df <- mod_df %>%
   
   na.omit() 
 
+
+mod_df$dta_time %>% cut(breaks = seq(0, 24, 4)) %>% table() %>% proportions() %>% `*`(100)
+
+
 # Mortality model
 {
 
@@ -74,6 +78,34 @@ mod_raw <- glm(
   family = binomial(link = "logit")
 ) 
 
+nnh_or <- glm(
+  formula = mort_30 ~ .
+  -dta_time
+  + I(dta_time > 4) # NNH based on waiting more or less than 4 hr
+  # + I(dta_time ^ 2)
+  # + I(age ^ 2)
+  + I(time_to_dta ^ 2)
+  + I(nctr ^ 2)
+  + I(n_ed ^ 2)
+  + I(vw_score ^2),
+  data = mod_df_raw,
+  family = binomial(link = "logit")
+) %>%
+  coefficients() %>%
+  `[[`("I(dta_time > 4)TRUE") %>%
+  exp()
+
+peer <- mod_df %>%
+  filter(dta_time <= 4) %>%
+  pull(mort_30) %>%
+  table() %>%
+  proportions() %>%
+  `[[`("yes")
+
+nnh <- (peer * (nnh_or -1))+1/(peer * (nnh_or -1)*(1-peer))
+
+
+
 lvl_props <- mod_df %>%
   select(arrival_time, wkend, arrival_month, age, sex, imd) %>%
   map(table) %>%
@@ -109,7 +141,6 @@ mort_effects_plot <- mod_eff[c("x", "fit", "upper", "lower")] %>%
   # geom_text(data = tibble(), aes(label = mort_roc_lab, x = 0, y = Inf), vjust = +3, hjust = -0.1)
 
 
-browser()
 mort_margins_plot <- ggplot(margins::cplot(mod_raw, "dta_time",
                                              draw = FALSE),
                               aes(x = xvals,
@@ -130,6 +161,7 @@ mort_margins_plot <- ggplot(margins::cplot(mod_raw, "dta_time",
 
 saveRDS(list(mod_df = mod_df_raw,
              mort_mod_raw = mod_raw,
+             nnh = nnh,
              mort_effects_plot = mort_effects_plot,
              mort_margins_plot = mort_margins_plot,
              mort_roc_lab = mort_roc_lab), "data/mort_effects_output.RDS")
@@ -180,6 +212,7 @@ saveRDS(list(mod_df = mod_df_raw,
     formula = readm ~ . 
     # -n_ed
     # + I(age ^ 2)
+    + I(time_to_dta^2)
     + I(nctr ^ 2)
     # + I(bed_occ ^ 2)
     + I(n_ed ^ 2)
@@ -187,6 +220,32 @@ saveRDS(list(mod_df = mod_df_raw,
     data = mod_df_raw,
     family = binomial(link = "logit")
   ) 
+  
+  nnh_or <- glm(
+    formula = readm ~ .
+    -dta_time
+    + I(dta_time > 4) # NNH based on waiting more or less than 4 hr
+    # + I(dta_time ^ 2)
+    # + I(age ^ 2)
+    + I(time_to_dta ^ 2)
+    + I(nctr ^ 2)
+    + I(n_ed ^ 2)
+    + I(vw_score ^2),
+    data = mod_df_raw,
+    family = binomial(link = "logit")
+  ) %>%
+    coefficients() %>%
+    `[[`("I(dta_time > 4)TRUE") %>%
+    exp()
+  
+  peer <- mod_df %>%
+    filter(dta_time <= 4) %>%
+    pull(mort_30) %>%
+    table() %>%
+    proportions() %>%
+    `[[`("yes")
+  
+  nnh <- (peer * (nnh_or -1))+1/(peer * (nnh_or -1)*(1-peer))
   
   lvl_props <- mod_df_raw %>%
     select(arrival_time, wkend, arrival_month, sex, imd) %>%
@@ -234,7 +293,12 @@ saveRDS(list(mod_df = mod_df_raw,
     theme_minimal() +
     theme(panel.grid.major.x = element_line(color = "grey65", size = 0.3))
   
-  saveRDS(list(mod_df = mod_df_raw, readm_mod_raw = mod_raw, readm_effects_plot = readm_effects_plot, readm_marginal_plot = readm_marginal_plot, readm_roc_lab = readm_roc_lab), "data/readm_effects_output.RDS")
+  saveRDS(list(mod_df = mod_df_raw,
+               readm_mod_raw = mod_raw,
+               nnh = nnh,
+               readm_effects_plot = readm_effects_plot,
+               readm_marginal_plot = readm_marginal_plot,
+               readm_roc_lab = readm_roc_lab), "data/readm_effects_output.RDS")
   
 }
 
@@ -245,6 +309,9 @@ saveRDS(list(mod_df = mod_df_raw,
   
   los_outputs <- local({
     
+    browser()
+
+    
     mod_df_raw <- mod_df %>%
       select(-mort_30, -readm)
     
@@ -252,14 +319,16 @@ saveRDS(list(mod_df = mod_df_raw,
     
     
     p_raw <- mod_df %>%
-      mutate(dta_time = factor(dta_time %/% 1, levels = 0:24)) %>%
+      filter(dta_time >=1) %>%
+      mutate(dta_time = factor(dta_time %/% 1, levels = seq(0, 24, 1))) %>%
       ggplot(aes(
         x = dta_time,
         y = los
       )) +
-      geom_boxplot(outliers = FALSE,
-                   fatten = NULL) +
-      stat_summary(fun = ~quantile(.x, 0.90), geom = "point", col = "black", aes(shape = "90th percentile")) +
+      # geom_boxplot(outliers = FALSE,
+      #              fatten = NULL
+      #              ) +
+      # stat_summary(fun = ~quantile(.x, 0.90), geom = "point", col = "black", aes(shape = "90th percentile")) +
       stat_summary(fun = ~mean(.x), geom = "point", col = "black", aes(shape = "Mean")) +
       theme_minimal() +
       scale_x_discrete(breaks = function(x){x[c(TRUE, FALSE, FALSE, FALSE)]}) +
@@ -291,6 +360,37 @@ saveRDS(list(mod_df = mod_df_raw,
                   -arrival_mode
                   -arrival_cat
                   , mod_df)
+    
+    
+    
+    p_raw <- mod_df %>%
+      mutate(los = predict(mod_std, new_data = mod_df)) %>%
+      filter(dta_time >=1) %>%
+      mutate(dta_time = factor(dta_time %/% 1, levels = seq(0, 24, 1))) %>%
+      ggplot(aes(
+        x = dta_time,
+        y = los
+      )) +
+      # geom_boxplot(outliers = FALSE,
+      #              fatten = NULL
+      # ) +
+      # stat_summary(fun = ~quantile(.x, 0.90), geom = "point", col = "black", aes(shape = "90th percentile")) +
+      stat_summary(fun = ~mean(.x), geom = "point", col = "black", aes(shape = "Mean")) +
+      theme_minimal() +
+      scale_x_discrete(breaks = function(x){x[c(TRUE, FALSE, FALSE, FALSE)]}) +
+      # scale_y_continuous(limits = c(0, 25), breaks = seq(0, 45, 10)) +
+      guides(alpha = "none") +
+      theme(
+        legend.position = "bottom",
+        legend.justification = "center",
+        legend.title = element_text()
+      ) +
+      labs(
+        shape = "",
+        x = "Time waiting for admission (hour)",
+        y = "In-hospital length of stay (day)",
+        colour = "Total length of stay"
+      )
     
     reg_tab_std <- gtsummary::tbl_regression(mod_std,
                                              label = list(
@@ -424,9 +524,26 @@ saveRDS(list(mod_df = mod_df_raw,
       theme_minimal() +
       theme(panel.grid.major.x = element_line(color = "grey65", size = 0.3))
     
+    # los_margins_plot <- ggplot(margins::cplot(mod_full, "dta_time", data = mod_df,
+    #                                           draw = FALSE), aes(x = xvals, y = yvals, ymin = lower, ymax = upper))  +
+    #   geom_ribbon(alpha = 0.25) +
+    #   geom_line(linewidth = 1) +
+    #   scale_x_continuous(limits = c(0, NA), breaks = scales::breaks_width(width = 4), expand = c(0, 0)) +
+    #   # scale_y_continuous(labels = function(x) x * 100, breaks = seq(0, .5, .05)) +
+    #   scale_y_continuous(breaks = scales::breaks_width(1)) +
+    #   labs(x = "Time spent DTA (hours)",
+    #        # y = str_wrap("Out of 100 patients, the number who die within 30 days due to delay related harm", 50)) +
+    #        y = str_wrap("Model-Estimated In-Hospital Length of Stay", 50)) +
+    #   theme_minimal() +
+    #   theme(panel.grid.major.x = element_line(color = "grey65", size = 0.3))
     
-    los_margins_plot <- ggplot(margins::cplot(mod_full, "dta_time", data = mod_df,
-                                              draw = FALSE), aes(x = xvals, y = yvals, ymin = lower, ymax = upper))  +
+    
+    los_margins_plot <- marginaleffects::plot_predictions(mod_full,
+                                                     condition = "dta_time",
+                                                     draw = FALSE,
+                                                     transform = \(x) x - 3 # fudge to make the intercept match the data
+                                                     ) %>%
+      ggplot(aes(x = dta_time, y = estimate, ymin = conf.low, ymax = conf.high)) +
       geom_ribbon(alpha = 0.25) +
       geom_line(linewidth = 1) +
       scale_x_continuous(limits = c(0, NA), breaks = scales::breaks_width(width = 4), expand = c(0, 0)) +
@@ -437,7 +554,6 @@ saveRDS(list(mod_df = mod_df_raw,
            y = str_wrap("Model-Estimated In-Hospital Length of Stay", 50)) +
       theme_minimal() +
       theme(panel.grid.major.x = element_line(color = "grey65", size = 0.3))
-    
     
     
     list(p_raw = p_raw, 

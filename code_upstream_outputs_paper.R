@@ -137,7 +137,7 @@ ggplot2::ggsave("materials/upstream_standard_110_202505.png",
                 bg = "white",
                 height = 12.5,
                 width = 15.0, 
-                scale = 0.65)
+                scale = 0.5)
 
 
 # Headline outputs
@@ -201,9 +201,11 @@ ed_time_outputs$full_mod %>%
 
 handover_tab <- handover_outputs$full_mod_tab 
 ed_time_tab <- ed_time_outputs$full_mod_tab 
-resp_tab_1 <- resp_outputs$full_mod_tabs$tab[[3]] 
-resp_tab_2 <- resp_outputs$full_mod_tabs$tab[[1]] 
-resp_tab_3 <- resp_outputs$full_mod_tabs$tab[[2]]
+
+
+resp_tab_1 <- resp_outputs$full_mod_tabs$tab[[1]] 
+resp_tab_2 <- resp_outputs$full_mod_tabs$tab[[2]] 
+resp_tab_3 <- resp_outputs$full_mod_tabs$tab[[3]]
 
 gtsummary::tbl_merge(list(
   resp_tab_1,

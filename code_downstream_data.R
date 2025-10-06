@@ -949,11 +949,11 @@ dat_adm <- dat_ecds %>%
   # filter(!between(dta_dt, ymd("2022-04-01"), ymd("2022-07-10"))) %>%
   left_join(dat_spec) %>% 
   filter(spec == "medical") %>%
+  filter(between(age, 0, 120), !is.na(age))   %>% # DQ check on age which can be missing or recorded incorrectly
   filter(dta_time >= 0) %>% # some records are negative 0 exactly, seems to be DQ
   mutate(nhs_number = as.character(nhs_number)) %>% #%T>% nrow() %>%
   group_by(nhs_number) %>%
   slice_min(dta_dt, na_rm = TRUE) %>%
-  filter(between(age, 0, 120), !is.na(age))   %>% # DQ check on age which can be missing or recorded incorrectly
   # filter(dta_dt == min(dta_dt, na.rm = TRUE)) %>%
   ungroup() %>%
   select(
@@ -1023,6 +1023,7 @@ mod_df <- dat_adm %>%
   # filter(site == "SOUTHMEAD HOSPITAL") %>%
   # filter(!between(dta_dt, ymd("2022-04-01"), ymd("2022-07-10"))) %>% # filter bad DQ period for NBT
   filter(dta_time <= t_max) %>%
+  filter(time_to_dta <= t_max) %>%
   filter(dta_time > 0) %>%
   filter(sex %in% 1:2) %>%
   mutate(sex = factor(sex, labels = c("Male", "Female"))) %>%
