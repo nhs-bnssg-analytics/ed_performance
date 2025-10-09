@@ -32,40 +32,40 @@ mod_df$dta_time %>% cut(breaks = seq(0, 24, 4)) %>% table() %>% proportions() %>
 
 mod_df_raw <- select(mod_df, -readm, -los, -ed_time, -Acuity_Desc, -arrival_mode, -arrival_cat, -arrival_year)
 
-mod_folds <- vfold_cv(mod_df_raw, v = 25)
+# mod_folds <- vfold_cv(mod_df_raw, v = 25)
 
-roc_stability <- map(mod_folds$splits, \(x) {
-  mod_raw <- glm(
-    formula = mort_30 ~ .
-    # + I(dta_time ^ 2)+I(age ^ 2)+I(perf ^ 2)
-    # + I(age ^ 2)
-    + I(nctr ^ 2)
-    + I(time_to_dta ^ 2)
-    # + I(bed_occ ^ 2)
-    + I(n_ed ^ 2)
-    + I(vw_score ^2),
-    data = training(x),
-    family = binomial(link = "logit")
-  )
-  full_pred = predict(mod_raw, testing(x), type = "response")
-  pROC::roc(testing(x)$mort_30, full_pred)
-}) %>%
-map(\(x) {
+# roc_stability <- map(mod_folds$splits, \(x) {
+#   mod_raw <- glm(
+#     formula = mort_30 ~ .
+#     # + I(dta_time ^ 2)+I(age ^ 2)+I(perf ^ 2)
+#     # + I(age ^ 2)
+#     + I(nctr ^ 2)
+#     + I(time_to_dta ^ 2)
+#     # + I(bed_occ ^ 2)
+#     + I(n_ed ^ 2)
+#     + I(vw_score ^2),
+#     data = training(x),
+#     family = binomial(link = "logit")
+#   )
+#   full_pred = predict(mod_raw, testing(x), type = "response")
+#   pROC::roc(testing(x)$mort_30, full_pred)
+# }) %>%
+# map(\(x) {
   
-  auc = as.numeric(pluck(x, "auc"))
-  tibble(
-    y = x$sensitivities,
-    x = 1- x$specificities,
-    auc = auc
-  )
-  }) %>%
-  bind_rows(.id = "id") 
+#   auc = as.numeric(pluck(x, "auc"))
+#   tibble(
+#     y = x$sensitivities,
+#     x = 1- x$specificities,
+#     auc = auc
+#   )
+#   }) %>%
+#   bind_rows(.id = "id") 
 
 
-roc_stab <- roc_stability %>%
-  select(id, auc) %>%
-  distinct() %>%
-  summarise(mean_auc = mean(auc), u_auc = quantile(auc, 0.975), l_auc = quantile(auc, 0.025))
+# roc_stab <- roc_stability %>%
+#   select(id, auc) %>%
+#   distinct() %>%
+#   summarise(mean_auc = mean(auc), u_auc = quantile(auc, 0.975), l_auc = quantile(auc, 0.025))
 
 
  
@@ -143,7 +143,7 @@ lvl_props <- mod_df %>%
 mod_eff <- effects::predictorEffect("dta_time", mod_raw, fixed.predictors = list(given.values = lvl_props))
 
 
-mort_roc_lab <- str_c("ROC: ", round(roc_stab[1], 2), " [", round(as.numeric(roc_stab[2]), 2), ", ", round(as.numeric(roc_stab[3]), 2), "]")
+# mort_roc_lab <- str_c("ROC: ", round(roc_stab[1], 2), " [", round(as.numeric(roc_stab[2]), 2), ", ", round(as.numeric(roc_stab[3]), 2), "]")
 
 mort_effects_plot <- mod_eff[c("x", "fit", "upper", "lower")] %>%
   as.data.frame() %>%
@@ -162,12 +162,8 @@ mort_effects_plot <- mod_eff[c("x", "fit", "upper", "lower")] %>%
   # geom_text(data = tibble(), aes(label = mort_roc_lab, x = 0, y = Inf), vjust = +3, hjust = -0.1)
 
 
-mort_margins_plot <- ggplot(margins::cplot(mod_raw, "dta_time",
-                                             draw = FALSE),
-                              aes(x = xvals,
-                                  y = yvals,
-                                  ymin = lower,
-                                  ymax = upper))  +
+mort_margins_plot <-marginaleffects::plot_predictions(mod_raw, condition = "dta_time", draw = FALSE) %>%
+  ggplot(aes(x = dta_time, y = estimate, ymin = conf.low, ymax = conf.high)) +
   geom_ribbon(alpha = 0.25) +
   geom_line(linewidth = 1) +
   scale_x_continuous(limits = c(0, NA), breaks = scales::breaks_width(width = 4), expand = c(0, 0)) +
@@ -178,14 +174,17 @@ mort_margins_plot <- ggplot(margins::cplot(mod_raw, "dta_time",
        y = str_wrap("Model estimated 30-day mortality rate.", 50)) +
   theme_minimal() +
   theme(panel.grid.major.x = element_line(color = "grey65", size = 0.3))
+
   
 
 saveRDS(list(mod_df = mod_df_raw,
              mort_mod_raw = mod_raw,
              nnh = nnh,
              mort_effects_plot = mort_effects_plot,
-             mort_margins_plot = mort_margins_plot,
-             mort_roc_lab = mort_roc_lab), "data/mort_effects_output.RDS")
+             mort_margins_plot = mort_margins_plot#,
+            #  mort_roc_lab = mort_roc_lab
+            ),
+              "data/mort_effects_output_multilvl.RDS")
 
 }
 
@@ -195,70 +194,96 @@ saveRDS(list(mod_df = mod_df_raw,
     mutate(readm = factor(ifelse(readm, "yes", "no"))) %>%
     select(-mort_30, -los, -ed_time, -Acuity_Desc, -arrival_mode, -arrival_cat, -arrival_year)
   
-  mod_folds <- vfold_cv(mod_df_raw, v = 25)
+  # mod_folds <- vfold_cv(mod_df_raw, v = 25)
   
-  roc_stability <- map(mod_folds$splits, \(x) {
-    mod_raw <- glm(
-      formula = readm ~ . 
-      # -n_ed
-      # + I(age ^ 2)
-      + I(nctr ^ 2)
-      # + I(bed_occ ^ 2)
-      + I(n_ed ^ 2)
-      + I(vw_score ^2),
-      data = training(x),
-      family = binomial(link = "logit")
-    )
-    full_pred = predict(mod_raw, testing(x), type = "response")
-    pROC::roc(testing(x)$readm, full_pred)
-  }) %>%
-    map(\(x) {
+  # roc_stability <- map(mod_folds$splits, \(x) {
+  #   mod_raw <- glm(
+  #     formula = readm ~ . 
+  #     # -n_ed
+  #     # + I(age ^ 2)
+  #     + I(nctr ^ 2)
+  #     # + I(bed_occ ^ 2)
+  #     + I(n_ed ^ 2)
+  #     + I(vw_score ^2),
+  #     data = training(x),
+  #     family = binomial(link = "logit")
+  #   )
+  #   full_pred = predict(mod_raw, testing(x), type = "response")
+  #   pROC::roc(testing(x)$readm, full_pred)
+  # }) %>%
+  #   map(\(x) {
       
-      auc = as.numeric(pluck(x, "auc"))
-      tibble(
-        y = x$sensitivities,
-        x = 1- x$specificities,
-        auc = auc
-      )
-    }) %>%
-    bind_rows(.id = "id") 
+  #     auc = as.numeric(pluck(x, "auc"))
+  #     tibble(
+  #       y = x$sensitivities,
+  #       x = 1- x$specificities,
+  #       auc = auc
+  #     )
+  #   }) %>%
+  #   bind_rows(.id = "id") 
   
   
-  roc_stab <- roc_stability %>%
-    select(id, auc) %>%
-    distinct() %>%
-    summarise(mean_auc = mean(auc), u_auc = quantile(auc, 0.975), l_auc = quantile(auc, 0.025))
+  # roc_stab <- roc_stability %>%
+  #   select(id, auc) %>%
+  #   distinct() %>%
+  #   summarise(mean_auc = mean(auc), u_auc = quantile(auc, 0.975), l_auc = quantile(auc, 0.025))
   
-  mod_raw <- glm(
-    formula = readm ~ . 
-    # -n_ed
-    # + I(age ^ 2)
-    + I(time_to_dta^2)
-    + I(nctr ^ 2)
-    # + I(bed_occ ^ 2)
-    + I(n_ed ^ 2)
-    + I(vw_score ^2),
-    data = mod_df_raw,
-    family = binomial(link = "logit")
-  ) 
+
+mod_raw <- glmer(readm ~ 
+  + dta_time
+  + age
+  + sex
+  + time_to_dta
+  + arrival_time
+  + arrival_month
+  + wkend
+  + nctr
+  + n_ed
+  + imd
+  + vw_score
+  + I(time_to_dta ^ 2)
+  + I(nctr ^ 2)
+  + I(n_ed ^ 2)
+  + I(vw_score ^2) 
+  + (1 | nhs_number), 
+                    data = mod_df_raw,#  data = sample_n(mod_df_raw, 10000), 
+                     family = binomial,
+                    control = lme4::glmerControl(optimizer = "optimx", calc.derivs = FALSE, optCtrl = list(method = "nlminb", starttests = FALSE, kkt = FALSE)))
+
+nnh_or <- glmer(readm ~
+   -dta_time
+  + I(dta_time > 4) # NNH based on waiting more or less than 4 hr
+  + age
+  + sex
+  + time_to_dta
+  + arrival_time
+  + arrival_month
+  + wkend
+  + nctr
+  + n_ed
+  + imd
+  + vw_score
+  + I(time_to_dta ^ 2)
+  + I(nctr ^ 2)
+  + I(n_ed ^ 2)
+  + I(vw_score ^2) 
+  + (1 | nhs_number),
+  data = mod_df_raw,
+  family = binomial,
+  control = lme4::glmerControl(optimizer = "optimx", calc.derivs = FALSE, optCtrl = list(method = "nlminb", starttests = FALSE, kkt = FALSE))
+)  %>%
+  coefficients() %>%
+  `[[`("nhs_number") %>%
+  `[[`("I(dta_time > 4)TRUE") %>%
+  `[[`(1) %>%
+  exp()
   
-  nnh_or <- glm(
-    formula = readm ~ .
-    -dta_time
-    + I(dta_time > 4) # NNH based on waiting more or less than 4 hr
-    # + I(dta_time ^ 2)
-    # + I(age ^ 2)
-    + I(time_to_dta ^ 2)
-    + I(nctr ^ 2)
-    + I(n_ed ^ 2)
-    + I(vw_score ^2),
-    data = mod_df_raw,
-    family = binomial(link = "logit")
-  ) %>%
-    coefficients() %>%
-    `[[`("I(dta_time > 4)TRUE") %>%
-    exp()
-  
+  # %>%
+  #   broom::tidy(exponentiate = TRUE) %>%
+  #   filter(term == "I(dta_time > 4)TRUE") %>%
+  #   pull(estimate)
+
+
   peer <- mod_df %>%
     filter(dta_time <= 4) %>%
     pull(mort_30) %>%
@@ -279,7 +304,7 @@ saveRDS(list(mod_df = mod_df_raw,
   
   mod_eff <- effects::predictorEffect("dta_time", mod_raw, fixed.predictors = list(given.values = lvl_props))
   
-  readm_roc_lab <- str_c("ROC: ", round(roc_stab[1], 2), " [", round(as.numeric(roc_stab[2]), 2), ", ", round(as.numeric(roc_stab[3]), 2), "]")
+  # readm_roc_lab <- str_c("ROC: ", round(roc_stab[1], 2), " [", round(as.numeric(roc_stab[2]), 2), ", ", round(as.numeric(roc_stab[3]), 2), "]")
   
   readm_effects_plot <- mod_eff[c("x", "fit", "upper", "lower")] %>%
     as.data.frame() %>%
@@ -297,29 +322,26 @@ saveRDS(list(mod_df = mod_df_raw,
     theme(panel.grid.major.x = element_line(color = "grey65", size = 0.3))
   
   
-  readm_marginal_plot <- ggplot(margins::cplot(mod_raw, "dta_time",
-                                               draw = FALSE),
-                                aes(x = xvals,
-                                    y = yvals,
-                                    ymin = lower,
-                                    ymax = upper))  +
-    geom_ribbon(alpha = 0.25) +
-    geom_line(linewidth = 1) +
-    scale_x_continuous(limits = c(0, NA), breaks = scales::breaks_width(width = 4), expand = c(0, 0)) +
-    # scale_y_continuous(labels = function(x) x * 100, breaks = seq(0, .5, .05)) +
-    scale_y_continuous(labels = \(x) scales::percent(x, accuracy = 1), breaks = scales::breaks_width(width = 0.01)) +
-    labs(x = "Time spent DTA (hours)",
-         # y = str_wrap("Out of 100 patients, the number who die within 30 days due to delay related harm", 50)) +
-         y = str_wrap("Model-Estimated 30-Day Readmission Rate.", 50)) +
-    theme_minimal() +
-    theme(panel.grid.major.x = element_line(color = "grey65", size = 0.3))
+  readm_marginal_plot <- marginaleffects::plot_predictions(mod_raw, condition = "dta_time", draw = FALSE) %>%
+  ggplot(aes(x = dta_time, y = estimate, ymin = conf.low, ymax = conf.high)) +
+  geom_ribbon(alpha = 0.25) +
+  geom_line(linewidth = 1) +
+  scale_x_continuous(limits = c(0, NA), breaks = scales::breaks_width(width = 4), expand = c(0, 0)) +
+  # scale_y_continuous(labels = function(x) x * 100, breaks = seq(0, .5, .05)) +
+  scale_y_continuous(labels = \(x) scales::percent(x, accuracy = 1), breaks = scales::breaks_width(width = 0.01)) +
+  labs(x = "Time spent DTA (hours)",
+       # y = str_wrap("Out of 100 patients, the number who die within 30 days due to delay related harm", 50)) +
+       y = str_wrap("Model-Estimated 30-Day Readmission Rate.", 50)) +
+  theme_minimal() +
+  theme(panel.grid.major.x = element_line(color = "grey65", size = 0.3))
   
   saveRDS(list(mod_df = mod_df_raw,
                readm_mod_raw = mod_raw,
                nnh = nnh,
                readm_effects_plot = readm_effects_plot,
-               readm_marginal_plot = readm_marginal_plot,
-               readm_roc_lab = readm_roc_lab), "data/readm_effects_output.RDS")
+               readm_marginal_plot = readm_marginal_plot#,
+              #  readm_roc_lab = readm_roc_lab
+              ), "data/readm_effects_output_multilvl.RDS")
   
 }
 
@@ -330,7 +352,6 @@ saveRDS(list(mod_df = mod_df_raw,
   
   los_outputs <- local({
     
-    browser()
 
     
     mod_df_raw <- mod_df %>%
@@ -367,19 +388,21 @@ saveRDS(list(mod_df = mod_df_raw,
         colour = "Total length of stay"
       )
     
-    mod_std <- lm(los ~ . 
-                  # + I(age^2)
-                  + I(n_ed^2)
-                  + I(time_to_dta ^ 2)
-                  + I(nctr ^ 2)
-                  # + I(bed_occ^2)
-                  + I(vw_score^2)
-                  -dta_time
-                  -ed_time
-                  -arrival_year
-                  -Acuity_Desc
-                  -arrival_mode
-                  -arrival_cat
+    mod_std <- lm(los ~   + dta_time
+  + age
+  + sex
+  + time_to_dta
+  + arrival_time
+  + arrival_month
+  + wkend
+  + nctr
+  + n_ed
+  + imd
+  + vw_score
+  + I(time_to_dta ^ 2)
+  + I(nctr ^ 2)
+  + I(n_ed ^ 2)
+  + I(vw_score ^2) 
                   , mod_df)
     
     
@@ -441,7 +464,7 @@ saveRDS(list(mod_df = mod_df_raw,
     mod_df <- mod_df %>% mutate(dta_time = dta_time)
     
     
-    mod_full <- lm(los ~  
+    mod_full <- lmer(los ~  
                    dta_time
                    + age
                    + sex
@@ -459,7 +482,8 @@ saveRDS(list(mod_df = mod_df_raw,
                    + I(nctr ^ 2)
                    # + I(bed_occ^2)
                    + I(time_to_dta^2)
-                   + I(vw_score^2)
+                   + I(vw_score^2) +
+                    (1|nhs_number)
                    , mod_df)
     
     reg_tab_full <- gtsummary::tbl_regression(
@@ -588,7 +612,7 @@ saveRDS(list(mod_df = mod_df_raw,
          reg_tab_full = reg_tab_full)
     
   })
-  saveRDS(los_outputs, "data/los_outputs_reformulated.RDS")
+  saveRDS(los_outputs, "data/los_outputs_reformulated_multilvl.RDS")
   
 #   
 # 

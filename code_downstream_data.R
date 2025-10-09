@@ -647,7 +647,6 @@ dat_spec <- arrivals %>%
   select(nhs_number, arr_id, spec)
 
 
-
 dat_los <- arrivals %>%
   left_join(
     dat_apc %>%
@@ -680,7 +679,6 @@ dat_disch <- arrivals %>%
   slice(1) %>%
   select(nhs_number, arr_id, discharge_date = DischargeDate_FromHospitalProviderSpell) %>%
   distinct()
-
 
 # reattendance/readmissions outcomes
 
@@ -953,10 +951,11 @@ dat_adm <- dat_ecds %>%
   filter(dta_time >= 0) %>% # some records are negative 0 exactly, seems to be DQ
   mutate(nhs_number = as.character(nhs_number)) %>% #%T>% nrow() %>%
   group_by(nhs_number) %>%
-  slice_min(dta_dt, na_rm = TRUE) %>%
+  # slice_min(dta_dt, na_rm = TRUE) %>%
   # filter(dta_dt == min(dta_dt, na.rm = TRUE)) %>%
   ungroup() %>%
   select(
+   nhs_number,
     site,
     nhs_number,
     imd,
@@ -985,13 +984,13 @@ dat_adm <- dat_ecds %>%
   left_join(dat_scores) %>%
   # left_join(dat_spec) %>%
   left_join(dat_los) %>%
-  select(-arr_id) %>%
+  # select(-arr_id) %>%
   # filter(MainSpecialtyCode %in% c(300, 326, 430)) %>% # filter General Internal Medicine
   # select(-MainSpecialtyCode) %>%
   na.omit() %>%
   distinct()
 
-saveRDS(dat_adm, "data/dat_adm_202505.RDS")
+saveRDS(dat_adm, "data/dat_adm_multilvl.RDS")
 dat_adm <- readRDS("data/dat_adm_202505.RDS")
 
 # imputing missings
@@ -1017,7 +1016,7 @@ site_core_stock <- tibble(site = c("BRISTOL ROYAL INFIRMARY",
 
 mod_df <- dat_adm %>%
   left_join(mortality_df) %>%
-  left_join(dat_readm, multiple = "first") %>%
+  left_join(dat_readm, by = join_by(nhs_number == nhs_number, arr_id == arr_id), multiple = "first") %>%
   left_join(site_core_stock, by = join_by(site == site)) %>%
   mutate(nctr = nctr/core_stock) %>%
   # filter(site == "SOUTHMEAD HOSPITAL") %>%
@@ -1088,7 +1087,6 @@ mod_df <- dat_adm %>%
     ed_time
   ) %>%
   # na.omit() %>%
-  distinct() %>%
-  select(-nhs_number)
+  distinct() 
   
-saveRDS(mod_df, "data/mort_mod_df_202505.RDS")
+saveRDS(mod_df, "data/mort_mod_df_multilvl.RDS")
