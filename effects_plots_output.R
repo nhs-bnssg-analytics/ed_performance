@@ -1,14 +1,14 @@
 library(tidyverse)
 
-mort_effect_output <- readRDS("data/mort_effects_output.RDS")
-readm_effect_output <- readRDS("data/readm_effects_output.RDS")
+mort_effect_output <- readRDS("data/mort_effects_output_multilvl.RDS")
+readm_effect_output <- readRDS("data/readm_effects_output_multilvl.RDS")
 mort_effect_plot <- mort_effect_output$mort_effects_plot
 readm_effect_plot <- readm_effect_output$readm_effects_plot
 mort_margins_plot <- mort_effect_output$mort_margins_plot
 readm_margins_plot <- readm_effect_output$readm_marginal_plot
 mort_roc_lab <- mort_effect_output$mort_roc_lab
 readm_roc_lab <- readm_effect_output$readm_roc_lab
-los_effect_output <- readRDS("data/los_outputs_reformulated.RDS")
+los_effect_output <- readRDS("data/los_outputs_reformulated_multilvl.RDS")
 plot_df <- los_effect_output$mod_df
 los_condn_plot <- los_effect_output$los_margins_plot
 
@@ -40,6 +40,7 @@ ggsave("materials/effects_plot_patch_1row_pres_202505.png",
 
 patchwork::wrap_plots(
   los_effect_output$los_margins_plot + facet_grid(.~str_wrap("Inpatient length of stay", 25)) + scale_y_continuous(limits = c(0, NA)) + labs(y = "", x = xlab),
+  # readm_effect_plot + facet_grid(.~str_wrap("30-day readmission rate", 25)) + scale_y_continuous(limits = c(0, NA), labels = scales::percent) + labs(y = "", x = xlab),
   readm_margins_plot + facet_grid(.~str_wrap("30-day readmission rate", 25)) + scale_y_continuous(limits = c(0, NA), labels = scales::percent) + labs(y = "", x = xlab),
   mort_margins_plot + facet_grid(.~str_wrap("30-day mortality rate", 25)) + scale_y_continuous(limits = c(0, NA), labels = scales::percent) + labs(y = "", x = xlab),
   nrow = 1, axes = "collect_x")
