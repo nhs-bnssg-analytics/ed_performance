@@ -4,9 +4,9 @@ library(patchwork)
 
 # UPSTREAM OUTPUTS
 
-handover_outputs <- readRDS("data/handover_outputs.RDS")
-resp_outputs <- readRDS("data/resp_outputs.RDS")
-ed_time_outputs <- readRDS("data/time_ed_outputs.RDS")
+handover_outputs <- readRDS("data/handover_outputs_multilvl.RDS")
+resp_outputs <- readRDS("data/resp_outputs_multilvl.RDS")
+ed_time_outputs <- readRDS("data/time_ed_outputs_multilvl.RDS")
 
 bin_acc <- 0.05
 cut_off <- 1.0
@@ -154,7 +154,7 @@ show_in_excel <- function(.data){
 
 bind_rows(
 resp_outputs$full_mod %>% map(\(x) {
-  broom::tidy(x, conf.int = TRUE) %>%
+  broom.mixed::tidy(x, conf.int = TRUE) %>%
     filter(term == "n_dta_norm") %>%
     dplyr::select(estimate, conf.low, conf.high, p.value) %>%
     mutate(across(-p.value, \(x) x/5))
@@ -337,7 +337,7 @@ handover_model_plot_dat <- handover_outputs$mod_dat_row %>%
 
 
 
-map(resp_outputs$full_mod, broom::tidy) %>%
+map(resp_outputs$full_mod, broom.mixed::tidy) %>%
   bind_rows(.id = "call_category") %>%
   filter(term == "n_dta_norm") %>%
   select(call_category, estimate, std.error) %>%

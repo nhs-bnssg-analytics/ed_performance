@@ -218,11 +218,15 @@ gtsummary::tbl_merge(list(
   gt::gtsave("materials/reg_table_downstream_202505.html")
 
 
+
+# EFFECTS SIZE TABLE
+
 mort_or <- mort_effect_output$mort_mod_raw %>%
   broom::tidy(conf.int = TRUE, exponentiate = TRUE) %>%
   filter(str_detect(term, "dta_time")) %>%
   select(estimate, conf.low, conf.high, p.value)
 
+# scale for 4-hour exposure from 1-hour
 mort_or <- mort_or %>%
   mutate(
     estimate = estimate ^ 4,
@@ -232,19 +236,18 @@ mort_or <- mort_or %>%
 
 mort_or[1, 1:3] %>% flatten() %>% as.numeric() - 1 
   
-
 mod_df_raw <- readm_effect_output$mod_df
 readm_or <- readm_effect_output$readm_mod_raw %>%
-  broom::tidy(conf.int = TRUE, exponentiate = TRUE) %>%
+  tidy(conf.int = TRUE, exponentiate = TRUE) %>%
   filter(str_detect(term, "dta_time")) %>%
   select(estimate, conf.low, conf.high, p.value)
 
-
+# scale for 4-hour exposure from 1-hour
 readm_or <- readm_or %>%
   mutate(
-    estimate = estimate ^ (1/4),
-    conf.low = conf.low ^ (1/4),
-    conf.high = conf.high ^ (1/4)
+    estimate = estimate ^ 4,
+    conf.low = conf.low ^ 4,
+    conf.high = conf.high ^ 4
   )
 
 
@@ -259,7 +262,7 @@ mod_los_rescaled <- los_effect_output$mod_full %>%
   update(. - los + I(24*los) ~ . -dta_time + I(dta_time/(4)))
 
 los_eff <- mod_los_rescaled %>%
-  broom::tidy(conf.int = TRUE) %>%
+  broom.mixed::tidy(conf.int = TRUE) %>%
   filter(str_detect(term, "dta_time")) %>%
   select(estimate, conf.low, conf.high, p.value)
 
@@ -279,7 +282,7 @@ readm_or %>%
   mutate(
     Exposure = "+4 hours boarding time for medical patients",
     Outcome = "30-day readmission rate",
-    `Effect size (95% CI)` = str_c(percent((estimate-1)*10, accuracy = 0.1), " (", percent((conf.low-1)*10, accuracy =  0.1), ", ",  percent((conf.high-1)*10, accuracy = 0.1), ") increase in odds of readmission within 30 days"),
+    `Effect size (95% CI)` = str_c(percent((estimate-1), accuracy = 0.1), " (", percent((conf.low-1), accuracy =  0.1), ", ",  percent((conf.high-1), accuracy = 0.1), ") increase in odds of readmission within 30 days"),
     `P-value` = gtsummary::style_pvalue(p.value)) %>%
   select(Exposure, Outcome, `Effect size (95% CI)`, `P-value`),
 
@@ -287,7 +290,7 @@ mort_or %>%
   mutate(
     Exposure = "+4 hours boarding time for medical patients",
     Outcome = "30-day mortality rate",
-    `Effect size (95% CI)` = str_c(percent((estimate-1)*10, accuracy = 0.1), " (", percent((conf.low-1)*10, accuracy =  0.1), ", ",  percent((conf.high-1)*10, accuracy = 0.1), ") increase in odds of mortality within 30 days"),
+    `Effect size (95% CI)` = str_c(percent((estimate-1), accuracy = 0.1), " (", percent((conf.low-1), accuracy =  0.1), ", ",  percent((conf.high-1), accuracy = 0.1), ") increase in odds of mortality within 30 days"),
     `P-value` = gtsummary::style_pvalue(p.value)) %>%
   select(Exposure, Outcome, `Effect size (95% CI)`, `P-value`)
 ) %>%

@@ -223,7 +223,6 @@ trt_df <- local({
   # dta_seq <- seq.POSIXt(from = as.POSIXct(lubridate::ymd(report_start)), to = max_dt, by = glue::glue("{n_hour} hours"))
   
   
-  
   dat_trt <- dat_ecds %>%
     # take only non-admits
     filter(is.na(dta_dt), trt_time > 0) %>%
@@ -233,7 +232,8 @@ trt_df <- local({
       snapshot_int,
       data,
       ~ filter(.y, arrival_dt %within% .x) %>%
-        select(age = age,
+        select(nhs_number = nhs_number,
+               age = age,
                sex = sex,
                imd,
                departure_time = departure_int)

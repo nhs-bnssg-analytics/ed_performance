@@ -113,7 +113,7 @@ nnh_or <- glmer(mort_30 ~
   family = binomial,
   control = lme4::glmerControl(optimizer = "optimx", calc.derivs = FALSE, optCtrl = list(method = "nlminb", starttests = FALSE, kkt = FALSE))
 )  %>%
-    broom::tidy(exponentiate = TRUE) %>%
+    broom.mixed::tidy(exponentiate = TRUE) %>%
     filter(term == "I(dta_time > 4)TRUE") %>%
     pull(estimate)
 

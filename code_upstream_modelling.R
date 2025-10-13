@@ -3,7 +3,8 @@ require(RODBC)
 require(lubridate)
 library(feasts)
 library(tidymodels)
-
+library(lme4)
+library(lmerTest)
 
 
 source("theme.R")
@@ -50,7 +51,7 @@ dta_df <- dta_df %>%
 handover_df <- handover_df %>%
   na.omit() %>%
   ungroup() %>%
-  mutate(imd = factor(imd, levels = 1:10, labels = c("1 (least deprived)",
+  mutate(imd = factor(imd, levels = 1:10, labels = c("1 (most deprived)",
                                                      "2",
                                                      "3",
                                                      "4",
@@ -59,7 +60,7 @@ handover_df <- handover_df %>%
                                                      "7",
                                                      "8",
                                                      "9",
-                                                     "10 (most deprived)"))
+                                                     "10 (least deprived)"))
   ) %>%
   mutate(imd = fct_na_value_to_level(imd, level = "(Missing)")) %>%
   mutate(imd = fct_relevel(imd, "(Missing)", after = Inf)) %>%
@@ -102,7 +103,7 @@ handover_df <- handover_df %>%
 resp_time_df <- resp_time_df %>%
   na.omit() %>%
   filter(sex %in% c("Male", "Female")) %>%
-  mutate(imd = factor(imd, levels = 1:10, labels = c("1 (least deprived)",
+  mutate(imd = factor(imd, levels = 1:10, labels = c("1 (most deprived)",
                                                      "2",
                                                      "3",
                                                      "4",
@@ -111,7 +112,7 @@ resp_time_df <- resp_time_df %>%
                                                      "7",
                                                      "8",
                                                      "9",
-                                                     "10 (most deprived)"))
+                                                     "10 (least deprived)"))
   ) %>%
   mutate(imd = fct_na_value_to_level(imd, level = "(Missing)")) %>%
   mutate(age = fct_recode(age, 
@@ -155,7 +156,7 @@ trt_df <- trt_df %>%
     imd,
     levels = 1:10,
     labels = c(
-      "1 (least deprived)",
+      "1 (most deprived)",
       "2",
       "3",
       "4",
@@ -164,7 +165,7 @@ trt_df <- trt_df %>%
       "7",
       "8",
       "9",
-      "10 (most deprived)"
+      "10 (least deprived)"
     )
   )) %>%
   mutate(imd = fct_na_value_to_level(imd, level = "(Missing)"))  %>%
@@ -206,8 +207,8 @@ bin_acc <- 0.05
 
 handover_outputs <- local({
   
-  
-  handover_df <- handover_df %>% select(-nhs_number)
+
+  handover_df <- handover_df #%>% select(-nhs_number)
   
   # bin_acc <- 0.1
   
@@ -303,11 +304,12 @@ handover_outputs <- local({
       # arrival_year = "Year of Arrival"
     )
   ) %>%
-    gtsummary::add_glance_table(include = c(nobs, r.squared)) #|>
+    gtsummary::add_glance_table(include = c(nobs)) #|>
   # gtsummary::as_gt() %>%
   # gt::tab_header(title = gt::md(glue::glue('**Ambulance Handover Time (min)**')))#,
   
-  full_mod <- lm(handover_time/60 ~ n_dta_norm + age + sex + imd + n_ed_norm + I(n_ed_norm^2) + wkend + hour + arrival_month -site, data = mod_dat)
+  # full_mod <- lm(handover_time/60 ~ n_dta_norm + age + sex + imd + n_ed_norm + I(n_ed_norm^2) + wkend + hour + arrival_month -site, data = mod_dat)
+  full_mod <- lmer(handover_time/60 ~ n_dta_norm + age + sex + imd + n_ed_norm + I(n_ed_norm^2) + wkend + hour + arrival_month -site + (1|nhs_number), data = mod_dat)
   
   # This code assesses which transform is best?
   
@@ -317,7 +319,7 @@ handover_outputs <- local({
       intercept = TRUE,
       label = reg_tab_labels
     ) %>%
-    gtsummary::add_glance_table(include = c(nobs, r.squared)) # |>
+    gtsummary::add_glance_table(include = c(nobs)) # |>
   # gtsummary::as_gt() %>%
   # gt::tab_header(title = gt::md(glue::glue('**Ambulance handover time (min)**')))
   
@@ -405,11 +407,12 @@ handover_outputs <- local({
   
 })
 
-saveRDS(handover_outputs, "data/handover_outputs.RDS")
+
+saveRDS(handover_outputs, "data/handover_outputs_multilvl.RDS")
 
 resp_outputs <- local({
   
-  resp_time_df <- resp_time_df %>% select(-nhs_number)
+  # resp_time_df <- resp_time_df %>% select(-nhs_number)
   
   # bin_acc <- 0.05
   
@@ -583,7 +586,8 @@ resp_outputs <- local({
     group_by(call_category) %>%
     nest() %>%
     mutate(mod = map(data, ~ lm(response ~ age + sex + imd + n_ed_norm + I(n_ed_norm^2) + wkend + hour + arrival_month -n_dta_norm -outcome,  data = .x))) %>%
-    mutate(mod_full = map(data, ~ lm(response ~ + n_dta_norm + age + sex + imd + n_ed_norm + I(n_ed_norm^2) + wkend + hour + arrival_month -outcome, data = .x))) %>%
+    # mutate(mod_full = map(data, ~ lm(response ~ + n_dta_norm + age + sex + imd + n_ed_norm + I(n_ed_norm^2) + wkend + hour + arrival_month -outcome, data = .x))) %>%
+    mutate(mod_full = map(data, ~ lmer(response ~ + n_dta_norm + age + sex + imd + n_ed_norm + I(n_ed_norm^2) + wkend + hour + arrival_month -outcome + (1|nhs_number), data = .x))) %>%
     mutate(pred = map2(mod, data, predict)) %>%
     mutate(data = pmap(list(data, call_category, pred), ~bind_cols(..1, call_category = ..2, response_pred = ..3)))
   
@@ -606,7 +610,7 @@ resp_outputs <- local({
                                   hour = "Time of arrival",
                                   arrival_month = "Month of arrival"
                                 )) %>%
-        gtsummary::add_glance_table(include = c(nobs, r.squared)) #|>
+        gtsummary::add_glance_table(include = c(nobs)) #|>
       # gtsummary::as_gt() %>%
       # gt::tab_header(title = gt::md(glue::glue('**{.y} Ambulance response time (min)**')))
     })) %>%
@@ -624,7 +628,7 @@ resp_outputs <- local({
                                 intercept = TRUE,
                                 label = reg_tab_labels
                                 ) %>%
-        gtsummary::add_glance_table(include = c(nobs, r.squared)) #|>
+        gtsummary::add_glance_table(include = c(nobs)) #|>
       # gtsummary::as_gt() %>%
       # gt::tab_header(title = gt::md(glue::glue('**{.y} Ambulance response time (min)**')))
     })) %>%
@@ -726,9 +730,10 @@ resp_outputs <- local({
   
 })
 
-saveRDS(resp_outputs, "data/resp_outputs.RDS")
+saveRDS(resp_outputs, "data/resp_outputs_multilvl.RDS")
 
 time_ed_outputs <- local({
+  
   
   
   # bin_acc <- 0.1
@@ -868,11 +873,12 @@ time_ed_outputs <- local({
       # arrival_year = "Year of Arrival"
     )
   ) %>%
-    gtsummary::add_glance_table(include = c(nobs, r.squared)) #|>
+    gtsummary::add_glance_table(include = c(nobs)) #|>
   # gtsummary::as_gt() %>%
   # gt::tab_header(title = gt::md(glue::glue('**Time in ED (min)**')))#,
   
-  full_mod <- lm(departure_time ~ n_dta_norm + age + sex + imd + n_ed_norm + I(n_ed_norm^2) + wkend + hour + arrival_month -site, data = mod_dat)
+  # full_mod <- lm(departure_time ~ n_dta_norm + age + sex + imd + n_ed_norm + I(n_ed_norm^2) + wkend + hour + arrival_month -site, data = mod_dat)
+  full_mod <- lmer(departure_time ~ n_dta_norm + age + sex + imd + n_ed_norm + I(n_ed_norm^2) + wkend + hour + arrival_month -site + (1|nhs_number), data = mod_dat)
   
   # This code assesses which transform is best?
   
@@ -883,7 +889,7 @@ time_ed_outputs <- local({
       intercept = TRUE,
       label = reg_tab_labels
     ) %>%
-    gtsummary::add_glance_table(include = c(nobs, r.squared)) #|>
+    gtsummary::add_glance_table(include = c(nobs)) #|>
   # gtsummary::as_gt() %>%
   # gt::tab_header(title = gt::md(glue::glue('**Time in ED (min)**')))
   
@@ -951,4 +957,4 @@ time_ed_outputs <- local({
   
 })
 
-saveRDS(time_ed_outputs, "data/time_ed_outputs.RDS")
+saveRDS(time_ed_outputs, "data/time_ed_outputs_multilvl.RDS")

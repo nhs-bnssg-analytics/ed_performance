@@ -956,6 +956,7 @@ dat_adm <- dat_ecds %>%
   ungroup() %>%
   select(
    nhs_number,
+   arr_id,
     site,
     nhs_number,
     imd,
@@ -1030,7 +1031,7 @@ mod_df <- dat_adm %>%
     imd,
     levels = 1:10,
     labels = c(
-      "1 (least deprived)",
+      "1 (most deprived)",
       "2",
       "3",
       "4",
@@ -1039,7 +1040,7 @@ mod_df <- dat_adm %>%
       "7",
       "8",
       "9",
-      "10 (most deprived)"
+      "10 (least deprived)"
     )
   )) %>%
   # mutate(age_sq = age^2) %>%

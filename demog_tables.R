@@ -132,7 +132,7 @@ tbl_merge(list(time_ed_demo_tbl, handover_demo_tbl, resp_demo_tbl),
 
 # DOWNSTREAM TABLES
 
-downstream_mod_df <- readRDS("data/mort_effects_output.RDS") %>%
+downstream_mod_df <- readRDS("data/mort_effects_output_multilvl.RDS") %>%
   `[[`("mod_df") %>%
   mutate(imd = fct_drop(imd)) %>%
   mutate(sex = factor(sex))
@@ -184,4 +184,4 @@ tbl_merge(
                           "Inpatient LOS, 30-day readmission rate, 30-day mortality rate")
 ) %>%
   as_gt() %>%
-  gt::gtsave("materials/merged_demog_tab.html")
+  gt::gtsave("materials/merged_demog_tab_multilvl.html")
