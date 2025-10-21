@@ -30,47 +30,16 @@ mod_df$dta_time %>% cut(breaks = seq(0, 24, 4)) %>% table() %>% proportions() %>
 # Mortality model
 {
 
-mod_df_raw <- select(mod_df, -readm, -los, -ed_time, -Acuity_Desc, -arrival_mode, -arrival_cat, -arrival_year)
-
-# mod_folds <- vfold_cv(mod_df_raw, v = 25)
-
-# roc_stability <- map(mod_folds$splits, \(x) {
-#   mod_raw <- glm(
-#     formula = mort_30 ~ .
-#     # + I(dta_time ^ 2)+I(age ^ 2)+I(perf ^ 2)
-#     # + I(age ^ 2)
-#     + I(nctr ^ 2)
-#     + I(time_to_dta ^ 2)
-#     # + I(bed_occ ^ 2)
-#     + I(n_ed ^ 2)
-#     + I(vw_score ^2),
-#     data = training(x),
-#     family = binomial(link = "logit")
-#   )
-#   full_pred = predict(mod_raw, testing(x), type = "response")
-#   pROC::roc(testing(x)$mort_30, full_pred)
-# }) %>%
-# map(\(x) {
+mod_df_raw <- select(mod_df, -readm, -los, -ed_time, -Acuity_Desc, -arrival_mode, -arrival_cat, -arrival_year) %>%
+  mutate(n_ed_dis = case_when(
+    n_ed == 0 ~ "0",
+    n_ed == 1 ~ "1",
+    n_ed == 2 ~ "2",
+    n_ed > 2 ~ "2+"
+   ))
   
-#   auc = as.numeric(pluck(x, "auc"))
-#   tibble(
-#     y = x$sensitivities,
-#     x = 1- x$specificities,
-#     auc = auc
-#   )
-#   }) %>%
-#   bind_rows(.id = "id") 
 
-
-# roc_stab <- roc_stability %>%
-#   select(id, auc) %>%
-#   distinct() %>%
-#   summarise(mean_auc = mean(auc), u_auc = quantile(auc, 0.975), l_auc = quantile(auc, 0.025))
-
-
- 
-  
-mod_raw <- glmer(mort_30 ~ 
+start_coef <- glm(mort_30 ~ 
   + dta_time
   + age
   + sex
@@ -79,18 +48,74 @@ mod_raw <- glmer(mort_30 ~
   + arrival_month
   + wkend
   + nctr
-  + n_ed
+  + n_ed_dis
   + imd
   + vw_score
   + I(time_to_dta ^ 2)
   + I(nctr ^ 2)
-  + I(n_ed ^ 2)
   + I(vw_score ^2) 
-  + (1 | nhs_number), 
-                    data = mod_df_raw,#  data = sample_n(mod_df_raw, 10000), 
-                     family = binomial,
-                    control = lme4::glmerControl(optimizer = "optimx", calc.derivs = FALSE, optCtrl = list(method = "nlminb", starttests = FALSE, kkt = FALSE)))
+,
+family = binomial,
+data = mod_df_raw) %>%
+  coef()
 
+
+  start_list <- list(
+    fixef = start_coef,
+    # Set a small, non-zero starting value for the single random intercept variance component (theta)
+    theta = 0.5 
+)
+
+  
+ # SLOW but most accurate 
+# mod_raw <- glmer(mort_30 ~ 
+#   + dta_time
+#   + age
+#   + sex
+#   + time_to_dta
+#   + arrival_time
+#   + arrival_month
+#   + wkend
+#   + nctr
+#   + n_ed_dis
+#   + imd
+#   + vw_score
+#   + I(time_to_dta ^ 2)
+#   + I(nctr ^ 2)
+#   + I(vw_score ^2) 
+#   + (1 | nhs_number), 
+#                     data = mod_df_raw,
+#                     # data = sample_n(mod_df_raw, 1000), 
+#                      family = binomial,
+#                     control = lme4::glmerControl(
+#                        optimizer = "optimx",
+#                         calc.derivs = FALSE,
+#                          optCtrl = list(method = "L-BFGS-B")))
+  
+# FAST
+mod_raw <- glmer(mort_30 ~ 
+                           + dta_time
+                           + age
+                           + sex
+                           + time_to_dta
+                           + arrival_time
+                           + arrival_month
+                           + wkend
+                           + nctr
+                           + n_ed
+                           + imd
+                           + vw_score
+                           + I(n_ed^2)
+                           + I(time_to_dta ^ 2)
+                           + I(nctr ^ 2)
+                           + I(vw_score ^2) 
+                           + (1 | nhs_number), 
+                                             data = mod_df_raw,
+                                             # data = sample_n(mod_df_raw, 1000), 
+                                              family = binomial,
+                                                                 nAGQ=0,
+                   control=glmerControl(optimizer = "nloptwrap")
+                                            )
 nnh_or <- glmer(mort_30 ~
    -dta_time
   + I(dta_time > 4) # NNH based on waiting more or less than 4 hr
@@ -111,7 +136,8 @@ nnh_or <- glmer(mort_30 ~
   + (1 | nhs_number),
   data = mod_df_raw,
   family = binomial,
-  control = lme4::glmerControl(optimizer = "optimx", calc.derivs = FALSE, optCtrl = list(method = "nlminb", starttests = FALSE, kkt = FALSE))
+  nAGQ=0,
+  control=glmerControl(optimizer = "nloptwrap")
 )  %>%
     broom.mixed::tidy(exponentiate = TRUE) %>%
     filter(term == "I(dta_time > 4)TRUE") %>%

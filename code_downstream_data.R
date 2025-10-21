@@ -114,50 +114,6 @@ string_ecds_full <-glue::glue("select
 dat_ecds_full_raw<-sqlQuery(con,string_ecds_full)
 
 
-dat_ecds<-dat_ecds_raw %>%
-  filter(Organisation_Code_Commissioner == '15C') %>% # filter for 15C as we can not pick up deaths for non BNSSG patients
-  mutate(NHS_Number = as.character(NHS_Number)) %>%
-  mutate(Treatment_Function_Code = coalesce(as.character(Treatment_Function_Code, "Missing"))) %>%
-  mutate(arrival_dt=as.POSIXct(paste0(Arrival_Date," ",substr(Arrival_Time,1,8)),format="%Y-%m-%d %H:%M:%S")) %>%
-  mutate(initial_dt=as.POSIXct(paste0(Initial_Assessment_Date," ",substr(Initial_Assessment_Time,1,8)),format="%Y-%m-%d %H:%M:%S")) %>%
-  mutate(treatment_dt=as.POSIXct(paste0(Seen_For_Treatment_Date," ",substr(Seen_For_Treatment_Time,1,8)),format="%Y-%m-%d %H:%M:%S")) %>%
-  mutate(dta_dt=paste0(Decision_To_Admit_Date," ",substr(Decision_To_Admit_Time,1,8))) %>%
-  mutate(dta_dt=as.POSIXct(ifelse(grepl("NA",dta_dt),NA,dta_dt),format="%Y-%m-%d %H:%M:%S")) %>%
-  mutate(departure_dt=as.POSIXct(paste0(Departure_Date," ",substr(Departure_Time,1,8)),format="%Y-%m-%d %H:%M:%S")) %>%
-  mutate(conclusion_dt=as.POSIXct(paste0(Conclusion_Date," ",substr(Conclusion_Time,1,8)),format="%Y-%m-%d %H:%M:%S")) %>%
-  select(
-    nhs_number = NHS_Number,
-    tfc = Treatment_Function_Code,
-    imd = Index_Of_Multiple_Deprivation,
-    sex = Stated_Gender,
-    age = HES_Age_At_Arrival,
-    arrival_dt,
-    initial_dt,
-    treatment_dt,
-    dta_dt,
-    departure_dt,
-    conclusion_dt,
-    site = Site_Name,
-    Acuity_Desc,
-    arrival_mode = Arrival_Mode_Desc,
-    arrival_cat = Arrival_Category_Desc,
-    diagnoses = Diagnoses_Code_1_Desc,
-    investigation = Investigation_Code_1_Desc
-  ) %>%
-  rowwise() %>%
-  mutate(departure_dt=max(dta_dt,departure_dt, conclusion_dt, na.rm=TRUE)) %>%
-  # mutate(departure_dt=max(departure_dt, conclusion_dt, na.rm=TRUE)) %>%
-  ungroup() %>%
-  mutate(dta_time = interval(dta_dt, departure_dt)/dminutes(1)) %>%
-  mutate(time_to_dta = interval(arrival_dt, dta_dt)/dminutes(1)) %>%
-  mutate(ed_time = interval(arrival_dt, departure_dt)/dminutes(1)) %>%
-  mutate(breach = (interval(arrival_dt, departure_dt)/dminutes(1)) > 4*60) %>%
-  mutate(date=floor_date(departure_dt,"day")) %>%
-  mutate(ed_category=case_when(Acuity_Desc %in% c("Non-urgent level emergency care","Standard level emergency care") ~ "minor",
-                               TRUE~"major")) %>%
-  group_by(nhs_number, arrival_dt) %>%
-  mutate(arr_id = cur_group_id()) %>%
-  ungroup()
 
 dat_ecds_full <- dat_ecds_full_raw %>%
   filter(Organisation_Code_Commissioner == '15C') %>% # filter for 15C as we can not pick up deaths for non BNSSG patients
@@ -187,7 +143,8 @@ dat_ecds_full <- dat_ecds_full_raw %>%
     arrival_mode = Arrival_Mode_Desc,
     arrival_cat = Arrival_Category_Desc,
     diagnoses = Diagnoses_Code_1_Desc,
-    investigation = Investigation_Code_1_Desc
+    investigation = Investigation_Code_1_Desc,
+    destination_desc
   ) %>%
   rowwise() %>%
   mutate(departure_dt=max(dta_dt,departure_dt, conclusion_dt, na.rm=TRUE)) %>%
@@ -203,6 +160,24 @@ dat_ecds_full <- dat_ecds_full_raw %>%
   group_by(nhs_number, arrival_dt) %>%
   mutate(arr_id = cur_group_id()) %>%
   ungroup()
+
+
+dat_ecds <- dat_ecds_full %>%
+  filter(!destination_desc %in%  c('Emergency department discharge to emergency department short stay ward',
+      'Emergency department discharge to same day emergency care service',
+      'Emergency department discharge to ambulatory emergency care service',
+      'Emergency department discharge to neonatal intensive care unit',
+      'Emergency department discharge to special care baby unit',
+      'Admission to the mortuary',
+      'Discharge to home',
+      'Discharge to hospital at home service',
+      'Discharge to nursing home',
+      'Discharge to residential home',
+      'Discharge to police custody',
+      'Patient discharge, to legal custody',
+      'Urgent admission to hospice'
+      )) %>%
+  select(-destination_desc)
 
 
 # ED perf, for all patients
@@ -314,7 +289,7 @@ NHS_Number,
 
 dat_dtas <- 
   dat_ecds %>%
-  select(nhs_number, arrival_dt, dta_dt) %>%
+  select(nhs_number, arr_id, arrival_dt, dta_dt) %>%
   mutate(
     arrival_day = floor_date(arrival_dt, "days"),
     dta_day = floor_date(dta_dt, "days")
@@ -340,22 +315,26 @@ dat_dtas <-
 
 dat_ed_attends <- 
   dat_ecds_full %>%
-  select(nhs_number, pre_arrival_dt = arrival_dt) %>%
+  select(nhs_number, arr_id, pre_arrival_dt = arrival_dt) %>%
   distinct()
 
 
 dat_pre_attends <- dat_dtas %>%
-  left_join(dat_ed_attends) %>%
+  left_join(select(dat_ed_attends, -arr_id), by = join_by(nhs_number == nhs_number)) %>%
   filter(pre_arrival_dt < arrival_dt) %>%
   filter(between(pre_arrival_dt, arrival_dt - ddays(pre_window_days), arrival_dt)) %>%
-  group_by(id) %>%
-  count(name = "n_ed")
+  group_by(nhs_number) %>%
+  arrange(arrival_dt) %>%
+  group_by(nhs_number) %>%
+  mutate(n_ed = 1:n()) %>%
+  select(nhs_number, arr_id, n_ed)
   
 dat_ecds_n_ed <- dat_dtas %>%
-  left_join(dat_pre_attends) %>%
-  mutate(n_ed = coalesce(n_ed, 0)) %>%
-  select(nhs_number, n_ed) %>%
-  distinct()
+  left_join(dat_pre_attends, by = join_by(nhs_number == nhs_number, arr_id == arr_id)) %>%
+  select(nhs_number, arr_id, n_ed) %>%
+  distinct()  %>%
+  bind_rows(anti_join(select(dat_ecds, nhs_number, arr_id), .)) %>%
+mutate(n_ed = coalesce(n_ed, 0))
 
 # arrivals for joining to sus
 arrivals <- 
@@ -981,7 +960,7 @@ dat_adm <- dat_ecds %>%
   # left_join(dat_long_stays, by = join_by(arrival_date == date, site == site)) %>%
   # left_join(bed_occ_df, by = join_by(arrival_date == date, site == site)) %>%
   left_join(dat_ecds_perf) %>%
-  left_join(dat_ecds_n_ed) %>%
+  left_join(dat_ecds_n_ed, by = join_by(nhs_number == nhs_number, arr_id == arr_id)) %>%
   left_join(dat_scores) %>%
   # left_join(dat_spec) %>%
   left_join(dat_los) %>%
@@ -992,7 +971,7 @@ dat_adm <- dat_ecds %>%
   distinct()
 
 saveRDS(dat_adm, "data/dat_adm_multilvl.RDS")
-dat_adm <- readRDS("data/dat_adm_202505.RDS")
+# dat_adm <- readRDS("data/dat_adm_202505.RDS")
 
 # imputing missings
 

@@ -287,7 +287,8 @@ handover_outputs <- local({
     ungroup() 
   
   # handover_mod <- lm(handover_time ~ . -n_dta -n_dta_norm -n_ed -site, data = mod_dat)
-  handover_mod <- lm(handover_time ~ age + sex + imd + n_ed_norm + I(n_ed_norm^2) + wkend + hour + arrival_month -site, data = mod_dat)
+  # handover_mod <- lm(handover_time ~ age + sex + imd + n_ed_norm + I(n_ed_norm^2) + wkend + hour + arrival_month -site, data = mod_dat)
+  handover_mod <- lmer(handover_time ~ age + sex + imd + n_ed_norm + I(n_ed_norm^2) + wkend + hour + arrival_month -site + (1|nhs_number), data = mod_dat)
   handover_pred <- predict(handover_mod, mod_dat)
   
   std_mod <- handover_mod
@@ -585,7 +586,8 @@ resp_outputs <- local({
     mod_dat %>%
     group_by(call_category) %>%
     nest() %>%
-    mutate(mod = map(data, ~ lm(response ~ age + sex + imd + n_ed_norm + I(n_ed_norm^2) + wkend + hour + arrival_month -n_dta_norm -outcome,  data = .x))) %>%
+    # mutate(mod = map(data, ~ lm(response ~ age + sex + imd + n_ed_norm + I(n_ed_norm^2) + wkend + hour + arrival_month -n_dta_norm -outcome,  data = .x))) %>%
+    mutate(mod = map(data, ~ lmer(response ~ age + sex + imd + n_ed_norm + I(n_ed_norm^2) + wkend + hour + arrival_month -n_dta_norm -outcome + (1|nhs_number),  data = .x))) %>%
     # mutate(mod_full = map(data, ~ lm(response ~ + n_dta_norm + age + sex + imd + n_ed_norm + I(n_ed_norm^2) + wkend + hour + arrival_month -outcome, data = .x))) %>%
     mutate(mod_full = map(data, ~ lmer(response ~ + n_dta_norm + age + sex + imd + n_ed_norm + I(n_ed_norm^2) + wkend + hour + arrival_month -outcome + (1|nhs_number), data = .x))) %>%
     mutate(pred = map2(mod, data, predict)) %>%
@@ -818,7 +820,8 @@ time_ed_outputs <- local({
     select(-dt, -maj, -resus, -total) %>%
     ungroup() 
   
-  trt_mod <- lm(departure_time ~ age + sex + imd + n_ed_norm + I(n_ed_norm^2) + wkend + hour + arrival_month -site, data = mod_dat)
+  # trt_mod <- lm(departure_time ~ age + sex + imd + n_ed_norm + I(n_ed_norm^2) + wkend + hour + arrival_month -site, data = mod_dat)
+  trt_mod <- lmer(departure_time ~ age + sex + imd + n_ed_norm + I(n_ed_norm^2) + wkend + hour + arrival_month -site + (1|nhs_number), data = mod_dat)
   trt_pred <- predict(trt_mod, mod_dat)
   
   tibble(n_dta_norm = mod_dat$n_dta_norm, departure_time = trt_pred) %>%
