@@ -19,19 +19,19 @@ n_fun <- function(x){
 
 # UPSTREAM TABLES
 
-handover_mod_df <- readRDS("data/handover_outputs.RDS") %>%
+handover_mod_df <- readRDS("data/handover_outputs_multilvl.RDS") %>%
   `[[`("mod_dat") %>%
   mutate(imd = fct_drop(imd)) %>%
   mutate(sex = factor(sex)) %>%
   rename(arrival_time = hour)
 
-resp_mod_df <- readRDS("data/resp_outputs.RDS") %>%
+resp_mod_df <- readRDS("data/resp_outputs_multilvl.RDS") %>%
   `[[`("mod_dat") %>%
   mutate(imd = fct_drop(imd)) %>%
   mutate(sex = factor(sex)) %>%
   rename(arrival_time = hour)
 
-time_ed_mod_df <- readRDS("data/time_ed_outputs.RDS") %>%
+time_ed_mod_df <- readRDS("data/time_ed_outputs_multilvl.RDS") %>%
   `[[`("mod_dat") %>%
   mutate(imd = fct_drop(imd)) %>%
   rename(arrival_time = hour)

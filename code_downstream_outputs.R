@@ -7,8 +7,8 @@ library(scales)
 
 # mort_effect_output <- readRDS("data/mort_effects_output_multilvl.RDS")
 # readm_effect_output <- readRDS("data/readm_effects_output_multilvl.RDS")
-mort_effect_output <- readRDS("data/mort_effects_output.RDS")
-readm_effect_output <- readRDS("data/readm_effects_output.RDS")
+mort_effect_output <- readRDS("data/mort_effects_output_multilvl.RDS")
+readm_effect_output <- readRDS("data/readm_effects_output_multilvl.RDS")
 mort_effect_plot <- mort_effect_output$mort_effects_plot
 readm_effect_plot <- readm_effect_output$readm_effects_plot
 mort_margins_plot <- mort_effect_output$mort_margins_plot
@@ -76,6 +76,8 @@ readm_margins_plot <- ggplot(results_df, aes(x = dta_time, y = mean, ymin = lowe
   theme_minimal() +
   theme(panel.grid.major.x = element_line(color = "grey65", size = 0.3))
 
+saveRDS(readm_margins_plot, "data/readm_margins_plot.RDS")
+
 
 # MORTALITY plot
 
@@ -125,6 +127,11 @@ mort_margins_plot <- ggplot(results_df, aes(x = dta_time, y = mean, ymin = lower
   theme_minimal() +
   theme(panel.grid.major.x = element_line(color = "grey65", size = 0.3))
 
+mort_margins_plot <- readRDS("data/mort_margins_plot.RDS")
+readm_margins_plot <- readRDS("data/readm_margins_plot.RDS")
+
+
+
 
 patchwork::wrap_plots(
   los_effect_output$los_margins_plot + facet_grid(.~str_wrap("Inpatient length of stay", 25)) + scale_y_continuous(limits = c(0, NA)) + labs(y = "", x = xlab),
@@ -165,7 +172,6 @@ label_list_downstream <- list(
 
 
 my_tidy <- function(x, exponentiate =  TRUE, conf.level = 0.95, ...) {
-browser()
   dplyr::bind_cols(
     broom::tidy(x, exponentiate = exponentiate, conf.int = FALSE),
     # calculate the confidence intervals, and save them in a tibble
@@ -178,7 +184,7 @@ reg_table_mort <-
   mort_effect_output$mort_mod_raw %>%
   gtsummary::tbl_regression(
     intercept = TRUE,
-    tidy_fun = my_tidy,
+    #tidy_fun = my_tidy,
     exponentiate = TRUE,
     estimate_fun = purrr::partial(gtsummary::style_ratio, digits = 3),
     label = label_list_downstream
