@@ -171,14 +171,14 @@ label_list_downstream <- list(
 )
 
 
-my_tidy <- function(x, exponentiate =  TRUE, conf.level = 0.95, ...) {
-  dplyr::bind_cols(
-    broom::tidy(x, exponentiate = exponentiate, conf.int = FALSE),
-    # calculate the confidence intervals, and save them in a tibble
-    exp(stats::confint(x)) %>%
-      tibble::as_tibble() %>%
-      rlang::set_names(c("conf.low", "conf.high"))  )
-}
+# my_tidy <- function(x, exponentiate =  TRUE, conf.level = 0.95, ...) {
+#   dplyr::bind_cols(
+#     broom::tidy(x, exponentiate = exponentiate, conf.int = FALSE),
+#     # calculate the confidence intervals, and save them in a tibble
+#     exp(stats::confint(x)) %>%
+#       tibble::as_tibble() %>%
+#       rlang::set_names(c("conf.low", "conf.high"))  )
+# }
 
 reg_table_mort <-
   mort_effect_output$mort_mod_raw %>%
@@ -211,9 +211,13 @@ reg_table_readm <- readm_effect_output$readm_mod_raw %>% gtsummary::tbl_regressi
 
 
 reg_table_los <- los_effect_output$mod_full %>%
-  gtsummary::tbl_regression(intercept = TRUE,estimate_fun = purrr::partial(gtsummary::style_ratio, digits = 2),
-  label = label_list_downstream
-) %>% gtsummary::add_glance_table(include = c(nobs)) 
+  gtsummary::tbl_regression(
+    intercept = TRUE,
+    estimate_fun = purrr::partial(gtsummary::style_ratio, digits = 3),
+    label = label_list_downstream
+  ) %>%
+  gtsummary::add_glance_table(include = c(nobs)) 
+
 
 gtsummary::tbl_merge(list(
                           reg_table_los,
@@ -221,7 +225,7 @@ gtsummary::tbl_merge(list(
                           reg_table_mort
   )) %>%
   gtsummary::as_gt() %>%
-  gt::gtsave("materials/reg_table_downstream_202505.html")
+  gt::gtsave("materials/reg_table_downstream_multilvl.html")
 
 
 

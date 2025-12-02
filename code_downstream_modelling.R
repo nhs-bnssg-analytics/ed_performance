@@ -467,7 +467,7 @@ readm_marginal_plot <- marginaleffects::plot_predictions(
     mod_df <- mod_df %>% mutate(dta_time = dta_time)
     
     
-    mod_full <- lmer(los ~  
+    mod_full <- lmerTest::lmer(los ~  
                    dta_time
                    + age
                    + sex
